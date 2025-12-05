@@ -1,0 +1,34 @@
+[package]
+name = "wifi-verify-client"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+common = { path = "../common" }
+serde.workspace = true
+serde_json.workspace = true
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "RtcPeerConnection",
+    "RtcConfiguration",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcSdpType",
+    "RtcSessionDescriptionInit",
+    "RtcIceCandidate",
+    "RtcIceCandidateInit",
+    "MessageEvent",
+] }
+js-sys = "0.3"
+gloo-timers = { version = "0.3", features = ["futures"] }
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = "0.1"
+wasm-logger = "0.2"
