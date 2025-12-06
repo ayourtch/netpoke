@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
-use uuid::Uuid;
 use webrtc::peer_connection::RTCPeerConnection;
 
 #[derive(Clone)]
