@@ -3,13 +3,53 @@
 <head>
     <meta charset="utf-8">
     <title>Network Measurement Client</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #status { font-weight: bold; margin: 20px 0; }
+        #metrics { margin-top: 20px; }
+        table { border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #4CAF50; color: white; }
+        button { padding: 10px 20px; font-size: 16px; }
+    </style>
 </head>
 <body>
     <h1>Network Measurement Client</h1>
-    <div id="status">Initializing...</div>
+    <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
+    <div id="status">Ready</div>
     <div id="metrics">
         <h2>Metrics</h2>
-        <pre id="metrics-display">No data yet</pre>
+        <table>
+            <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+            <tr><td>C2S Throughput</td><td id="c2s-tp-1">-</td><td id="c2s-tp-10">-</td><td id="c2s-tp-60">-</td></tr>
+            <tr><td>S2C Throughput</td><td id="s2c-tp-1">-</td><td id="s2c-tp-10">-</td><td id="s2c-tp-60">-</td></tr>
+            <tr><td>C2S Delay (ms)</td><td id="c2s-delay-1">-</td><td id="c2s-delay-10">-</td><td id="c2s-delay-60">-</td></tr>
+            <tr><td>S2C Delay (ms)</td><td id="s2c-delay-1">-</td><td id="s2c-delay-10">-</td><td id="s2c-delay-60">-</td></tr>
+            <tr><td>C2S Jitter (ms)</td><td id="c2s-jitter-1">-</td><td id="c2s-jitter-10">-</td><td id="c2s-jitter-60">-</td></tr>
+            <tr><td>S2C Jitter (ms)</td><td id="s2c-jitter-1">-</td><td id="s2c-jitter-10">-</td><td id="s2c-jitter-60">-</td></tr>
+        </table>
     </div>
+
+    <script type="module">
+        import init, { start_measurement } from './pkg/wifi_verify_client.js';
+
+        async function run() {
+            await init();
+            console.log('WASM module loaded');
+        }
+
+        window.startMeasurement = async function() {
+            document.getElementById('status').textContent = 'Starting...';
+            try {
+                await start_measurement();
+                document.getElementById('status').textContent = 'Running';
+            } catch (e) {
+                document.getElementById('status').textContent = 'Error: ' + e;
+                console.error(e);
+            }
+        };
+
+        run();
+    </script>
 </body>
 </html>
