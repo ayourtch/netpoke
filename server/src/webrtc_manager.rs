@@ -43,7 +43,28 @@ pub async fn handle_offer(
     let answer = peer.create_answer(None).await?;
     peer.set_local_description(answer.clone()).await?;
 
-    Ok(answer.sdp)
+    // Wait for ICE gathering to complete
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
+    peer.on_ice_gathering_state_change(Box::new(move |state| {
+        let state_str = state.to_string();
+        let _ = tx.try_send(state_str);
+        Box::pin(async {})
+    }));
+
+    while let Some(gathering) = rx.recv().await {
+        tracing::debug!("ICE gathering state: {}", gathering);
+        if gathering == "complete" {
+            tracing::info!("ICE gathering complete");
+            break;
+        }
+    }
+
+    // Get the final SDP with all ICE candidates
+    let final_answer = peer.local_description().await
+        .ok_or("No local description")?
+        .sdp;
+
+    Ok(final_answer)
 }
 
 #[cfg(test)]

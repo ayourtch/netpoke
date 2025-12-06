@@ -8,7 +8,6 @@ use crate::state::AppState;
 use crate::webrtc_manager;
 use crate::data_channels;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 
 #[derive(Debug, Deserialize)]
@@ -47,7 +46,7 @@ pub async fn signaling_start(
     let data_channels = Arc::new(tokio::sync::RwLock::new(crate::state::DataChannels::new()));
     let metrics = Arc::new(tokio::sync::RwLock::new(common::ClientMetrics::default()));
     let measurement_state = Arc::new(tokio::sync::RwLock::new(crate::state::MeasurementState::new()));
-    let (ice_candidate_tx, _) = broadcast::channel(100);
+    let ice_candidates = Arc::new(tokio::sync::Mutex::new(std::collections::VecDeque::new()));
 
     let session = Arc::new(crate::state::ClientSession {
         id: client_id.clone(),
@@ -56,7 +55,7 @@ pub async fn signaling_start(
         metrics,
         measurement_state,
         connected_at: std::time::Instant::now(),
-        ice_candidate_tx: ice_candidate_tx.clone(),
+        ice_candidates: ice_candidates.clone(),
     });
 
     // Set up data channel handlers
@@ -64,12 +63,18 @@ pub async fn signaling_start(
 
     // Set up ICE candidate handler to send candidates back to client
     let client_id_for_ice = client_id.clone();
-    let ice_candidate_tx_for_handler = ice_candidate_tx.clone();
+    let ice_candidates_for_handler = session.ice_candidates.clone();
     peer.on_ice_candidate(Box::new(move |candidate| {
         if let Some(c) = candidate {
             tracing::info!("Server ICE candidate gathered for client {}", client_id_for_ice);
             if let Ok(candidate_json) = serde_json::to_string(&c) {
-                let _ = ice_candidate_tx_for_handler.send(candidate_json);
+                let candidates = ice_candidates_for_handler.clone();
+                let json_clone = candidate_json.clone();
+                tokio::spawn(async move {
+                    let mut candidates = candidates.lock().await;
+                    candidates.push_back(json_clone);
+                    tracing::debug!("Stored ICE candidate in VecDeque (total: {})", candidates.len());
+                });
             }
         }
         Box::pin(async {})
@@ -133,23 +138,11 @@ pub async fn get_ice_candidates(
     let session = clients.get(&req.client_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let mut ice_candidates = Vec::new();
-    let mut rx = session.ice_candidate_tx.subscribe();
+    // Drain all pending ICE candidates
+    let mut candidates = session.ice_candidates.lock().await;
+    let ice_candidates: Vec<String> = candidates.drain(..).collect();
 
-    // Try to receive any pending ICE candidates (non-blocking first)
-    while let Ok(candidate) = rx.try_recv() {
-        ice_candidates.push(candidate);
-    }
-
-    // Then try to receive with a timeout to catch any candidates that arrive
-    if let Ok(candidate) = tokio::time::timeout(
-        std::time::Duration::from_millis(50),
-        rx.recv()
-    ).await {
-        if let Ok(c) = candidate {
-            ice_candidates.push(c);
-        }
-    }
+    tracing::debug!("Returning {} ICE candidates to client {}", ice_candidates.len(), req.client_id);
 
     Ok(Json(ice_candidates))
 }

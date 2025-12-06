@@ -84,18 +84,22 @@ impl WebRtcConnection {
             // Check if this is an icecandidate event
             if event.type_() == "icecandidate" {
                 if let Ok(candidate) = js_sys::Reflect::get(&event, &"candidate".into()) {
-                    if !candidate.is_undefined() {
+                    if !candidate.is_undefined() && !candidate.is_null() {
                         // Convert JsValue to JSON string
                         if let Ok(json_str) = js_sys::JSON::stringify(&candidate) {
                             let candidate_str = json_str.as_string().unwrap_or_default();
-                            let client_id = client_id_clone.clone();
 
-                            // Send ICE candidate to server
-                            wasm_bindgen_futures::spawn_local(async move {
-                                if let Err(e) = signaling::send_ice_candidate(&client_id, &candidate_str).await {
-                                    log::error!("Failed to send ICE candidate: {:?}", e);
-                                }
-                            });
+                            // Skip empty candidates (end-of-candidates)
+                            if !candidate_str.trim().is_empty() && !candidate_str.contains("\"\"") {
+                                let client_id = client_id_clone.clone();
+
+                                // Send ICE candidate to server
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    if let Err(e) = signaling::send_ice_candidate(&client_id, &candidate_str).await {
+                                        log::error!("Failed to send ICE candidate: {:?}", e);
+                                    }
+                                });
+                            }
                         }
                     }
                 }
