@@ -9,6 +9,8 @@ tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 axum = { version = "0.7", features = ["ws"] }
+axum-server = { version = "*", features = ["tls-rustls"] }
+# axum-server = { version = "*", features = ["tls-rustls-no-provider"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "trace"] }
 webrtc = "0.9"
