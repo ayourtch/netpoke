@@ -1,0 +1,18 @@
+warning: field `last_received_seq` is never read
+  --> server/src/state.rs:35:9
+   |
+29 | pub struct MeasurementState {
+   |            ---------------- field in this struct
+...
+35 |     pub last_received_seq: Option<u64>,
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `wifi-verify-server` (bin "wifi-verify-server") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running `target/debug/wifi-verify-server`
+[2m2025-12-06T16:27:28.809605Z[0m [32m INFO[0m [2mwifi_verify_server[0m[2m:[0m Server listening on 0.0.0.0:3000
+[2m2025-12-06T16:27:45.992379Z[0m [32m INFO[0m [2mwifi_verify_server::signaling[0m[2m:[0m Received signaling start request
+[2m2025-12-06T16:27:45.996323Z[0m [31mERROR[0m [2mwifi_verify_server::signaling[0m[2m:[0m Failed to handle offer: SdpInvalidSyntax: test-offer-sdp
+[2m2025-12-06T16:27:45.996355Z[0m [31mERROR[0m [2mtower_http::trace::on_failure[0m[2m:[0m response failed [3mclassification[0m[2m=[0mStatus code: 500 Internal Server Error [3mlatency[0m[2m=[0m4 ms

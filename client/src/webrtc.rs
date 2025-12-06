@@ -3,11 +3,14 @@ use web_sys::{
     RtcPeerConnection, RtcConfiguration,
     RtcDataChannelInit, RtcSessionDescriptionInit, RtcSdpType,
 };
-use crate::signaling;
+use crate::{signaling, measurements};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 pub struct WebRtcConnection {
     pub peer: RtcPeerConnection,
     pub client_id: String,
+    pub state: Rc<RefCell<measurements::MeasurementState>>,
 }
 
 impl WebRtcConnection {
@@ -23,6 +26,7 @@ impl WebRtcConnection {
         config.set_ice_servers(&ice_servers);
 
         let peer = RtcPeerConnection::new_with_configuration(&config)?;
+        let state = Rc::new(RefCell::new(measurements::MeasurementState::new()));
 
         log::info!("Creating data channels");
 
@@ -30,15 +34,18 @@ impl WebRtcConnection {
         let mut probe_init = RtcDataChannelInit::new();
         probe_init.set_ordered(false);
         probe_init.set_max_retransmits(0);
-        let _probe_channel = peer.create_data_channel_with_data_channel_dict("probe", &probe_init);
+        let probe_channel = peer.create_data_channel_with_data_channel_dict("probe", &probe_init);
+        measurements::setup_probe_channel(probe_channel, state.clone());
 
         // Create bulk channel (reliable, ordered)
         let bulk_init = RtcDataChannelInit::new();
-        let _bulk_channel = peer.create_data_channel_with_data_channel_dict("bulk", &bulk_init);
+        let bulk_channel = peer.create_data_channel_with_data_channel_dict("bulk", &bulk_init);
+        measurements::setup_bulk_channel(bulk_channel, state.clone());
 
         // Create control channel (reliable, ordered)
         let control_init = RtcDataChannelInit::new();
-        let _control_channel = peer.create_data_channel_with_data_channel_dict("control", &control_init);
+        let control_channel = peer.create_data_channel_with_data_channel_dict("control", &control_init);
+        measurements::setup_control_channel(control_channel);
 
         log::info!("Creating offer");
 
@@ -69,6 +76,6 @@ impl WebRtcConnection {
 
         log::info!("WebRTC connection established");
 
-        Ok(Self { peer, client_id })
+        Ok(Self { peer, client_id, state })
     }
 }

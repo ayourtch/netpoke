@@ -7,10 +7,14 @@
         body { font-family: Arial, sans-serif; padding: 20px; }
         #status { font-weight: bold; margin: 20px 0; }
         #metrics { margin-top: 20px; }
-        table { border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        table { border-collapse: collapse; margin-top: 10px; width: 100%; max-width: 600px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #4CAF50; color: white; }
-        button { padding: 10px 20px; font-size: 16px; }
+        td:first-child { text-align: left; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #ddd; }
+        .running { color: green; }
+        .error { color: red; }
     </style>
 </head>
 <body>
@@ -18,16 +22,18 @@
     <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
     <div id="status">Ready</div>
     <div id="metrics">
-        <h2>Metrics</h2>
+        <h2>Server → Client Metrics</h2>
         <table>
             <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
-            <tr><td>C2S Throughput</td><td id="c2s-tp-1">-</td><td id="c2s-tp-10">-</td><td id="c2s-tp-60">-</td></tr>
-            <tr><td>S2C Throughput</td><td id="s2c-tp-1">-</td><td id="s2c-tp-10">-</td><td id="s2c-tp-60">-</td></tr>
-            <tr><td>C2S Delay (ms)</td><td id="c2s-delay-1">-</td><td id="c2s-delay-10">-</td><td id="c2s-delay-60">-</td></tr>
-            <tr><td>S2C Delay (ms)</td><td id="s2c-delay-1">-</td><td id="s2c-delay-10">-</td><td id="s2c-delay-60">-</td></tr>
-            <tr><td>C2S Jitter (ms)</td><td id="c2s-jitter-1">-</td><td id="c2s-jitter-10">-</td><td id="c2s-jitter-60">-</td></tr>
-            <tr><td>S2C Jitter (ms)</td><td id="s2c-jitter-1">-</td><td id="s2c-jitter-10">-</td><td id="s2c-jitter-60">-</td></tr>
+            <tr><td>Throughput</td><td id="s2c-tp-1">-</td><td id="s2c-tp-10">-</td><td id="s2c-tp-60">-</td></tr>
+            <tr><td>Delay (ms)</td><td id="s2c-delay-1">-</td><td id="s2c-delay-10">-</td><td id="s2c-delay-60">-</td></tr>
+            <tr><td>Jitter (ms)</td><td id="s2c-jitter-1">-</td><td id="s2c-jitter-10">-</td><td id="s2c-jitter-60">-</td></tr>
+            <tr><td>Loss Rate</td><td id="s2c-loss-1">-</td><td id="s2c-loss-10">-</td><td id="s2c-loss-60">-</td></tr>
+            <tr><td>Reordering</td><td id="s2c-reorder-1">-</td><td id="s2c-reorder-10">-</td><td id="s2c-reorder-60">-</td></tr>
         </table>
+        
+        <h2>Client → Server Metrics</h2>
+        <p><em>C2S metrics are measured by the server and visible on the <a href="/dashboard.html">dashboard</a>.</em></p>
     </div>
 
     <script type="module">
@@ -39,12 +45,21 @@
         }
 
         window.startMeasurement = async function() {
-            document.getElementById('status').textContent = 'Starting...';
+            const statusEl = document.getElementById('status');
+            const btnEl = document.getElementById('start-btn');
+            
+            statusEl.textContent = 'Starting...';
+            statusEl.className = '';
+            btnEl.disabled = true;
+            
             try {
                 await start_measurement();
-                document.getElementById('status').textContent = 'Running';
+                statusEl.textContent = 'Running - measuring network...';
+                statusEl.className = 'running';
             } catch (e) {
-                document.getElementById('status').textContent = 'Error: ' + e;
+                statusEl.textContent = 'Error: ' + e;
+                statusEl.className = 'error';
+                btnEl.disabled = false;
                 console.error(e);
             }
         };
