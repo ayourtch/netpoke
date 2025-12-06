@@ -4,7 +4,7 @@ use axum::{
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
-use crate::state::{AppState, ClientSession};
+use crate::state::AppState;
 use crate::webrtc_manager;
 use crate::data_channels;
 use std::sync::Arc;
@@ -42,9 +42,20 @@ pub async fn signaling_start(
 
     let client_id = uuid::Uuid::new_v4().to_string();
     let data_channels = Arc::new(tokio::sync::RwLock::new(crate::state::DataChannels::new()));
+    let metrics = Arc::new(tokio::sync::RwLock::new(common::ClientMetrics::default()));
+    let measurement_state = Arc::new(tokio::sync::RwLock::new(crate::state::MeasurementState::new()));
+
+    let session = Arc::new(crate::state::ClientSession {
+        id: client_id.clone(),
+        peer_connection: peer.clone(),
+        data_channels,
+        metrics,
+        measurement_state,
+        connected_at: std::time::Instant::now(),
+    });
 
     // Set up data channel handlers
-    data_channels::setup_data_channel_handlers(&peer, data_channels.clone(), client_id.clone()).await;
+    data_channels::setup_data_channel_handlers(&peer, session.clone()).await;
 
     // Handle offer and create answer
     let answer_sdp = webrtc_manager::handle_offer(&peer, req.sdp)
@@ -53,13 +64,6 @@ pub async fn signaling_start(
             tracing::error!("Failed to handle offer: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-
-    // Store client session
-    let session = Arc::new(ClientSession {
-        id: client_id.clone(),
-        peer_connection: peer,
-        data_channels,
-    });
 
     state.clients.write().await.insert(client_id.clone(), session);
 

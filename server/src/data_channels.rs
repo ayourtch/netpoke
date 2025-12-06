@@ -2,72 +2,81 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::data_channel::RTCDataChannel;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use crate::state::DataChannels;
+use crate::state::ClientSession;
+use crate::measurements;
 
 pub async fn setup_data_channel_handlers(
     peer: &Arc<RTCPeerConnection>,
-    channels: Arc<RwLock<DataChannels>>,
-    client_id: String,
+    session: Arc<ClientSession>,
 ) {
-    let channels_clone = channels.clone();
-    let client_id_clone = client_id.clone();
+    let session_clone = session.clone();
 
     peer.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
         let label = dc.label().to_string();
-        let channels = channels_clone.clone();
-        let client_id = client_id_clone.clone();
+        let session = session_clone.clone();
 
         Box::pin(async move {
-            tracing::info!("Client {} opened data channel: {}", client_id, label);
+            tracing::info!("Client {} opened data channel: {}", session.id, label);
 
             // Store the data channel
-            let mut chans = channels.write().await;
+            let mut chans = session.data_channels.write().await;
             match label.as_str() {
-                "probe" => chans.probe = Some(dc.clone()),
-                "bulk" => chans.bulk = Some(dc.clone()),
+                "probe" => {
+                    chans.probe = Some(dc.clone());
+                    // Start probe sender
+                    let session_clone = session.clone();
+                    tokio::spawn(async move {
+                        measurements::start_probe_sender(session_clone).await;
+                    });
+                },
+                "bulk" => {
+                    chans.bulk = Some(dc.clone());
+                    // Start bulk sender
+                    let session_clone = session.clone();
+                    tokio::spawn(async move {
+                        measurements::start_bulk_sender(session_clone).await;
+                    });
+                },
                 "control" => chans.control = Some(dc.clone()),
                 _ => tracing::warn!("Unknown data channel: {}", label),
             }
             drop(chans);
 
             // Set up message handler
-            let client_id_clone = client_id.clone();
+            let session_clone = session.clone();
             let label_clone = label.clone();
             dc.on_message(Box::new(move |msg: DataChannelMessage| {
-                let client_id = client_id_clone.clone();
+                let session = session_clone.clone();
                 let label = label_clone.clone();
                 Box::pin(async move {
-                    handle_message(&client_id, &label, msg).await;
+                    handle_message(session, &label, msg).await;
                 })
             }));
         })
     }));
 }
 
-async fn handle_message(client_id: &str, channel: &str, msg: DataChannelMessage) {
+async fn handle_message(session: Arc<ClientSession>, channel: &str, msg: DataChannelMessage) {
     tracing::debug!("Client {} received message on {}: {} bytes",
-                   client_id, channel, msg.data.len());
+                   session.id, channel, msg.data.len());
 
     match channel {
-        "probe" => handle_probe_message(client_id, msg).await,
-        "bulk" => handle_bulk_message(client_id, msg).await,
-        "control" => handle_control_message(client_id, msg).await,
+        "probe" => handle_probe_message(session, msg).await,
+        "bulk" => handle_bulk_message(session, msg).await,
+        "control" => handle_control_message(session, msg).await,
         _ => {}
     }
 }
 
-async fn handle_probe_message(client_id: &str, msg: DataChannelMessage) {
-    // Will implement in next task
-    tracing::trace!("Probe message from {}", client_id);
+async fn handle_probe_message(session: Arc<ClientSession>, _msg: DataChannelMessage) {
+    // Will implement metric calculation in next task
+    tracing::trace!("Probe message from {}", session.id);
 }
 
-async fn handle_bulk_message(client_id: &str, msg: DataChannelMessage) {
-    // Will implement in next task
-    tracing::trace!("Bulk message from {}: {} bytes", client_id, msg.data.len());
+async fn handle_bulk_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
+    tracing::trace!("Bulk message from {}: {} bytes", session.id, msg.data.len());
 }
 
-async fn handle_control_message(client_id: &str, msg: DataChannelMessage) {
-    // Will implement in next task
-    tracing::trace!("Control message from {}", client_id);
+async fn handle_control_message(session: Arc<ClientSession>, _msg: DataChannelMessage) {
+    tracing::trace!("Control message from {}", session.id);
 }
