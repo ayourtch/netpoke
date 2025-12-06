@@ -2563,6 +2563,7 @@ dependencies = [
  "console_error_panic_hook",
  "gloo-timers",
  "js-sys",
+ "log",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
