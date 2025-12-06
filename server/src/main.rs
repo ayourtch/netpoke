@@ -14,9 +14,10 @@ use state::AppState;
 use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
 
-async fn http_server() {
-    // let app = Router::new().route("/", get(http_handler));
+use axum::routing::IntoMakeService;
 
+
+fn get_make_service() -> IntoMakeService<axum::Router> {
     let app_state = AppState::new();
     let app = Router::new()
         .route("/health", get(health_check))
@@ -27,11 +28,19 @@ async fn http_server() {
         .with_state(app_state)
         .layer(TraceLayer::new_for_http());
 
+    let srv = app.into_make_service();
+    srv
+}
+
+async fn http_server() {
+    // let app = Router::new().route("/", get(http_handler));
+
+    let srv = get_make_service();
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("http listening on {}", addr);
     axum_server::bind(addr)
-        .serve(app.into_make_service())
+        .serve(srv)
         .await
         .unwrap();
 }
@@ -43,15 +52,7 @@ async fn http_handler(uri: Uri) -> Redirect {
 }
 
 async fn https_server() {
-    let app_state = AppState::new();
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/api/signaling/start", post(signaling::signaling_start))
-        .route("/api/signaling/ice", post(signaling::ice_candidate))
-        .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
-        .nest_service("/", ServeDir::new("server/static"))
-        .with_state(app_state)
-        .layer(TraceLayer::new_for_http());
+    let srv = get_make_service();
 
     let config = RustlsConfig::from_pem_file(
         "server.crt",
@@ -63,7 +64,7 @@ async fn https_server() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3443));
     println!("https listening on {}", addr);
     axum_server::bind_rustls(addr, config)
-        .serve(app.into_make_service())
+        .serve(srv)
         .await
         .unwrap();
 }
@@ -79,24 +80,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Ignore errors.
     let _ = tokio::join!(http, https);
-
-/*
-    let app_state = AppState::new();
-    let app = Router::new()
-        .route("/health", get(health_check))
-        .route("/api/signaling/start", post(signaling::signaling_start))
-        .route("/api/signaling/ice", post(signaling::ice_candidate))
-        .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
-        .nest_service("/", ServeDir::new("server/static"))
-        .with_state(app_state)
-        .layer(TraceLayer::new_for_http());
-
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    tracing::info!("Server listening on {}", addr);
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-*/
     Ok(())
 }
 
