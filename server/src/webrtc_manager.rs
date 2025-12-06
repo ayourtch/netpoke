@@ -24,6 +24,7 @@ pub async fn create_peer_connection() -> Result<Arc<RTCPeerConnection>, Box<dyn 
             urls: vec!["stun:stun.l.google.com:19302".to_owned()],
             ..Default::default()
         }],
+        ice_transport_policy: "all".into(),
         ..Default::default()
     };
 

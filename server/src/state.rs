@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::sync::broadcast;
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -18,6 +19,7 @@ pub struct ClientSession {
     pub metrics: Arc<RwLock<ClientMetrics>>,
     pub measurement_state: Arc<RwLock<MeasurementState>>,
     pub connected_at: Instant,
+    pub ice_candidate_tx: broadcast::Sender<String>,
 }
 
 pub struct DataChannels {

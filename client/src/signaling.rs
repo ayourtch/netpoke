@@ -15,6 +15,12 @@ struct SignalingStartResponse {
     sdp: String,
 }
 
+#[derive(Serialize)]
+struct IceCandidateRequest {
+    client_id: String,
+    candidate: String,
+}
+
 pub async fn send_offer(offer_sdp: String) -> Result<(String, String), JsValue> {
     let window = window().ok_or("No window")?;
 
@@ -22,7 +28,7 @@ pub async fn send_offer(offer_sdp: String) -> Result<(String, String), JsValue> 
     let body_str = serde_json::to_string(&req_body)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
-    let mut opts = RequestInit::new();
+    let opts = RequestInit::new();
     opts.set_method("POST");
     opts.set_mode(RequestMode::Cors);
     opts.set_body(&JsValue::from_str(&body_str));
@@ -40,6 +46,71 @@ pub async fn send_offer(offer_sdp: String) -> Result<(String, String), JsValue> 
     let response: SignalingStartResponse = serde_wasm_bindgen::from_value(json)?;
 
     Ok((response.client_id, response.sdp))
+}
+
+pub async fn send_ice_candidate(client_id: &str, candidate: &str) -> Result<(), JsValue> {
+    let window = window().ok_or("No window")?;
+
+    let req_body = IceCandidateRequest {
+        client_id: client_id.to_string(),
+        candidate: candidate.to_string(),
+    };
+    let body_str = serde_json::to_string(&req_body)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let opts = RequestInit::new();
+    opts.set_method("POST");
+    opts.set_mode(RequestMode::Cors);
+    opts.set_body(&JsValue::from_str(&body_str));
+
+    let url = format!("{}/api/signaling/ice",
+                     window.location().origin().map_err(|_| JsValue::from_str("No origin"))?);
+
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    request.headers().set("Content-Type", "application/json")?;
+
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+
+    if !resp.ok() {
+        return Err(JsValue::from_str("Failed to send ICE candidate"));
+    }
+
+    Ok(())
+}
+
+pub async fn get_ice_candidates(client_id: &str) -> Result<Vec<String>, JsValue> {
+    let window = window().ok_or("No window")?;
+
+    let req_body = IceCandidateRequest {
+        client_id: client_id.to_string(),
+        candidate: "".to_string(),
+    };
+    let body_str = serde_json::to_string(&req_body)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let opts = RequestInit::new();
+    opts.set_method("POST");
+    opts.set_mode(RequestMode::Cors);
+    opts.set_body(&JsValue::from_str(&body_str));
+
+    let url = format!("{}/api/signaling/ice/remote",
+                     window.location().origin().map_err(|_| JsValue::from_str("No origin"))?);
+
+    let request = Request::new_with_str_and_init(&url, &opts)?;
+    request.headers().set("Content-Type", "application/json")?;
+
+    let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
+    let resp: Response = resp_value.dyn_into()?;
+
+    if !resp.ok() {
+        return Err(JsValue::from_str("Failed to get ICE candidates"));
+    }
+
+    let json = JsFuture::from(resp.json()?).await?;
+    let candidates: Vec<String> = serde_wasm_bindgen::from_value(json)?;
+
+    Ok(candidates)
 }
 
 #[cfg(test)]

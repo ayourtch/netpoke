@@ -23,6 +23,7 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
         .route("/health", get(health_check))
         .route("/api/signaling/start", post(signaling::signaling_start))
         .route("/api/signaling/ice", post(signaling::ice_candidate))
+        .route("/api/signaling/ice/remote", post(signaling::get_ice_candidates))
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .nest_service("/", ServeDir::new("server/static"))
         .with_state(app_state)

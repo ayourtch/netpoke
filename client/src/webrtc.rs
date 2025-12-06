@@ -2,7 +2,9 @@ use wasm_bindgen::prelude::*;
 use web_sys::{
     RtcPeerConnection, RtcConfiguration,
     RtcDataChannelInit, RtcSessionDescriptionInit, RtcSdpType,
+    RtcIceCandidateInit,
 };
+use js_sys;
 use crate::{signaling, measurements};
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -69,10 +71,75 @@ impl WebRtcConnection {
 
         let mut answer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
         answer_obj.set_sdp(&answer_sdp);
+        log::info!("Remote answer: {:?}", &answer_sdp);
 
         wasm_bindgen_futures::JsFuture::from(
             peer.set_remote_description(&answer_obj)
         ).await?;
+
+        // Set up ICE candidate event handler
+        let peer_clone = peer.clone();
+        let client_id_clone = client_id.clone();
+        let onicecandidate = Closure::wrap(Box::new(move |event: web_sys::Event| {
+            // Check if this is an icecandidate event
+            if event.type_() == "icecandidate" {
+                if let Ok(candidate) = js_sys::Reflect::get(&event, &"candidate".into()) {
+                    if !candidate.is_undefined() {
+                        // Convert JsValue to JSON string
+                        if let Ok(json_str) = js_sys::JSON::stringify(&candidate) {
+                            let candidate_str = json_str.as_string().unwrap_or_default();
+                            let client_id = client_id_clone.clone();
+
+                            // Send ICE candidate to server
+                            wasm_bindgen_futures::spawn_local(async move {
+                                if let Err(e) = signaling::send_ice_candidate(&client_id, &candidate_str).await {
+                                    log::error!("Failed to send ICE candidate: {:?}", e);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        peer.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
+        onicecandidate.forget();
+
+        // Start polling for server ICE candidates
+        let peer_for_poll = peer.clone();
+        let client_id_for_poll = client_id.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            loop {
+                // Wait 100ms between polls
+                wasm_bindgen_futures::JsFuture::from(
+                    js_sys::Promise::new(&mut |resolve, _| {
+                        web_sys::window().unwrap()
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                &resolve,
+                                100,
+                            ).unwrap();
+                    })
+                ).await.unwrap();
+
+                if let Ok(candidates) = signaling::get_ice_candidates(&client_id_for_poll).await {
+                    for candidate_str in candidates {
+                        // Parse JSON string to extract candidate field
+                        if let Ok(candidate_obj) = js_sys::JSON::parse(&candidate_str) {
+                            if let Ok(candidate) = js_sys::Reflect::get(&candidate_obj, &"candidate".into()) {
+                                if let Some(candidate_str) = candidate.as_string() {
+                                    let candidate_init = RtcIceCandidateInit::new(&candidate_str);
+                                    if let Err(e) = wasm_bindgen_futures::JsFuture::from(
+                                        peer_for_poll.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&candidate_init))
+                                    ).await {
+                                        log::error!("Failed to add remote ICE candidate: {:?}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         log::info!("WebRTC connection established");
 
