@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
 use common::{ProbePacket, Direction, BulkPacket, ClientMetrics};
-use crate::state::{ClientSession, ReceivedProbe, ReceivedBulk};
+use crate::state::{ClientSession, ReceivedProbe, ReceivedBulk, SentBulk};
 use webrtc::data_channel::data_channel_state::RTCDataChannelState;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 
@@ -67,6 +67,8 @@ pub async fn start_bulk_sender(
 
         if let Ok(data) = serde_json::to_vec(&bulk) {
             let bytes_sent = data.len() as u64;
+            let sent_at_ms = current_time_ms();
+
             if let Err(e) = bulk_channel.send(&data.into()).await {
                 tracing::error!("Failed to send bulk: {}", e);
                 break;
@@ -74,6 +76,20 @@ pub async fn start_bulk_sender(
 
             let mut state = session.measurement_state.write().await;
             state.bulk_bytes_sent += bytes_sent;
+            state.sent_bulk_packets.push_back(SentBulk {
+                bytes: bytes_sent,
+                sent_at_ms,
+            });
+
+            // Keep only last 60 seconds of sent bulk packets
+            let cutoff = sent_at_ms - 60_000;
+            while let Some(b) = state.sent_bulk_packets.front() {
+                if b.sent_at_ms < cutoff {
+                    state.sent_bulk_packets.pop_front();
+                } else {
+                    break;
+                }
+            }
         }
     }
 }
@@ -178,13 +194,14 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
             }
 
             // Calculate reordering rate
+            // Track max sequence seen so far; any packet with seq < max is reordered
             let mut reorders = 0;
-            let mut last_seq = 0u64;
+            let mut max_seq_seen = 0u64;
             for p in &recent_probes {
-                if p.seq < last_seq {
+                if p.seq < max_seq_seen {
                     reorders += 1;
                 }
-                last_seq = p.seq;
+                max_seq_seen = max_seq_seen.max(p.seq);
             }
             metrics.c2s_reorder_rate[i] = (reorders as f64 / recent_probes.len() as f64) * 100.0;
         }
@@ -201,9 +218,15 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
         }
 
         // Server-to-client throughput (from sent bulk)
-        // Simplified: use bulk_bytes_sent / window
-        // (In real implementation, would track sent timestamps)
-        metrics.s2c_throughput[i] = 0.0; // Placeholder
+        let recent_sent_bulk: Vec<_> = state.sent_bulk_packets.iter()
+            .filter(|b| b.sent_at_ms >= cutoff)
+            .collect();
+
+        if !recent_sent_bulk.is_empty() {
+            let total_bytes: u64 = recent_sent_bulk.iter().map(|b| b.bytes).sum();
+            let time_window_sec = window_ms as f64 / 1000.0;
+            metrics.s2c_throughput[i] = total_bytes as f64 / time_window_sec;
+        }
     }
 
     drop(state);

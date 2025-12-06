@@ -31,6 +31,7 @@ pub struct MeasurementState {
     pub bulk_bytes_sent: u64,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
+    pub sent_bulk_packets: VecDeque<SentBulk>,
     pub last_received_seq: Option<u64>,
 }
 
@@ -45,6 +46,12 @@ pub struct ReceivedProbe {
 pub struct ReceivedBulk {
     pub bytes: u64,
     pub received_at_ms: u64,
+}
+
+#[derive(Clone)]
+pub struct SentBulk {
+    pub bytes: u64,
+    pub sent_at_ms: u64,
 }
 
 impl AppState {
@@ -72,6 +79,7 @@ impl MeasurementState {
             bulk_bytes_sent: 0,
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
+            sent_bulk_packets: VecDeque::new(),
             last_received_seq: None,
         }
     }
