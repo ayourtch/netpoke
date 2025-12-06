@@ -1,8 +1,9 @@
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
-use common::{ProbePacket, Direction, BulkPacket};
-use crate::state::ClientSession;
+use common::{ProbePacket, Direction, BulkPacket, ClientMetrics};
+use crate::state::{ClientSession, ReceivedProbe, ReceivedBulk};
 use webrtc::data_channel::data_channel_state::RTCDataChannelState;
+use webrtc::data_channel::data_channel_message::DataChannelMessage;
 
 pub async fn start_probe_sender(
     session: Arc<ClientSession>,
@@ -75,6 +76,140 @@ pub async fn start_bulk_sender(
             state.bulk_bytes_sent += bytes_sent;
         }
     }
+}
+
+pub async fn handle_probe_packet(
+    session: Arc<ClientSession>,
+    msg: DataChannelMessage,
+) {
+    if let Ok(probe) = serde_json::from_slice::<ProbePacket>(&msg.data) {
+        let now_ms = current_time_ms();
+
+        let mut state = session.measurement_state.write().await;
+        state.received_probes.push_back(ReceivedProbe {
+            seq: probe.seq,
+            sent_at_ms: probe.timestamp_ms,
+            received_at_ms: now_ms,
+        });
+
+        // Keep only last 60 seconds of probes
+        let cutoff = now_ms - 60_000;
+        while let Some(p) = state.received_probes.front() {
+            if p.received_at_ms < cutoff {
+                state.received_probes.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        drop(state);
+
+        // Recalculate metrics
+        calculate_metrics(session).await;
+    }
+}
+
+pub async fn handle_bulk_packet(
+    session: Arc<ClientSession>,
+    msg: DataChannelMessage,
+) {
+    let now_ms = current_time_ms();
+    let bytes = msg.data.len() as u64;
+
+    let mut state = session.measurement_state.write().await;
+    state.received_bulk_bytes.push_back(ReceivedBulk {
+        bytes,
+        received_at_ms: now_ms,
+    });
+
+    // Keep only last 60 seconds
+    let cutoff = now_ms - 60_000;
+    while let Some(b) = state.received_bulk_bytes.front() {
+        if b.received_at_ms < cutoff {
+            state.received_bulk_bytes.pop_front();
+        } else {
+            break;
+        }
+    }
+
+    drop(state);
+    calculate_metrics(session).await;
+}
+
+async fn calculate_metrics(session: Arc<ClientSession>) {
+    let state = session.measurement_state.read().await;
+    let now_ms = current_time_ms();
+
+    let mut metrics = ClientMetrics::default();
+
+    // Calculate for each time window: 1s, 10s, 60s
+    let windows = [1_000u64, 10_000, 60_000];
+
+    for (i, &window_ms) in windows.iter().enumerate() {
+        let cutoff = now_ms.saturating_sub(window_ms);
+
+        // Client-to-server metrics (from received probes)
+        let recent_probes: Vec<_> = state.received_probes.iter()
+            .filter(|p| p.received_at_ms >= cutoff)
+            .collect();
+
+        if !recent_probes.is_empty() {
+            // Calculate delay
+            let delays: Vec<f64> = recent_probes.iter()
+                .map(|p| (p.received_at_ms - p.sent_at_ms) as f64)
+                .collect();
+
+            let avg_delay = delays.iter().sum::<f64>() / delays.len() as f64;
+            metrics.c2s_delay_avg[i] = avg_delay;
+
+            // Calculate jitter (std dev of delay)
+            let variance = delays.iter()
+                .map(|d| (d - avg_delay).powi(2))
+                .sum::<f64>() / delays.len() as f64;
+            metrics.c2s_jitter[i] = variance.sqrt();
+
+            // Calculate loss rate
+            if recent_probes.len() >= 2 {
+                let min_seq = recent_probes.iter().map(|p| p.seq).min().unwrap();
+                let max_seq = recent_probes.iter().map(|p| p.seq).max().unwrap();
+                let expected = (max_seq - min_seq + 1) as f64;
+                let received = recent_probes.len() as f64;
+                metrics.c2s_loss_rate[i] = ((expected - received) / expected * 100.0).max(0.0);
+            }
+
+            // Calculate reordering rate
+            let mut reorders = 0;
+            let mut last_seq = 0u64;
+            for p in &recent_probes {
+                if p.seq < last_seq {
+                    reorders += 1;
+                }
+                last_seq = p.seq;
+            }
+            metrics.c2s_reorder_rate[i] = (reorders as f64 / recent_probes.len() as f64) * 100.0;
+        }
+
+        // Client-to-server throughput (from received bulk)
+        let recent_bulk: Vec<_> = state.received_bulk_bytes.iter()
+            .filter(|b| b.received_at_ms >= cutoff)
+            .collect();
+
+        if !recent_bulk.is_empty() {
+            let total_bytes: u64 = recent_bulk.iter().map(|b| b.bytes).sum();
+            let time_window_sec = window_ms as f64 / 1000.0;
+            metrics.c2s_throughput[i] = total_bytes as f64 / time_window_sec;
+        }
+
+        // Server-to-client throughput (from sent bulk)
+        // Simplified: use bulk_bytes_sent / window
+        // (In real implementation, would track sent timestamps)
+        metrics.s2c_throughput[i] = 0.0; // Placeholder
+    }
+
+    drop(state);
+
+    // Update session metrics
+    *session.metrics.write().await = metrics;
 }
 
 fn current_time_ms() -> u64 {

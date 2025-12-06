@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::data_channel::RTCDataChannel;
@@ -29,6 +29,22 @@ pub struct DataChannels {
 pub struct MeasurementState {
     pub probe_seq: u64,
     pub bulk_bytes_sent: u64,
+    pub received_probes: VecDeque<ReceivedProbe>,
+    pub received_bulk_bytes: VecDeque<ReceivedBulk>,
+    pub last_received_seq: Option<u64>,
+}
+
+#[derive(Clone)]
+pub struct ReceivedProbe {
+    pub seq: u64,
+    pub sent_at_ms: u64,
+    pub received_at_ms: u64,
+}
+
+#[derive(Clone)]
+pub struct ReceivedBulk {
+    pub bytes: u64,
+    pub received_at_ms: u64,
 }
 
 impl AppState {
@@ -54,6 +70,9 @@ impl MeasurementState {
         Self {
             probe_seq: 0,
             bulk_bytes_sent: 0,
+            received_probes: VecDeque::new(),
+            received_bulk_bytes: VecDeque::new(),
+            last_received_seq: None,
         }
     }
 }

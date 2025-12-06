@@ -68,13 +68,12 @@ async fn handle_message(session: Arc<ClientSession>, channel: &str, msg: DataCha
     }
 }
 
-async fn handle_probe_message(session: Arc<ClientSession>, _msg: DataChannelMessage) {
-    // Will implement metric calculation in next task
-    tracing::trace!("Probe message from {}", session.id);
+async fn handle_probe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
+    measurements::handle_probe_packet(session, msg).await;
 }
 
 async fn handle_bulk_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
-    tracing::trace!("Bulk message from {}: {} bytes", session.id, msg.data.len());
+    measurements::handle_bulk_packet(session, msg).await;
 }
 
 async fn handle_control_message(session: Arc<ClientSession>, _msg: DataChannelMessage) {
