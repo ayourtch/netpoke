@@ -6,6 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use crate::state::{AppState, ClientSession};
 use crate::webrtc_manager;
+use crate::data_channels;
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +40,12 @@ pub async fn signaling_start(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    let client_id = uuid::Uuid::new_v4().to_string();
+    let data_channels = Arc::new(tokio::sync::RwLock::new(crate::state::DataChannels::new()));
+
+    // Set up data channel handlers
+    data_channels::setup_data_channel_handlers(&peer, data_channels.clone(), client_id.clone()).await;
+
     // Handle offer and create answer
     let answer_sdp = webrtc_manager::handle_offer(&peer, req.sdp)
         .await
@@ -48,10 +55,10 @@ pub async fn signaling_start(
         })?;
 
     // Store client session
-    let client_id = uuid::Uuid::new_v4().to_string();
     let session = Arc::new(ClientSession {
         id: client_id.clone(),
         peer_connection: peer,
+        data_channels,
     });
 
     state.clients.write().await.insert(client_id.clone(), session);

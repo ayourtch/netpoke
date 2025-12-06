@@ -1,6 +1,7 @@
 mod state;
 mod signaling;
 mod webrtc_manager;
+mod data_channels;
 
 use axum::{Router, routing::{get, post}};
 use std::net::SocketAddr;
