@@ -3,6 +3,7 @@ mod signaling;
 mod webrtc_manager;
 mod data_channels;
 mod measurements;
+mod dashboard;
 
 use axum::{Router, routing::{get, post}};
 use std::net::SocketAddr;
@@ -20,6 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_check))
         .route("/api/signaling/start", post(signaling::signaling_start))
         .route("/api/signaling/ice", post(signaling::ice_candidate))
+        .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .nest_service("/", ServeDir::new("server/static"))
         .with_state(app_state)
         .layer(TraceLayer::new_for_http());

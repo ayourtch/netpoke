@@ -4,7 +4,7 @@
 /server/target/
 /common/target/
 *.wasm
-*.js
+/client/pkg/*.js
 node_modules/
 .DS_Store
 *.crt
