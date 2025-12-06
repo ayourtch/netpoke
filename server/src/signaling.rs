@@ -9,6 +9,7 @@ use crate::webrtc_manager;
 use crate::data_channels;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 
 #[derive(Debug, Deserialize)]
 pub struct SignalingStartRequest {
@@ -98,14 +99,20 @@ pub async fn ice_candidate(
     Json(req): Json<IceCandidateRequest>,
 ) -> Result<StatusCode, StatusCode> {
     tracing::info!("Received ICE candidate for client {}", req.client_id);
+    tracing::debug!("ICE candidate data: {}", &req.candidate);
 
     let clients = state.clients.read().await;
     let session = clients.get(&req.client_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Parse and add ICE candidate
-    let candidate_init = serde_json::from_str(&req.candidate)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let candidate_init: RTCIceCandidateInit = match serde_json::from_str(&req.candidate) {
+        Ok(val) => val,
+        Err(e) => {
+            tracing::error!("Failed to parse ICE candidate JSON: {}", e);
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    };
 
     session.peer_connection
         .add_ice_candidate(candidate_init)
@@ -129,9 +136,19 @@ pub async fn get_ice_candidates(
     let mut ice_candidates = Vec::new();
     let mut rx = session.ice_candidate_tx.subscribe();
 
-    // Try to receive any pending ICE candidates (non-blocking)
+    // Try to receive any pending ICE candidates (non-blocking first)
     while let Ok(candidate) = rx.try_recv() {
         ice_candidates.push(candidate);
+    }
+
+    // Then try to receive with a timeout to catch any candidates that arrive
+    if let Ok(candidate) = tokio::time::timeout(
+        std::time::Duration::from_millis(50),
+        rx.recv()
+    ).await {
+        if let Ok(c) = candidate {
+            ice_candidates.push(c);
+        }
     }
 
     Ok(Json(ice_candidates))
