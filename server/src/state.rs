@@ -2,30 +2,22 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use std::collections::HashMap;
 use uuid::Uuid;
+use webrtc::peer_connection::RTCPeerConnection;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub clients: Arc<RwLock<HashMap<String, ClientSession>>>,
+    pub clients: Arc<RwLock<HashMap<String, Arc<ClientSession>>>>,
 }
 
 pub struct ClientSession {
     pub id: String,
-    pub pending_ice_candidates: Vec<String>,
+    pub peer_connection: Arc<RTCPeerConnection>,
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
-        }
-    }
-}
-
-impl ClientSession {
-    pub fn new() -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            pending_ice_candidates: Vec::new(),
         }
     }
 }
