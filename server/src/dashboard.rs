@@ -79,7 +79,16 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
                     }
                 }
 
-                // Fallback to stored address if stats didn't work
+                // Update stored address if we got a new one from stats
+                if let (Some(addr), Some(port)) = (&peer_address, peer_port) {
+                    let mut stored_peer = session.peer_address.lock().await;
+                    if stored_peer.as_ref() != Some(&(addr.clone(), port)) {
+                        tracing::info!("Peer address changed for client {}: {}:{}", session.id, addr, port);
+                        *stored_peer = Some((addr.clone(), port));
+                    }
+                }
+
+                // Fallback to stored address if stats didn't work this time
                 if peer_address.is_none() {
                     let stored_peer = session.peer_address.lock().await;
                     if let Some((addr, port)) = stored_peer.as_ref() {
