@@ -170,9 +170,9 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
             .collect();
 
         if !recent_probes.is_empty() {
-            // Calculate delay
+            // Calculate delay (use saturating_sub to prevent overflow if client clock is ahead)
             let delays: Vec<f64> = recent_probes.iter()
-                .map(|p| (p.received_at_ms - p.sent_at_ms) as f64)
+                .map(|p| (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64)
                 .collect();
 
             let avg_delay = delays.iter().sum::<f64>() / delays.len() as f64;
