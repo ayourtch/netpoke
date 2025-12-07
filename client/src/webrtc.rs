@@ -9,6 +9,27 @@ use crate::{signaling, measurements};
 use std::rc::Rc;
 use std::cell::RefCell;
 
+/// Check if we should stop polling for ICE candidates
+/// Returns true when ICE gathering is complete and connection is established
+async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
+    // Check ICE gathering state
+    let ice_gathering_state = js_sys::Reflect::get(peer, &"iceGatheringState".into())
+        .ok()
+        .and_then(|s| s.as_string());
+    let ice_complete = ice_gathering_state.as_deref() == Some("complete");
+
+    // Check connection state
+    let connection_state = js_sys::Reflect::get(peer, &"connectionState".into())
+        .ok()
+        .and_then(|s| s.as_string());
+    let connected = connection_state.as_deref()
+        .map(|s| s == "connected" || s == "completed")
+        .unwrap_or(false);
+
+    // Stop when both ICE gathering is complete AND connection is established
+    ice_complete && connected
+}
+
 pub struct WebRtcConnection {
     pub peer: RtcPeerConnection,
     pub client_id: String,
@@ -113,6 +134,9 @@ impl WebRtcConnection {
         let peer_for_poll = peer.clone();
         let client_id_for_poll = client_id.clone();
         wasm_bindgen_futures::spawn_local(async move {
+            let mut poll_count = 0;
+            let max_polls = 3000; // Timeout after 3000 polls (about 5 minutes at 100ms intervals)
+
             loop {
                 // Wait 100ms between polls
                 wasm_bindgen_futures::JsFuture::from(
@@ -124,6 +148,11 @@ impl WebRtcConnection {
                             ).unwrap();
                     })
                 ).await.unwrap();
+
+                poll_count += 1;
+
+                // Check if we should stop polling
+                let should_stop = check_stop_polling(&peer_for_poll).await || poll_count >= max_polls;
 
                 if let Ok(candidates) = signaling::get_ice_candidates(&client_id_for_poll).await {
                     for candidate_str in candidates {
@@ -141,6 +170,11 @@ impl WebRtcConnection {
                             }
                         }
                     }
+                }
+
+                if should_stop {
+                    log::info!("Stopping ICE candidate polling");
+                    break;
                 }
             }
         });
