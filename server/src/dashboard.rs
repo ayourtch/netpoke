@@ -40,25 +40,40 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
                 let mut peer_address = None;
                 let mut peer_port = None;
 
-                // Try to get peer info from ICE stats (the selected candidate pair)
-                let stats_report = session.peer_connection.get_stats().await;
-                for stat in stats_report.reports.values() {
-                    if let StatsReportType::CandidatePair(pair) = stat {
-                        // Check if this pair is selected/nominated
-                        if pair.nominated || pair.state == CandidatePairState::Succeeded {
-                            // Find the remote candidate by ID to get the IP address
-                            for candidate_stat in stats_report.reports.values() {
-                                if let StatsReportType::RemoteCandidate(candidate) = candidate_stat {
-                                    if candidate.id == pair.remote_candidate_id {
-                                        peer_address = Some(candidate.ip.clone());
-                                        peer_port = Some(candidate.port);
-                                        tracing::debug!("Got selected candidate pair: remote={}:{}", candidate.ip, candidate.port);
-                                        break;
+                // Check connection state before trying to get stats
+                use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+                let conn_state = session.peer_connection.connection_state();
+
+                tracing::debug!("Client {} connection state: {:?}", session.id, conn_state);
+
+                // Only try to get stats if connection is established
+                if conn_state == RTCPeerConnectionState::Connected {
+                    let stats_report = session.peer_connection.get_stats().await;
+                    tracing::debug!("Client {} stats report has {} entries", session.id, stats_report.reports.len());
+
+                    // Find the selected candidate pair
+                    for stat in stats_report.reports.values() {
+                        if let StatsReportType::CandidatePair(pair) = stat {
+                            tracing::debug!("Candidate pair state: {:?}, nominated: {}", pair.state, pair.nominated);
+
+                            // Look for succeeded or in-progress pairs
+                            if pair.state == CandidatePairState::Succeeded ||
+                               pair.state == CandidatePairState::InProgress && pair.nominated {
+                                // Find the remote candidate by ID to get the IP address
+                                for candidate_stat in stats_report.reports.values() {
+                                    if let StatsReportType::RemoteCandidate(candidate) = candidate_stat {
+                                        if candidate.id == pair.remote_candidate_id {
+                                            peer_address = Some(candidate.ip.clone());
+                                            peer_port = Some(candidate.port);
+                                            tracing::info!("Got client {} address from selected pair: {}:{}",
+                                                session.id, candidate.ip, candidate.port);
+                                            break;
+                                        }
                                     }
                                 }
-                            }
-                            if peer_address.is_some() {
-                                break;
+                                if peer_address.is_some() {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -70,10 +85,14 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
                     if let Some((addr, port)) = stored_peer.as_ref() {
                         peer_address = Some(addr.clone());
                         peer_port = Some(*port);
+                        tracing::debug!("Using stored peer address for client {}: {}:{}", session.id, addr, port);
                     }
                 }
 
-                let peer_address_final = peer_address.unwrap_or_else(|| "N/A".to_string());
+                let peer_address_final = peer_address.unwrap_or_else(|| {
+                    tracing::warn!("No peer address available for client {}", session.id);
+                    "N/A".to_string()
+                });
 
                 clients_info.push(ClientInfo {
                     id: session.id.clone(),
