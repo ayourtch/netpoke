@@ -22,6 +22,7 @@ pub struct ClientSession {
     pub measurement_state: Arc<RwLock<MeasurementState>>,
     pub connected_at: Instant,
     pub ice_candidates: Arc<Mutex<VecDeque<String>>>,
+    pub peer_address: Arc<Mutex<Option<(String, u16)>>>, // (address, port)
 }
 
 pub struct DataChannels {

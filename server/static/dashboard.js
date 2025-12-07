@@ -14,12 +14,6 @@ function connect() {
 
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        console.log('=== WebSocket Data Received ===');
-        console.log('Full data:', JSON.stringify(data, null, 2));
-        console.log('Clients:', data.clients);
-        if (data.clients && data.clients.length > 0) {
-            console.log('First client:', JSON.stringify(data.clients[0], null, 2));
-        }
         updateClientsTable(data.clients);
     };
 
@@ -38,9 +32,6 @@ function connect() {
 }
 
 function updateClientsTable(clients) {
-    console.log('=== updateClientsTable called ===');
-    console.log('Clients parameter:', clients);
-
     const tbody = document.getElementById('clients-body');
 
     if (clients.length === 0) {
@@ -51,13 +42,6 @@ function updateClientsTable(clients) {
     tbody.innerHTML = '';
 
     for (const client of clients) {
-        console.log('=== Processing client ===');
-        console.log('Client object:', client);
-        console.log('client.parent_id:', client.parent_id);
-        console.log('client.ip_version:', client.ip_version);
-        console.log('client.peer_address:', client.peer_address);
-        console.log('client.current_seq:', client.current_seq);
-
         const row = document.createElement('tr');
 
         // Add CSS class based on IP version for color coding
@@ -75,25 +59,15 @@ function updateClientsTable(clients) {
             return values.map(v => (v / 1024).toFixed(2) + ' KB/s').join(' / ');
         };
 
-        // Format peer address
-        const peerAddrPort = `Peer: ${client.peer_address || 'N/A'}`;
+        // Format peer address and port
+        const peerAddrPort = client.peer_port
+            ? `${client.peer_address}:${client.peer_port}`
+            : (client.peer_address || 'N/A');
 
         // Format parent ID (show only if it exists and is different from client ID)
         const parentDisplay = (client.parent_id && client.parent_id !== client.id)
             ? `<span class="parent-id">${client.parent_id}</span>`
             : '-';
-
-        // TEMPORARY DEBUG: Show raw JSON for the first client
-        if (client.id === clients[0].id) {
-            console.log('=== RAW CLIENT OBJECT (FIRST CLIENT) ===');
-            console.log(JSON.stringify(client, null, 2));
-            console.log('=== ACCESSING FIELDS ===');
-            console.log('client.parent_id:', client.parent_id);
-            console.log('client.ip_version:', client.ip_version);
-            console.log('client.peer_address:', client.peer_address);
-            console.log('client.current_seq:', client.current_seq);
-            console.log('client.metrics:', client.metrics);
-        }
 
         row.innerHTML = `
             <td>${client.id}</td>

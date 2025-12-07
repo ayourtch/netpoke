@@ -100,14 +100,26 @@ async fn dashboard_debug(State(state): State<AppState>) -> Json<DashboardMessage
         let measurement_state = session.measurement_state.read().await;
         let current_seq = measurement_state.probe_seq;
 
+        // Get the stored peer address
+        let (peer_address, peer_port) = {
+            let peer_addr = session.peer_address.lock().await;
+            if let Some((addr, port)) = peer_addr.as_ref() {
+                (Some(addr.clone()), Some(*port))
+            } else {
+                (None, None)
+            }
+        };
+
+        let peer_address_final = peer_address.unwrap_or_else(|| "N/A".to_string());
+
         clients_info.push(ClientInfo {
             id: session.id.clone(),
             parent_id: session.parent_id.clone(),
             ip_version: session.ip_version.clone(),
             connected_at,
             metrics,
-            peer_address: Some("N/A".to_string()),
-            peer_port: None,
+            peer_address: Some(peer_address_final),
+            peer_port,
             current_seq,
         });
     }

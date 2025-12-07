@@ -56,6 +56,7 @@ pub async fn signaling_start(
     let metrics = Arc::new(tokio::sync::RwLock::new(common::ClientMetrics::default()));
     let measurement_state = Arc::new(tokio::sync::RwLock::new(crate::state::MeasurementState::new()));
     let ice_candidates = Arc::new(tokio::sync::Mutex::new(std::collections::VecDeque::new()));
+    let peer_address = Arc::new(tokio::sync::Mutex::new(None::<(String, u16)>));
 
     let session = Arc::new(crate::state::ClientSession {
         id: client_id.clone(),
@@ -67,6 +68,7 @@ pub async fn signaling_start(
         measurement_state,
         connected_at: std::time::Instant::now(),
         ice_candidates: ice_candidates.clone(),
+        peer_address: peer_address.clone(),
     });
 
     // Set up data channel handlers
@@ -75,16 +77,37 @@ pub async fn signaling_start(
     // Set up ICE candidate handler to send candidates back to client
     let client_id_for_ice = client_id.clone();
     let ice_candidates_for_handler = session.ice_candidates.clone();
+    let peer_address_for_handler = session.peer_address.clone();
     peer.on_ice_candidate(Box::new(move |candidate| {
         if let Some(c) = candidate {
             tracing::info!("Server ICE candidate gathered for client {}", client_id_for_ice);
             if let Ok(candidate_json) = serde_json::to_string(&c) {
                 let candidates = ice_candidates_for_handler.clone();
                 let json_clone = candidate_json.clone();
+                let peer_addr_clone = peer_address_for_handler.clone();
                 tokio::spawn(async move {
+                    // Store the candidate
                     let mut candidates = candidates.lock().await;
-                    candidates.push_back(json_clone);
+                    candidates.push_back(json_clone.clone());
                     tracing::debug!("Stored ICE candidate in VecDeque (total: {})", candidates.len());
+
+                    // Try to extract and store peer address from the candidate
+                    if let Ok(candidate_obj) = serde_json::from_str::<serde_json::Value>(&json_clone) {
+                        // Check if this is a host or srflx candidate (not relay)
+                        if let (Some(address), Some(port), Some(cand_type)) = (
+                            candidate_obj.get("address").and_then(|v| v.as_str()),
+                            candidate_obj.get("port").and_then(|v| v.as_u64()),
+                            candidate_obj.get("typ").and_then(|v| v.as_str()),
+                        ) {
+                            if cand_type == "host" || cand_type == "srflx" {
+                                let mut peer_addr = peer_addr_clone.lock().await;
+                                if peer_addr.is_none() {
+                                    *peer_addr = Some((address.to_string(), port as u16));
+                                    tracing::debug!("Stored peer address: {}:{}", address, port);
+                                }
+                            }
+                        }
+                    }
                 });
             }
         }
