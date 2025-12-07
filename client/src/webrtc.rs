@@ -9,6 +9,30 @@ use crate::{signaling, measurements};
 use std::rc::Rc;
 use std::cell::RefCell;
 
+/// Determine if an ICE candidate is IPv4 or IPv6 by parsing the candidate string
+/// Returns Some("ipv4"), Some("ipv6"), or None if unable to determine
+fn get_candidate_ip_version(candidate_str: &str) -> Option<String> {
+    // Parse the candidate SDP attribute
+    // Format: "candidate:foundation component protocol priority ip port typ type ..."
+    // Example: "candidate:1234567890 1 udp 2122260223 192.168.1.100 54321 typ host"
+
+    if let Some(candidate_part) = candidate_str.strip_prefix("candidate:") {
+        let parts: Vec<&str> = candidate_part.split_whitespace().collect();
+        if parts.len() >= 5 {
+            let ip = parts[4]; // IP address is the 5th field (index 4)
+
+            // Check if it contains ':' which indicates IPv6
+            if ip.contains(':') {
+                return Some("ipv6".to_string());
+            } else if ip.contains('.') {
+                return Some("ipv4".to_string());
+            }
+        }
+    }
+
+    None
+}
+
 /// Check if we should stop polling for ICE candidates
 /// Returns true when ICE gathering is complete and connection is established
 async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
@@ -113,25 +137,54 @@ impl WebRtcConnection {
         // Set up ICE candidate event handler
         let _peer_clone = peer.clone();
         let client_id_clone = client_id.clone();
+        let ip_version_for_filter = ip_version.to_string();
         let onicecandidate = Closure::wrap(Box::new(move |event: web_sys::Event| {
             // Check if this is an icecandidate event
             if event.type_() == "icecandidate" {
                 if let Ok(candidate) = js_sys::Reflect::get(&event, &"candidate".into()) {
                     if !candidate.is_undefined() && !candidate.is_null() {
+                        // Extract the candidate SDP string for filtering
+                        let candidate_sdp = js_sys::Reflect::get(&candidate, &"candidate".into())
+                            .ok()
+                            .and_then(|c| c.as_string());
+
                         // Convert JsValue to JSON string
                         if let Ok(json_str) = js_sys::JSON::stringify(&candidate) {
                             let candidate_str = json_str.as_string().unwrap_or_default();
 
                             // Skip empty candidates (end-of-candidates)
                             if !candidate_str.trim().is_empty() && !candidate_str.contains("\"\"") {
-                                let client_id = client_id_clone.clone();
-
-                                // Send ICE candidate to server
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    if let Err(e) = signaling::send_ice_candidate(&client_id, &candidate_str).await {
-                                        log::error!("Failed to send ICE candidate: {:?}", e);
+                                // Filter candidates by IP version
+                                let should_send = if let Some(sdp) = candidate_sdp {
+                                    if let Some(detected_version) = get_candidate_ip_version(&sdp) {
+                                        let matches = detected_version.eq_ignore_ascii_case(&ip_version_for_filter);
+                                        if matches {
+                                            log::info!("Sending {} candidate: {}", detected_version, sdp);
+                                        } else {
+                                            log::debug!("Filtering out {} candidate for {} connection: {}",
+                                                detected_version, ip_version_for_filter, sdp);
+                                        }
+                                        matches
+                                    } else {
+                                        // Unable to determine version, send it anyway (might be relay/reflexive)
+                                        log::debug!("Unable to determine IP version, sending candidate anyway: {:?}", sdp);
+                                        true
                                     }
-                                });
+                                } else {
+                                    // No SDP string, send anyway
+                                    true
+                                };
+
+                                if should_send {
+                                    let client_id = client_id_clone.clone();
+
+                                    // Send ICE candidate to server
+                                    wasm_bindgen_futures::spawn_local(async move {
+                                        if let Err(e) = signaling::send_ice_candidate(&client_id, &candidate_str).await {
+                                            log::error!("Failed to send ICE candidate: {:?}", e);
+                                        }
+                                    });
+                                }
                             }
                         }
                     }
@@ -145,6 +198,7 @@ impl WebRtcConnection {
         // Start polling for server ICE candidates
         let peer_for_poll = peer.clone();
         let client_id_for_poll = client_id.clone();
+        let ip_version_for_poll = ip_version.to_string();
         wasm_bindgen_futures::spawn_local(async move {
             let mut poll_count = 0;
             let max_polls = 3000; // Timeout after 3000 polls (about 5 minutes at 100ms intervals)
@@ -171,12 +225,30 @@ impl WebRtcConnection {
                         // Parse JSON string to extract candidate field
                         if let Ok(candidate_obj) = js_sys::JSON::parse(&candidate_str) {
                             if let Ok(candidate) = js_sys::Reflect::get(&candidate_obj, &"candidate".into()) {
-                                if let Some(candidate_str) = candidate.as_string() {
-                                    let candidate_init = RtcIceCandidateInit::new(&candidate_str);
-                                    if let Err(e) = wasm_bindgen_futures::JsFuture::from(
-                                        peer_for_poll.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&candidate_init))
-                                    ).await {
-                                        log::error!("Failed to add remote ICE candidate: {:?}", e);
+                                if let Some(candidate_sdp) = candidate.as_string() {
+                                    // Filter server candidates by IP version
+                                    let should_add = if let Some(detected_version) = get_candidate_ip_version(&candidate_sdp) {
+                                        let matches = detected_version.eq_ignore_ascii_case(&ip_version_for_poll);
+                                        if matches {
+                                            log::info!("Adding {} candidate from server: {}", detected_version, candidate_sdp);
+                                        } else {
+                                            log::debug!("Filtering out server {} candidate for {} connection: {}",
+                                                detected_version, ip_version_for_poll, candidate_sdp);
+                                        }
+                                        matches
+                                    } else {
+                                        // Unable to determine version, add it anyway
+                                        log::debug!("Unable to determine server candidate IP version, adding anyway: {}", candidate_sdp);
+                                        true
+                                    };
+
+                                    if should_add {
+                                        let candidate_init = RtcIceCandidateInit::new(&candidate_sdp);
+                                        if let Err(e) = wasm_bindgen_futures::JsFuture::from(
+                                            peer_for_poll.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&candidate_init))
+                                        ).await {
+                                            log::error!("Failed to add remote ICE candidate: {:?}", e);
+                                        }
                                     }
                                 }
                             }
