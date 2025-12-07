@@ -34,6 +34,56 @@ fn get_candidate_ip_version(candidate_str: &str) -> Option<String> {
     None
 }
 
+/// Filter SDP to remove ICE candidates of the wrong IP version
+fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
+    if ip_version.is_none() {
+        return sdp.to_string();
+    }
+
+    let expected_version = ip_version.unwrap();
+    let mut filtered_lines = Vec::new();
+
+    for line in sdp.lines() {
+        if line.starts_with("a=candidate:") {
+            // Parse the candidate line
+            // Format: a=candidate:foundation component protocol priority ip port typ type ...
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 5 {
+                let ip = parts[4]; // IP address is the 5th field (index 4)
+
+                let detected_version = if ip.contains(':') {
+                    "ipv6"
+                } else if ip.contains('.') {
+                    "ipv4"
+                } else {
+                    ""
+                };
+
+                if !detected_version.is_empty() && detected_version.eq_ignore_ascii_case(expected_version) {
+                    // Keep this candidate
+                    filtered_lines.push(line);
+                    tracing::debug!("Keeping {} candidate in SDP: {}", detected_version, ip);
+                } else if !detected_version.is_empty() {
+                    // Filter out this candidate
+                    tracing::debug!("Filtering out {} candidate from SDP for {} connection: {}",
+                        detected_version, expected_version, ip);
+                } else {
+                    // Unknown format, keep it
+                    filtered_lines.push(line);
+                }
+            } else {
+                // Malformed candidate line, keep it
+                filtered_lines.push(line);
+            }
+        } else {
+            // Not a candidate line, keep it
+            filtered_lines.push(line);
+        }
+    }
+
+    filtered_lines.join("\r\n") + "\r\n"
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SignalingStartRequest {
     pub sdp: String,
@@ -172,13 +222,20 @@ pub async fn signaling_start(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    // Filter SDP candidates based on IP version
+    let filtered_sdp = filter_sdp_candidates(&answer_sdp, req.ip_version.as_ref());
+    tracing::info!("Filtered SDP for {:?} connection, original candidates: {}, filtered candidates: {}",
+        req.ip_version,
+        answer_sdp.matches("a=candidate:").count(),
+        filtered_sdp.matches("a=candidate:").count());
+
     state.clients.write().await.insert(client_id.clone(), session);
 
     let response = SignalingStartResponse {
         client_id,
         parent_client_id: Some(parent_client_id),
         ip_version: req.ip_version,
-        sdp: answer_sdp,
+        sdp: filtered_sdp,
     };
     tracing::info!("RESPONSE: {:?}", &response);
 
