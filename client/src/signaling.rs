@@ -7,11 +7,15 @@ use web_sys::{Request, RequestInit, RequestMode, Response, window};
 #[derive(Serialize)]
 struct SignalingStartRequest {
     sdp: String,
+    parent_client_id: Option<String>,
+    ip_version: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct SignalingStartResponse {
     client_id: String,
+    parent_client_id: Option<String>,
+    ip_version: Option<String>,
     sdp: String,
 }
 
@@ -21,10 +25,14 @@ struct IceCandidateRequest {
     candidate: String,
 }
 
-pub async fn send_offer(offer_sdp: String) -> Result<(String, String), JsValue> {
+pub async fn send_offer(offer_sdp: String, parent_client_id: Option<String>, ip_version: Option<String>) -> Result<(String, Option<String>, Option<String>, String), JsValue> {
     let window = window().ok_or("No window")?;
 
-    let req_body = SignalingStartRequest { sdp: offer_sdp };
+    let req_body = SignalingStartRequest {
+        sdp: offer_sdp,
+        parent_client_id,
+        ip_version,
+    };
     let body_str = serde_json::to_string(&req_body)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
@@ -45,7 +53,7 @@ pub async fn send_offer(offer_sdp: String) -> Result<(String, String), JsValue> 
     let json = JsFuture::from(resp.json()?).await?;
     let response: SignalingStartResponse = serde_wasm_bindgen::from_value(json)?;
 
-    Ok((response.client_id, response.sdp))
+    Ok((response.client_id, response.parent_client_id, response.ip_version, response.sdp))
 }
 
 pub async fn send_ice_candidate(client_id: &str, candidate: &str) -> Result<(), JsValue> {

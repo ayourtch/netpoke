@@ -14,6 +14,8 @@ pub struct AppState {
 
 pub struct ClientSession {
     pub id: String,
+    pub parent_id: Option<String>,
+    pub ip_version: Option<String>,
     pub peer_connection: Arc<RTCPeerConnection>,
     pub data_channels: Arc<RwLock<DataChannels>>,
     pub metrics: Arc<RwLock<ClientMetrics>>,

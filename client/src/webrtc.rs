@@ -37,14 +37,25 @@ pub struct WebRtcConnection {
 }
 
 impl WebRtcConnection {
-    pub async fn new() -> Result<Self, JsValue> {
-        log::info!("Creating RTCPeerConnection");
+    pub async fn new_with_ip_version(ip_version: &str, parent_client_id: Option<String>) -> Result<Self, JsValue> {
+        log::info!("Creating RTCPeerConnection for IP version: {}", ip_version);
 
         let mut config = RtcConfiguration::new();
-        // Use Google's public STUN server
+
+        // Configure ICE servers based on IP version
         let ice_servers = js_sys::Array::new();
         let server = js_sys::Object::new();
-        js_sys::Reflect::set(&server, &"urls".into(), &"stun:stun.l.google.com:19302".into())?;
+
+        // Use different STUN servers based on IP version preference
+        let stun_url = if ip_version.eq_ignore_ascii_case("ipv6") {
+            // Try IPv6-capable STUN server first, fallback to dual-stack
+            "stun:stun.l.google.com:19302"
+        } else {
+            // IPv4 preference
+            "stun:stun.l.google.com:19302"
+        };
+
+        js_sys::Reflect::set(&server, &"urls".into(), &stun_url.into())?;
         ice_servers.push(&server);
         config.set_ice_servers(&ice_servers);
 
@@ -86,7 +97,8 @@ impl WebRtcConnection {
 
         log::info!("Sending offer to server");
 
-        let (client_id, answer_sdp) = signaling::send_offer(offer_sdp).await?;
+        let (client_id, parent_id_from_server, _ip_version_from_server, answer_sdp) =
+            signaling::send_offer(offer_sdp, parent_client_id.clone(), Some(ip_version.to_string())).await?;
 
         log::info!("Received answer from server, client_id: {}", client_id);
 
@@ -99,7 +111,7 @@ impl WebRtcConnection {
         ).await?;
 
         // Set up ICE candidate event handler
-        let peer_clone = peer.clone();
+        let _peer_clone = peer.clone();
         let client_id_clone = client_id.clone();
         let onicecandidate = Closure::wrap(Box::new(move |event: web_sys::Event| {
             // Check if this is an icecandidate event

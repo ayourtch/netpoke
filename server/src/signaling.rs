@@ -13,11 +13,15 @@ use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 #[derive(Debug, Deserialize)]
 pub struct SignalingStartRequest {
     pub sdp: String,
+    pub parent_client_id: Option<String>, // For grouping multiple sessions
+    pub ip_version: Option<String>,       // "ipv4" or "ipv6"
 }
 
 #[derive(Debug, Serialize)]
 pub struct SignalingStartResponse {
     pub client_id: String,
+    pub parent_client_id: Option<String>,
+    pub ip_version: Option<String>,
     pub sdp: String,
 }
 
@@ -33,6 +37,7 @@ pub async fn signaling_start(
 ) -> Result<Json<SignalingStartResponse>, StatusCode> {
     tracing::info!("Received signaling start request: {:?}", &req);
     tracing::info!("SDP: {}", &req.sdp);
+    tracing::info!("IP Version: {:?}", req.ip_version);
 
     // Create peer connection
     let peer = webrtc_manager::create_peer_connection()
@@ -43,6 +48,10 @@ pub async fn signaling_start(
         })?;
 
     let client_id = uuid::Uuid::new_v4().to_string();
+
+    // Use provided parent_client_id or create a new one
+    let parent_client_id = req.parent_client_id.unwrap_or_else(|| client_id.clone());
+
     let data_channels = Arc::new(tokio::sync::RwLock::new(crate::state::DataChannels::new()));
     let metrics = Arc::new(tokio::sync::RwLock::new(common::ClientMetrics::default()));
     let measurement_state = Arc::new(tokio::sync::RwLock::new(crate::state::MeasurementState::new()));
@@ -50,6 +59,8 @@ pub async fn signaling_start(
 
     let session = Arc::new(crate::state::ClientSession {
         id: client_id.clone(),
+        parent_id: Some(parent_client_id.clone()),
+        ip_version: req.ip_version.clone(),
         peer_connection: peer.clone(),
         data_channels,
         metrics,
@@ -92,6 +103,8 @@ pub async fn signaling_start(
 
     let response = SignalingStartResponse {
         client_id,
+        parent_client_id: Some(parent_client_id),
+        ip_version: req.ip_version,
         sdp: answer_sdp,
     };
     tracing::info!("RESPONSE: {:?}", &response);
