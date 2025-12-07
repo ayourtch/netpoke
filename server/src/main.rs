@@ -5,11 +5,12 @@ mod data_channels;
 mod measurements;
 mod dashboard;
 
-use axum::{Router, routing::{get, post}};
+use axum::{Router, routing::{get, post}, extract::State, Json};
 use std::net::SocketAddr;
 use tower_http::{trace::TraceLayer, services::ServeDir};
 use tracing_subscriber;
 use state::AppState;
+use common::{DashboardMessage, ClientInfo};
 
 use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
@@ -25,6 +26,7 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
         .route("/api/signaling/ice", post(signaling::ice_candidate))
         .route("/api/signaling/ice/remote", post(signaling::get_ice_candidates))
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
+        .route("/api/dashboard/debug", get(dashboard_debug))
         .nest_service("/", ServeDir::new("server/static"))
         .with_state(app_state)
         .layer(TraceLayer::new_for_http());
@@ -86,4 +88,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+async fn dashboard_debug(State(state): State<AppState>) -> Json<DashboardMessage> {
+    let clients_lock = state.clients.read().await;
+    let mut clients_info = Vec::new();
+
+    for (_, session) in clients_lock.iter() {
+        let metrics = session.metrics.read().await.clone();
+        let connected_at = session.connected_at.elapsed().as_secs();
+        let measurement_state = session.measurement_state.read().await;
+        let current_seq = measurement_state.probe_seq;
+
+        clients_info.push(ClientInfo {
+            id: session.id.clone(),
+            parent_id: session.parent_id.clone(),
+            ip_version: session.ip_version.clone(),
+            connected_at,
+            metrics,
+            peer_address: Some("N/A".to_string()),
+            peer_port: None,
+            current_seq,
+        });
+    }
+    drop(clients_lock);
+
+    Json(DashboardMessage {
+        clients: clients_info,
+    })
 }

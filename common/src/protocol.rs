@@ -28,10 +28,16 @@ impl BulkPacket {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct ClientInfo {
     pub id: String,
-    pub connected_at: u64, // Unix timestamp
+    pub parent_id: Option<String>,
+    pub ip_version: Option<String>,
+    pub connected_at: u64,
     pub metrics: ClientMetrics,
+    pub peer_address: Option<String>,
+    pub peer_port: Option<u16>,
+    pub current_seq: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,8 +75,13 @@ mod tests {
             clients: vec![
                 ClientInfo {
                     id: "client-1".to_string(),
+                    parent_id: Some("parent-1".to_string()),
+                    ip_version: Some("ipv4".to_string()),
                     connected_at: 1234567890,
                     metrics: ClientMetrics::default(),
+                    peer_address: Some("192.168.1.100".to_string()),
+                    peer_port: Some(54321),
+                    current_seq: 42,
                 }
             ],
         };
@@ -79,5 +90,7 @@ mod tests {
         let deserialized: DashboardMessage = serde_json::from_str(&json).unwrap();
 
         assert_eq!(msg.clients.len(), deserialized.clients.len());
+        assert_eq!(deserialized.clients[0].id, "client-1");
+        assert_eq!(deserialized.clients[0].current_seq, 42);
     }
 }

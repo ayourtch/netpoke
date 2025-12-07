@@ -31,11 +31,27 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
             for (_, session) in clients_lock.iter() {
                 let metrics = session.metrics.read().await.clone();
                 let connected_at = session.connected_at.elapsed().as_secs();
+                let measurement_state = session.measurement_state.read().await;
+                let current_seq = measurement_state.probe_seq;
+
+                // Extract peer address and port from the peer connection
+                let mut peer_address = None;
+                let mut peer_port = None;
+
+                // For now, we'll set peer address to N/A since extracting it from ICE
+                // candidates can be complex and error-prone. This can be enhanced later.
+                peer_address = Some("N/A".to_string());
+                peer_port = None;
 
                 clients_info.push(ClientInfo {
                     id: session.id.clone(),
+                    parent_id: session.parent_id.clone(),
+                    ip_version: session.ip_version.clone(),
                     connected_at,
                     metrics,
+                    peer_address,
+                    peer_port,
+                    current_seq,
                 });
             }
             drop(clients_lock);

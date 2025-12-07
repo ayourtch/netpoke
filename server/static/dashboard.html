@@ -8,6 +8,9 @@
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #4CAF50; color: white; }
         .disconnected { background-color: #ffcccc; }
+        .ipv4 { background-color: #e3f2fd !important; }
+        .ipv6 { background-color: #fff3e0 !important; }
+        .parent-id { font-size: 0.9em; color: #666; }
     </style>
 </head>
 <body>
@@ -17,14 +20,18 @@
         <thead>
             <tr>
                 <th>Client ID</th>
+                <th>Parent ID</th>
+                <th>IP Version</th>
+                <th>Peer Address</th>
                 <th>C2S Throughput (1s/10s/60s)</th>
                 <th>S2C Throughput (1s/10s/60s)</th>
                 <th>C2S Delay (1s/10s/60s)</th>
                 <th>S2C Delay (1s/10s/60s)</th>
+                <th>Current Seq</th>
             </tr>
         </thead>
         <tbody id="clients-body">
-            <tr><td colspan="5">No clients connected</td></tr>
+            <tr><td colspan="9">No clients connected</td></tr>
         </tbody>
     </table>
     <script src="/dashboard.js"></script>
