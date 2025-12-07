@@ -10,6 +10,30 @@ use crate::data_channels;
 use std::sync::Arc;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 
+/// Determine if an ICE candidate is IPv4 or IPv6 by parsing the candidate string
+/// Returns Some("ipv4"), Some("ipv6"), or None if unable to determine
+fn get_candidate_ip_version(candidate_str: &str) -> Option<String> {
+    // Parse the candidate SDP attribute
+    // Format: "candidate:foundation component protocol priority ip port typ type ..."
+    // Example: "candidate:1234567890 1 udp 2122260223 192.168.1.100 54321 typ host"
+
+    if let Some(candidate_part) = candidate_str.strip_prefix("candidate:") {
+        let parts: Vec<&str> = candidate_part.split_whitespace().collect();
+        if parts.len() >= 5 {
+            let ip = parts[4]; // IP address is the 5th field (index 4)
+
+            // Check if it contains ':' which indicates IPv6
+            if ip.contains(':') {
+                return Some("ipv6".to_string());
+            } else if ip.contains('.') {
+                return Some("ipv4".to_string());
+            }
+        }
+    }
+
+    None
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SignalingStartRequest {
     pub sdp: String,
@@ -77,16 +101,59 @@ pub async fn signaling_start(
     // Set up ICE candidate handler to send candidates back to client
     let client_id_for_ice = client_id.clone();
     let ice_candidates_for_handler = session.ice_candidates.clone();
+    let ip_version_for_filter = req.ip_version.clone();
     peer.on_ice_candidate(Box::new(move |candidate| {
         if let Some(c) = candidate {
             tracing::info!("Server ICE candidate gathered for client {}", client_id_for_ice);
+
+            // Extract the IP address from the candidate
+            let candidate_address = c.address.clone();
+
             if let Ok(candidate_json) = serde_json::to_string(&c) {
                 let candidates = ice_candidates_for_handler.clone();
+                let ip_version_filter = ip_version_for_filter.clone();
+                let client_id = client_id_for_ice.clone();
+
                 tokio::spawn(async move {
-                    // Store the candidate
-                    let mut candidates = candidates.lock().await;
-                    candidates.push_back(candidate_json);
-                    tracing::debug!("Stored ICE candidate in VecDeque (total: {})", candidates.len());
+                    // Filter candidates by IP version if specified
+                    let should_store = if let Some(ref expected_version) = ip_version_filter {
+                        // Check if address is IPv4 or IPv6
+                        let detected_version = if candidate_address.contains(':') {
+                            "ipv6"
+                        } else if candidate_address.contains('.') {
+                            "ipv4"
+                        } else {
+                            ""
+                        };
+
+                        if !detected_version.is_empty() {
+                            let matches = detected_version.eq_ignore_ascii_case(expected_version);
+                            if matches {
+                                tracing::info!("Server storing {} candidate for client {}: {}",
+                                    detected_version, client_id, candidate_address);
+                            } else {
+                                tracing::debug!("Server filtering out {} candidate for {} connection (client {}): {}",
+                                    detected_version, expected_version, client_id, candidate_address);
+                            }
+                            matches
+                        } else {
+                            // Unable to determine version, store it anyway
+                            tracing::debug!("Unable to determine server candidate IP version for client {}, storing anyway: {}",
+                                client_id, candidate_address);
+                            true
+                        }
+                    } else {
+                        // No IP version filter specified, store all candidates
+                        tracing::debug!("No IP version filter for client {}, storing candidate: {}",
+                            client_id, candidate_address);
+                        true
+                    };
+
+                    if should_store {
+                        let mut candidates = candidates.lock().await;
+                        candidates.push_back(candidate_json);
+                        tracing::debug!("Stored ICE candidate in VecDeque (total: {})", candidates.len());
+                    }
 
                     // Note: We DON'T extract peer address from server's own ICE candidates.
                     // The peer address comes from the remote (client) candidate, which we'll
@@ -138,15 +205,44 @@ pub async fn ice_candidate(
         }
     };
 
-    session.peer_connection
-        .add_ice_candidate(candidate_init)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to add ICE candidate: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    // Filter candidate by IP version if session has one specified
+    let should_add = if let Some(ref expected_version) = session.ip_version {
+        let candidate_str = &candidate_init.candidate;
+        if let Some(detected_version) = get_candidate_ip_version(candidate_str) {
+            let matches = detected_version.eq_ignore_ascii_case(expected_version);
+            if matches {
+                tracing::info!("Server accepting {} candidate from client {}: {}",
+                    detected_version, req.client_id, candidate_str);
+            } else {
+                tracing::info!("Server rejecting {} candidate for {} connection (client {}): {}",
+                    detected_version, expected_version, req.client_id, candidate_str);
+            }
+            matches
+        } else {
+            // Unable to determine version, accept it anyway
+            tracing::debug!("Unable to determine client candidate IP version for client {}, accepting anyway: {}",
+                req.client_id, candidate_str);
+            true
+        }
+    } else {
+        // No IP version filter specified, accept all candidates
+        true
+    };
 
-    Ok(StatusCode::OK)
+    if should_add {
+        session.peer_connection
+            .add_ice_candidate(candidate_init)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to add ICE candidate: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        Ok(StatusCode::OK)
+    } else {
+        // Return OK even though we filtered it out, to avoid breaking client flow
+        tracing::debug!("Filtered out candidate for client {}, returning OK", req.client_id);
+        Ok(StatusCode::OK)
+    }
 }
 
 pub async fn get_ice_candidates(
