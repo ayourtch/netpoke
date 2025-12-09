@@ -25,14 +25,32 @@ pub async fn start_probe_sender(
         drop(channels);
 
         // Create and send probe packet
+        let sent_at_ms = current_time_ms();
         let mut state = session.measurement_state.write().await;
         let seq = state.probe_seq;
         state.probe_seq += 1;
+
+        // Track sent probe for S2C delay calculation
+        state.sent_probes.push_back(crate::state::SentProbe {
+            seq,
+            sent_at_ms,
+        });
+
+        // Keep only last 60 seconds of sent probes
+        let cutoff = sent_at_ms - 60_000;
+        while let Some(p) = state.sent_probes.front() {
+            if p.sent_at_ms < cutoff {
+                state.sent_probes.pop_front();
+            } else {
+                break;
+            }
+        }
+
         drop(state);
 
         let probe = ProbePacket {
             seq,
-            timestamp_ms: current_time_ms(),
+            timestamp_ms: sent_at_ms,
             direction: Direction::ServerToClient,
         };
 
@@ -102,19 +120,52 @@ pub async fn handle_probe_packet(
         let now_ms = current_time_ms();
 
         let mut state = session.measurement_state.write().await;
-        state.received_probes.push_back(ReceivedProbe {
-            seq: probe.seq,
-            sent_at_ms: probe.timestamp_ms,
-            received_at_ms: now_ms,
-        });
 
-        // Keep only last 60 seconds of probes
-        let cutoff = now_ms - 60_000;
-        while let Some(p) = state.received_probes.front() {
-            if p.received_at_ms < cutoff {
-                state.received_probes.pop_front();
+        // Check if this is an echoed S2C probe or a C2S probe
+        if probe.direction == Direction::ServerToClient {
+            // This is an echoed probe - client received our probe and echoed it back
+            // probe.timestamp_ms is when client received it (client's echo timestamp)
+            // We need to find the original sent probe to get the original sent time
+            tracing::info!("Received echoed S2C probe seq {} from client {}", probe.seq, session.id);
+
+            if let Some(sent_probe) = state.sent_probes.iter().find(|p| p.seq == probe.seq) {
+                let sent_at_ms = sent_probe.sent_at_ms;  // Clone to avoid borrow issue
+                state.echoed_probes.push_back(crate::state::EchoedProbe {
+                    seq: probe.seq,
+                    sent_at_ms,
+                    echoed_at_ms: probe.timestamp_ms,
+                });
+                tracing::info!("Matched echoed probe seq {}, delay: {}ms",
+                    probe.seq, probe.timestamp_ms.saturating_sub(sent_at_ms));
+
+                // Keep only last 60 seconds of echoed probes
+                let cutoff = now_ms - 60_000;
+                while let Some(p) = state.echoed_probes.front() {
+                    if p.echoed_at_ms < cutoff {
+                        state.echoed_probes.pop_front();
+                    } else {
+                        break;
+                    }
+                }
             } else {
-                break;
+                tracing::warn!("Received echoed probe seq {} but couldn't find matching sent probe", probe.seq);
+            }
+        } else {
+            // This is a C2S probe from client
+            state.received_probes.push_back(ReceivedProbe {
+                seq: probe.seq,
+                sent_at_ms: probe.timestamp_ms,
+                received_at_ms: now_ms,
+            });
+
+            // Keep only last 60 seconds of probes
+            let cutoff = now_ms - 60_000;
+            while let Some(p) = state.received_probes.front() {
+                if p.received_at_ms < cutoff {
+                    state.received_probes.pop_front();
+                } else {
+                    break;
+                }
             }
         }
 
@@ -226,6 +277,47 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
             let total_bytes: u64 = recent_sent_bulk.iter().map(|b| b.bytes).sum();
             let time_window_sec = window_ms as f64 / 1000.0;
             metrics.s2c_throughput[i] = total_bytes as f64 / time_window_sec;
+        }
+
+        // Server-to-client metrics (from echoed probes)
+        let recent_echoed_probes: Vec<_> = state.echoed_probes.iter()
+            .filter(|p| p.echoed_at_ms >= cutoff)
+            .collect();
+
+        if !recent_echoed_probes.is_empty() {
+            // Calculate delay (time from sent to echoed)
+            let delays: Vec<f64> = recent_echoed_probes.iter()
+                .map(|p| (p.echoed_at_ms.saturating_sub(p.sent_at_ms)) as f64)
+                .collect();
+
+            let avg_delay = delays.iter().sum::<f64>() / delays.len() as f64;
+            metrics.s2c_delay_avg[i] = avg_delay;
+
+            // Calculate jitter (std dev of delay)
+            let variance = delays.iter()
+                .map(|d| (d - avg_delay).powi(2))
+                .sum::<f64>() / delays.len() as f64;
+            metrics.s2c_jitter[i] = variance.sqrt();
+
+            // Calculate loss rate
+            if recent_echoed_probes.len() >= 2 {
+                let min_seq = recent_echoed_probes.iter().map(|p| p.seq).min().unwrap();
+                let max_seq = recent_echoed_probes.iter().map(|p| p.seq).max().unwrap();
+                let expected = (max_seq - min_seq + 1) as f64;
+                let received = recent_echoed_probes.len() as f64;
+                metrics.s2c_loss_rate[i] = ((expected - received) / expected * 100.0).max(0.0);
+            }
+
+            // Calculate reordering rate
+            let mut reorders = 0;
+            let mut max_seq_seen = 0u64;
+            for p in &recent_echoed_probes {
+                if p.seq < max_seq_seen {
+                    reorders += 1;
+                }
+                max_seq_seen = max_seq_seen.max(p.seq);
+            }
+            metrics.s2c_reorder_rate[i] = (reorders as f64 / recent_echoed_probes.len() as f64) * 100.0;
         }
     }
 

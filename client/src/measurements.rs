@@ -141,12 +141,13 @@ pub fn setup_probe_channel(
 
     // Handle incoming probes from server
     let state_receiver = state.clone();
+    let channel_for_echo = channel.clone();
     let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
         if let Some(txt) = ev.data().as_string() {
-            if let Ok(probe) = serde_json::from_str::<ProbePacket>(&txt) {
+            if let Ok(mut probe) = serde_json::from_str::<ProbePacket>(&txt) {
                 let now_ms = current_time_ms();
                 let mut state = state_receiver.borrow_mut();
-                
+
                 state.received_probes.push_back(ReceivedProbe {
                     seq: probe.seq,
                     sent_at_ms: probe.timestamp_ms,
@@ -160,6 +161,14 @@ pub fn setup_probe_channel(
                         state.received_probes.pop_front();
                     } else {
                         break;
+                    }
+                }
+
+                // Echo probe back to server with received timestamp
+                probe.timestamp_ms = now_ms;
+                if let Ok(json) = serde_json::to_string(&probe) {
+                    if let Err(e) = channel_for_echo.send_with_str(&json) {
+                        log::error!("Failed to echo probe back: {:?}", e);
                     }
                 }
             }

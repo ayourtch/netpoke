@@ -24,7 +24,8 @@
 <body>
     <h1>Network Measurement Client</h1>
     <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
-    <div id="status">Ready</div>
+    <div id="status">Loading WASM module...</div>
+    <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
     <div id="metrics">
         <h2>Dual-Stack Network Measurement</h2>
         <div class="dual-stack-container">
@@ -57,34 +58,52 @@
     </div>
 
     <script type="module">
-        import init, { start_measurement } from './pkg/wifi_verify_client.js';
+        const errorEl = document.getElementById('error');
+        const statusEl = document.getElementById('status');
+        const btnEl = document.getElementById('start-btn');
 
-        async function run() {
+        try {
+            // Cache-busting timestamp
+            const cacheBuster = Date.now();
+            const module = await import(`./pkg/wifi_verify_client.js?v=${cacheBuster}`);
+            const { default: init, start_measurement } = module;
+
+            // Initialize WASM
             await init();
-            console.log('WASM module loaded');
-        }
-
-        window.startMeasurement = async function() {
-            const statusEl = document.getElementById('status');
-            const btnEl = document.getElementById('start-btn');
-            
-            statusEl.textContent = 'Starting...';
+            console.log('WASM module loaded successfully');
+            statusEl.textContent = 'Ready';
             statusEl.className = '';
-            btnEl.disabled = true;
-            
-            try {
-                await start_measurement();
-                statusEl.textContent = 'Running - measuring network...';
-                statusEl.className = 'running';
-            } catch (e) {
-                statusEl.textContent = 'Error: ' + e;
-                statusEl.className = 'error';
-                btnEl.disabled = false;
-                console.error(e);
-            }
-        };
 
-        run();
+            window.startMeasurement = async function() {
+                statusEl.textContent = 'Starting...';
+                statusEl.className = '';
+                btnEl.disabled = true;
+                errorEl.textContent = '';
+
+                try {
+                    await start_measurement();
+                    statusEl.textContent = 'Running - measuring network...';
+                    statusEl.className = 'running';
+                } catch (e) {
+                    const errMsg = 'Measurement error: ' + (e.message || e);
+                    statusEl.textContent = 'Error';
+                    statusEl.className = 'error';
+                    errorEl.textContent = errMsg;
+                    btnEl.disabled = false;
+                    console.error('Measurement error:', e);
+                }
+            };
+        } catch (e) {
+            const errMsg = 'Failed to load WASM module: ' + (e.message || e);
+            statusEl.textContent = 'Failed to load';
+            statusEl.className = 'error';
+            errorEl.textContent = errMsg;
+            console.error('WASM load error:', e);
+
+            window.startMeasurement = function() {
+                alert('WASM module failed to load. Please refresh the page.');
+            };
+        }
     </script>
 </body>
 </html>

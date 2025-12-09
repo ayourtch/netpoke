@@ -37,6 +37,8 @@ pub struct MeasurementState {
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
     pub sent_bulk_packets: VecDeque<SentBulk>,
+    pub sent_probes: VecDeque<SentProbe>,  // Track sent S2C probes
+    pub echoed_probes: VecDeque<EchoedProbe>,  // Track echoed S2C probes
     pub last_received_seq: Option<u64>,
 }
 
@@ -57,6 +59,19 @@ pub struct ReceivedBulk {
 pub struct SentBulk {
     pub bytes: u64,
     pub sent_at_ms: u64,
+}
+
+#[derive(Clone)]
+pub struct SentProbe {
+    pub seq: u64,
+    pub sent_at_ms: u64,
+}
+
+#[derive(Clone)]
+pub struct EchoedProbe {
+    pub seq: u64,
+    pub sent_at_ms: u64,
+    pub echoed_at_ms: u64,  // When client received it and echoed back
 }
 
 impl AppState {
@@ -85,6 +100,8 @@ impl MeasurementState {
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
             sent_bulk_packets: VecDeque::new(),
+            sent_probes: VecDeque::new(),
+            echoed_probes: VecDeque::new(),
             last_received_seq: None,
         }
     }
