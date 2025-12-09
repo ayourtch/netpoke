@@ -64,7 +64,7 @@ impl WebRtcConnection {
     pub async fn new_with_ip_version(ip_version: &str, parent_client_id: Option<String>) -> Result<Self, JsValue> {
         log::info!("Creating RTCPeerConnection for IP version: {}", ip_version);
 
-        let mut config = RtcConfiguration::new();
+        let config = RtcConfiguration::new();
 
         // Configure ICE servers based on IP version
         let ice_servers = js_sys::Array::new();
@@ -89,7 +89,7 @@ impl WebRtcConnection {
         log::info!("Creating data channels");
 
         // Create probe channel (unreliable, unordered)
-        let mut probe_init = RtcDataChannelInit::new();
+        let probe_init = RtcDataChannelInit::new();
         probe_init.set_ordered(false);
         probe_init.set_max_retransmits(0);
         let probe_channel = peer.create_data_channel_with_data_channel_dict("probe", &probe_init);
@@ -112,29 +112,15 @@ impl WebRtcConnection {
             .as_string()
             .ok_or("No SDP in offer")?;
 
-        let mut offer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
-        offer_obj.set_sdp(&offer_sdp);
-
-        wasm_bindgen_futures::JsFuture::from(
-            peer.set_local_description(&offer_obj)
-        ).await?;
-
         log::info!("Sending offer to server");
 
-        let (client_id, parent_id_from_server, _ip_version_from_server, answer_sdp) =
-            signaling::send_offer(offer_sdp, parent_client_id.clone(), Some(ip_version.to_string())).await?;
+        let (client_id, _parent_id_from_server, _ip_version_from_server, answer_sdp) =
+            signaling::send_offer(offer_sdp.clone(), parent_client_id.clone(), Some(ip_version.to_string())).await?;
 
         log::info!("Received answer from server, client_id: {}", client_id);
 
-        let mut answer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
-        answer_obj.set_sdp(&answer_sdp);
-        log::info!("Remote answer: {:?}", &answer_sdp);
-
-        wasm_bindgen_futures::JsFuture::from(
-            peer.set_remote_description(&answer_obj)
-        ).await?;
-
-        // Set up ICE candidate event handler
+        // Set up ICE candidate event handler BEFORE setLocalDescription
+        // This is critical - ICE gathering starts as soon as we set local description
         let _peer_clone = peer.clone();
         let client_id_clone = client_id.clone();
         let ip_version_for_filter = ip_version.to_string();
@@ -194,6 +180,22 @@ impl WebRtcConnection {
 
         peer.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
         onicecandidate.forget();
+
+        // NOW set local and remote descriptions (ICE gathering will start after setLocalDescription)
+        let offer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
+        offer_obj.set_sdp(&offer_sdp);
+
+        wasm_bindgen_futures::JsFuture::from(
+            peer.set_local_description(&offer_obj)
+        ).await?;
+
+        let answer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
+        answer_obj.set_sdp(&answer_sdp);
+        log::info!("Remote answer: {:?}", &answer_sdp);
+
+        wasm_bindgen_futures::JsFuture::from(
+            peer.set_remote_description(&answer_obj)
+        ).await?;
 
         // Start polling for server ICE candidates
         let peer_for_poll = peer.clone();
