@@ -8,17 +8,37 @@ echo "Generating self-signed SSL certificates for development..."
 # Create certs directory if it doesn't exist
 mkdir -p certs
 
-# Generate private key
-openssl genrsa -out certs/server.key 2048
+# Create OpenSSL configuration file for v3 extensions
+cat > certs/openssl.cnf << 'EOF'
+[req]
+default_bits = 2048
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+x509_extensions = v3_ca
 
-# Generate certificate signing request
-openssl req -new -key certs/server.key -out certs/server.csr -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost"
+[req_distinguished_name]
 
-# Generate self-signed certificate (valid for 365 days)
-openssl x509 -req -days 365 -in certs/server.csr -signkey certs/server.key -out certs/server.crt
+[v3_req]
+subjectAltName = @alt_names
 
-# Clean up the CSR file
-rm certs/server.csr
+[v3_ca]
+subjectAltName = @alt_names
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+
+[alt_names]
+DNS.1 = localhost
+DNS.2 = *.localhost
+IP.1 = 127.0.0.1
+IP.2 = ::1
+EOF
+
+# Generate private key and v3 certificate in one step (valid for 365 days)
+openssl req -x509 -newkey rsa:2048 -keyout certs/server.key -out certs/server.crt -days 365 -nodes -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost" -config certs/openssl.cnf
+
+# Clean up the config file
+rm certs/openssl.cnf
 
 echo "Certificates generated successfully!"
 echo ""
