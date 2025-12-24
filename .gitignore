@@ -4,6 +4,7 @@
 /server/target/
 /common/target/
 /auth/target/
+/server/static/public/pkg/
 *.wasm
 /client/pkg/*.js
 node_modules/

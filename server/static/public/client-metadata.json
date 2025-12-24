@@ -1,5 +1,5 @@
 {
-  "client_id": "http://localhost:3000/client-metadata.json",
+  "client_id": "http://localhost:3000/public/client-metadata.json",
   "application_type": "web",
   "client_name": "WiFi Verify - Project Raindrops",
   "client_uri": "http://localhost:3000",

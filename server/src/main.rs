@@ -55,25 +55,36 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
                     require_auth
                 ));
             
-            // Combine: auth routes (public) + protected main app
+            // Protected static files - require authentication
+            let protected_static = Router::new()
+                .nest_service("/static", ServeDir::new("server/static"))
+                .route_layer(middleware::from_fn_with_state(
+                    auth_svc.clone(),
+                    require_auth
+                ));
+            
+            // Combine: auth routes (public) + public static files + protected routes + protected static files
             Router::new()
                 .nest("/auth", auth_router)
+                .route_service("/", ServeFile::new("server/static/public/index.html"))
+                .nest_service("/public", ServeDir::new("server/static/public"))
                 .merge(protected_app)
-                .route_service("/", ServeFile::new("server/static/index.html"))
-                .route_service("/{*path}", ServeDir::new("server/static"))
+                .merge(protected_static)
                 .layer(TraceLayer::new_for_http())
         } else {
             tracing::info!("Authentication is disabled or no providers are enabled");
             main_app
-                .route_service("/", ServeFile::new("server/static/index.html"))
-                .route_service("/{*path}", ServeDir::new("server/static"))
+                .route_service("/", ServeFile::new("server/static/public/index.html"))
+                .nest_service("/public", ServeDir::new("server/static/public"))
+                .nest_service("/static", ServeDir::new("server/static"))
                 .layer(TraceLayer::new_for_http())
         }
     } else {
         tracing::info!("No authentication service configured");
         main_app
-            .route_service("/", ServeFile::new("server/static/index.html"))
-            .route_service("/{*path}", ServeDir::new("server/static"))
+            .route_service("/", ServeFile::new("server/static/public/index.html"))
+            .nest_service("/public", ServeDir::new("server/static/public"))
+            .nest_service("/static", ServeDir::new("server/static"))
             .layer(TraceLayer::new_for_http())
     };
 

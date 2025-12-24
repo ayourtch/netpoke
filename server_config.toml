@@ -60,7 +60,7 @@ enable_linkedin = false
 
 # Bluesky OAuth (decentralized, no central registration required!)
 # The client_id should be a URL to your client-metadata.json file
-# bluesky_client_id = "http://localhost:3000/client-metadata.json"
+# bluesky_client_id = "http://localhost:3000/public/client-metadata.json"
 # bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
 
 # GitHub OAuth (get credentials from https://github.com/settings/developers)
