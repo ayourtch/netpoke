@@ -45,10 +45,13 @@ pub async fn require_auth_or_survey_session(
         // Check for survey session (Magic Key)
         if auth_service.config.magic_keys.enabled {
             if let Some(survey_session_id) = extract_session_id(cookie_str, &auth_service.config.magic_keys.survey_cookie_name) {
-                // For now, just check if the survey session cookie exists
-                // In the future, we'll validate it against a database of active surveys
-                tracing::debug!("Access granted via survey session: {}", survey_session_id);
-                return next.run(request).await;
+                // Validate the survey session format and expiration
+                if validate_survey_session(&survey_session_id, &auth_service.config.magic_keys) {
+                    tracing::debug!("Access granted via survey session: {}", survey_session_id);
+                    return next.run(request).await;
+                } else {
+                    tracing::debug!("Invalid or expired survey session: {}", survey_session_id);
+                }
             }
         }
     }
@@ -69,4 +72,52 @@ fn extract_session_id(cookie_str: &str, cookie_name: &str) -> Option<String> {
                 None
             }
         })
+}
+
+/// Validate survey session format and check expiration
+/// Session format: "survey_{magic_key}_{timestamp}_{uuid}"
+fn validate_survey_session(session_id: &str, config: &wifi_verify_auth::config::MagicKeyConfig) -> bool {
+    // Check if it starts with "survey_"
+    if !session_id.starts_with("survey_") {
+        return false;
+    }
+    
+    // Parse the session format
+    let parts: Vec<&str> = session_id.split('_').collect();
+    if parts.len() < 4 {
+        return false;
+    }
+    
+    // Extract timestamp (second-to-last part before UUID)
+    let timestamp_str = parts[parts.len() - 2];
+    let timestamp = match timestamp_str.parse::<u64>() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    
+    // Check if session has expired
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    
+    let elapsed = current_time.saturating_sub(timestamp);
+    if elapsed > config.survey_timeout_seconds {
+        tracing::debug!("Survey session expired: {} seconds old", elapsed);
+        return false;
+    }
+    
+    // Extract and validate the Magic Key is still in the allowed list
+    let magic_key_parts: Vec<String> = parts[1..parts.len()-2]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let magic_key = magic_key_parts.join("-");
+    
+    if !config.magic_keys.contains(&magic_key) {
+        tracing::debug!("Magic Key no longer valid: {}", magic_key);
+        return false;
+    }
+    
+    true
 }

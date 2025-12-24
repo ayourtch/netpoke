@@ -107,11 +107,20 @@ pub async fn magic_key_auth(
         ).into_response());
     }
     
-    // Create a survey session
-    let survey_session_id = Uuid::new_v4().to_string();
+    // Create a survey session with the Magic Key stored in the session ID format
+    // Format: "survey_{magic_key}_{timestamp}_{uuid}"
+    // This allows us to validate the session later without a database
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let uuid = Uuid::new_v4();
+    let survey_session_id = format!("survey_{}_{}_{}",
+        payload.magic_key.replace("-", "_"),
+        timestamp,
+        uuid
+    );
     
-    // Store the Magic Key in the session (we can extend AuthService to handle this)
-    // For now, we'll just set a cookie
     tracing::info!("Magic Key validated: {}", payload.magic_key);
     
     Ok((
