@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Network Measurement Client</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        #status { font-weight: bold; margin: 20px 0; }
+        #metrics { margin-top: 20px; }
+        .dual-stack-container { display: flex; gap: 20px; }
+        .stack-column { flex: 1; }
+        table { border-collapse: collapse; margin-top: 10px; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #4CAF50; color: white; }
+        td:first-child { text-align: left; }
+        .ipv4 th { background-color: #2196F3; }
+        .ipv6 th { background-color: #FF9800; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        button:hover { background-color: #ddd; }
+        .running { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Network Measurement Client</h1>
+    <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
+    <div id="status">Loading WASM module...</div>
+    <div id="ayxx"></div>
+    <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
+    <div id="metrics">
+        <h2>Dual-Stack Network Measurement</h2>
+        <div class="dual-stack-container">
+            <div class="stack-column">
+                <h3>IPv4 Connection</h3>
+                <table class="ipv4">
+                    <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+                    <tr><td>Throughput</td><td id="ipv4-s2c-tp-1">-</td><td id="ipv4-s2c-tp-10">-</td><td id="ipv4-s2c-tp-60">-</td></tr>
+                    <tr><td>Delay (ms)</td><td id="ipv4-s2c-delay-1">-</td><td id="ipv4-s2c-delay-10">-</td><td id="ipv4-s2c-delay-60">-</td></tr>
+                    <tr><td>Jitter (ms)</td><td id="ipv4-s2c-jitter-1">-</td><td id="ipv4-s2c-jitter-10">-</td><td id="ipv4-s2c-jitter-60">-</td></tr>
+                    <tr><td>Loss Rate</td><td id="ipv4-s2c-loss-1">-</td><td id="ipv4-s2c-loss-10">-</td><td id="ipv4-s2c-loss-60">-</td></tr>
+                    <tr><td>Reordering</td><td id="ipv4-s2c-reorder-1">-</td><td id="ipv4-s2c-reorder-10">-</td><td id="ipv4-s2c-reorder-60">-</td></tr>
+                </table>
+            </div>
+            <div class="stack-column">
+                <h3>IPv6 Connection</h3>
+                <table class="ipv6">
+                    <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+                    <tr><td>Throughput</td><td id="ipv6-s2c-tp-1">-</td><td id="ipv6-s2c-tp-10">-</td><td id="ipv6-s2c-tp-60">-</td></tr>
+                    <tr><td>Delay (ms)</td><td id="ipv6-s2c-delay-1">-</td><td id="ipv6-s2c-delay-10">-</td><td id="ipv6-s2c-delay-60">-</td></tr>
+                    <tr><td>Jitter (ms)</td><td id="ipv6-s2c-jitter-1">-</td><td id="ipv6-s2c-jitter-10">-</td><td id="ipv6-s2c-jitter-60">-</td></tr>
+                    <tr><td>Loss Rate</td><td id="ipv6-s2c-loss-1">-</td><td id="ipv6-s2c-loss-10">-</td><td id="ipv6-s2c-loss-60">-</td></tr>
+                    <tr><td>Reordering</td><td id="ipv6-s2c-reorder-1">-</td><td id="ipv6-s2c-reorder-10">-</td><td id="ipv6-s2c-reorder-60">-</td></tr>
+                </table>
+            </div>
+        </div>
+
+        <h2>Client → Server Metrics</h2>
+        <p><em>C2S metrics are measured by the server and visible on the <a href="/static/dashboard.html">dashboard</a>.</em></p>
+    </div>
+
+    <script type="module">
+        const errorEl = document.getElementById('error');
+        const statusEl = document.getElementById('status');
+        const btnEl = document.getElementById('start-btn');
+
+        // Wrap in async IIFE for better Safari compatibility
+        (async () => {
+            try {
+                // Cache-busting timestamp
+                const cacheBuster = Date.now();
+
+                // Import the JS wrapper (without cache-busting query param for Safari compatibility)
+                const module = await import('./pkg/wifi_verify_client.js');
+                const { default: init, start_measurement } = module;
+
+                // Initialize WASM with explicit path and cache-busting
+                // Pass the .wasm file path to init() for Safari compatibility
+                await init(`./pkg/wifi_verify_client_bg.wasm?v=${cacheBuster}`);
+                console.log('WASM module loaded successfully');
+                statusEl.textContent = 'Ready';
+                statusEl.className = '';
+
+                window.startMeasurement = async function() {
+                    statusEl.textContent = 'Starting...';
+                    statusEl.className = '';
+                    btnEl.disabled = true;
+                    errorEl.textContent = '';
+
+                    try {
+                        await start_measurement();
+                        statusEl.textContent = 'Running - measuring network...';
+                        statusEl.className = 'running';
+                    } catch (e) {
+                        const errMsg = 'Measurement error: ' + (e.message || e);
+                        statusEl.textContent = 'Error';
+                        statusEl.className = 'error';
+                        errorEl.textContent = errMsg;
+                        btnEl.disabled = false;
+                        console.error('Measurement error:', e);
+                    }
+                };
+            } catch (e) {
+                const errMsg = 'Failed to load WASM module: ' + (e.message || e);
+                statusEl.textContent = 'Failed to load';
+                statusEl.className = 'error';
+                errorEl.textContent = errMsg;
+                console.error('WASM load error:', e);
+                console.error('Full error:', e.stack);
+
+                window.startMeasurement = function() {
+                    alert('WASM module failed to load. Please refresh the page.');
+                };
+            }
+        })();
+    </script>
+</body>
+</html>

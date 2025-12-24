@@ -104,3 +104,18 @@ enabled = false
 cookie_name = "session_id"
 timeout_seconds = 86400  # 24 hours
 secure = false  # Set to true for HTTPS only cookies
+
+# Magic Key Authentication for Surveyors
+[auth.magic_keys]
+# Enable Magic Key authentication for field surveyors
+enabled = false
+
+# List of valid Magic Keys for survey access
+# Each key should be unique and given to individual surveyors
+# Later this will be checked against database of active surveys
+# magic_keys = ["SURVEY-2024-001", "SURVEY-2024-002", "SURVEY-2024-003"]
+magic_keys = []
+
+# Cookie name for survey sessions (different from regular auth sessions)
+survey_cookie_name = "survey_session_id"
+survey_timeout_seconds = 28800  # 8 hours

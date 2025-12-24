@@ -6,6 +6,7 @@ mod measurements;
 mod dashboard;
 mod cleanup;
 mod config;
+mod auth_handlers;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -48,6 +49,12 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
             // Create auth routes with their own state
             let auth_router = auth_routes().with_state(auth_svc.clone());
             
+            // Public API routes (auth status and magic key)
+            let public_api = Router::new()
+                .route("/api/auth/status", get(auth_handlers::auth_status))
+                .route("/api/auth/magic-key", post(auth_handlers::magic_key_auth))
+                .with_state(auth_svc.clone());
+            
             // Protected routes - main app with auth middleware
             let protected_app = main_app
                 .route_layer(middleware::from_fn_with_state(
@@ -63,9 +70,10 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
                     require_auth
                 ));
             
-            // Combine: auth routes (public) + public static files + protected routes + protected static files
+            // Combine: auth routes (public) + public API + public static files + protected routes + protected static files
             Router::new()
                 .nest("/auth", auth_router)
+                .merge(public_api)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
                 .merge(protected_app)

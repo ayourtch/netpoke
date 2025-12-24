@@ -24,6 +24,10 @@ pub struct AuthConfig {
     /// If not empty, only users in this list can access the application
     #[serde(default)]
     pub allowed_users: Vec<String>,
+    
+    /// Magic Key configuration for surveyors
+    #[serde(default)]
+    pub magic_keys: MagicKeyConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +111,33 @@ pub struct SessionConfig {
     pub secure: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MagicKeyConfig {
+    /// Enable Magic Key authentication
+    #[serde(default)]
+    pub enabled: bool,
+    
+    /// List of valid Magic Keys
+    #[serde(default)]
+    pub magic_keys: Vec<String>,
+    
+    /// Survey session cookie name
+    #[serde(default = "default_survey_cookie_name")]
+    pub survey_cookie_name: String,
+    
+    /// Survey session timeout in seconds (default: 8 hours)
+    #[serde(default = "default_survey_timeout")]
+    pub survey_timeout_seconds: u64,
+}
+
+fn default_survey_cookie_name() -> String {
+    "survey_session_id".to_string()
+}
+
+fn default_survey_timeout() -> u64 {
+    28800 // 8 hours
+}
+
 fn default_session_cookie_name() -> String {
     "session_id".to_string()
 }
@@ -123,6 +154,7 @@ impl Default for AuthConfig {
             plain_login: PlainLoginConfig::default(),
             session: SessionConfig::default(),
             allowed_users: vec![],
+            magic_keys: MagicKeyConfig::default(),
         }
     }
 }
@@ -164,6 +196,17 @@ impl Default for SessionConfig {
             cookie_name: default_session_cookie_name(),
             timeout_seconds: default_session_timeout(),
             secure: false,
+        }
+    }
+}
+
+impl Default for MagicKeyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            magic_keys: vec![],
+            survey_cookie_name: default_survey_cookie_name(),
+            survey_timeout_seconds: default_survey_timeout(),
         }
     }
 }
