@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket HTTPS Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 3px;
+        }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        #log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            height: 200px;
+            overflow-y: scroll;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket HTTPS Test</h1>
+    <p>This page tests both HTTP and HTTPS WebSocket connections to verify your server configuration.</p>
+
+    <div class="test-section">
+        <h3>HTTP WebSocket Test</h3>
+        <button onclick="testHttpWebSocket()">Test HTTP WebSocket (ws://)</button>
+        <button onclick="closeHttpWebSocket()">Close HTTP Connection</button>
+        <div id="http-status" class="status info">Ready to test HTTP WebSocket</div>
+    </div>
+
+    <div class="test-section">
+        <h3>HTTPS WebSocket Test</h3>
+        <button onclick="testHttpsWebSocket()">Test HTTPS WebSocket (wss://)</button>
+        <button onclick="closeHttpsWebSocket()">Close HTTPS Connection</button>
+        <div id="https-status" class="status info">Ready to test HTTPS WebSocket</div>
+    </div>
+
+    <div class="test-section">
+        <h3>Connection Log</h3>
+        <div id="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <script>
+        let httpWs = null;
+        let httpsWs = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `<span style="color: #666;">[${timestamp}]</span> ${message}`;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function updateStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        function testHttpWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/api/dashboard/ws`;
+            
+            log(`Attempting HTTP WebSocket connection to: ${wsUrl}`);
+            updateStatus('http-status', 'Connecting...', 'info');
+
+            try {
+                httpWs = new WebSocket(wsUrl);
+
+                httpWs.onopen = function() {
+                    log('HTTP WebSocket connection opened successfully', 'success');
+                    updateStatus('http-status', 'Connected (HTTP WebSocket)', 'success');
+                    httpWs.send(JSON.stringify({
+                        type: 'test',
+                        message: 'Hello from HTTP WebSocket test',
+                        timestamp: new Date().toISOString()
+                    }));
+                };
+
+                httpWs.onmessage = function(event) {
+                    log(`HTTP WebSocket received: ${event.data}`, 'info');
+                };
+
+                httpWs.onerror = function(error) {
+                    log(`HTTP WebSocket error: ${error}`, 'error');
+                    updateStatus('http-status', 'Connection failed', 'error');
+                };
+
+                httpWs.onclose = function(event) {
+                    log(`HTTP WebSocket connection closed: ${event.code} ${event.reason}`, 'info');
+                    updateStatus('http-status', 'Connection closed', 'info');
+                    httpWs = null;
+                };
+
+            } catch (error) {
+                log(`HTTP WebSocket connection error: ${error.message}`, 'error');
+                updateStatus('http-status', 'Connection failed', 'error');
+            }
+        }
+
+        function testHttpsWebSocket() {
+            // Force HTTPS WebSocket connection
+            const wsUrl = `wss://${window.location.hostname}:3443/api/dashboard/ws`;
+            
+            log(`Attempting HTTPS WebSocket connection to: ${wsUrl}`);
+            updateStatus('https-status', 'Connecting...', 'info');
+
+            try {
+                httpsWs = new WebSocket(wsUrl);
+
+                httpsWs.onopen = function() {
+                    log('HTTPS WebSocket connection opened successfully', 'success');
+                    updateStatus('https-status', 'Connected (HTTPS WebSocket)', 'success');
+                    httpsWs.send(JSON.stringify({
+                        type: 'test',
+                        message: 'Hello from HTTPS WebSocket test',
+                        timestamp: new Date().toISOString()
+                    }));
+                };
+
+                httpsWs.onmessage = function(event) {
+                    log(`HTTPS WebSocket received: ${event.data}`, 'info');
+                };
+
+                httpsWs.onerror = function(error) {
+                    log(`HTTPS WebSocket error: ${error}`, 'error');
+                    updateStatus('https-status', 'Connection failed', 'error');
+                };
+
+                httpsWs.onclose = function(event) {
+                    log(`HTTPS WebSocket connection closed: ${event.code} ${event.reason}`, 'info');
+                    updateStatus('https-status', 'Connection closed', 'info');
+                    httpsWs = null;
+                };
+
+            } catch (error) {
+                log(`HTTPS WebSocket connection error: ${error.message}`, 'error');
+                updateStatus('https-status', 'Connection failed', 'error');
+            }
+        }
+
+        function closeHttpWebSocket() {
+            if (httpWs) {
+                httpWs.close();
+                log('HTTP WebSocket connection closed by user', 'info');
+            }
+        }
+
+        function closeHttpsWebSocket() {
+            if (httpsWs) {
+                httpsWs.close();
+                log('HTTPS WebSocket connection closed by user', 'info');
+            }
+        }
+
+        // Test connection capabilities on page load
+        window.onload = function() {
+            log('Page loaded - WebSocket HTTPS test ready', 'info');
+            log(`Current protocol: ${window.location.protocol}`, 'info');
+            log(`Current host: ${window.location.host}`, 'info');
+            
+            if (window.location.protocol === 'https:') {
+                log('Running on HTTPS - both ws:// and wss:// should work', 'info');
+            } else {
+                log('Running on HTTP - only ws:// will work without certificate warnings', 'info');
+            }
+        };
+
+        // Cleanup connections when page unloads
+        window.onbeforeunload = function() {
+            if (httpWs) httpWs.close();
+            if (httpsWs) httpsWs.close();
+        };
+    </script>
+</body>
+</html>

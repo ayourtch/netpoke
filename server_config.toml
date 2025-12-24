@@ -1,0 +1,32 @@
+# WiFi Verify Server Configuration
+
+[server]
+# Host to bind to
+host = "0.0.0.0"
+
+# HTTP server settings
+http_port = 3000
+enable_http = true
+
+# HTTPS server settings
+https_port = 3443
+enable_https = false
+
+# SSL certificate paths (required for HTTPS)
+# ssl_cert_path = "certs/server.crt"
+# ssl_key_path = "certs/server.key"
+
+# Domain for automatic HTTPS (optional, used with Let's Encrypt)
+# domain = "your-domain.com"
+# auto_https = false
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+
+[security]
+# Enable CORS (cross-origin resource sharing)
+enable_cors = true
+
+# Allowed origins for CORS (when enabled)
+allowed_origins = ["http://localhost:3000", "https://localhost:3443"]
