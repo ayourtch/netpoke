@@ -1,6 +1,6 @@
-//! WiFi Verify Authentication Library
+//! Project Raindrops Authentication Library
 //!
-//! A reusable authentication crate for WiFi Verify that supports multiple OAuth2 providers
+//! A reusable authentication crate for Project Raindrops that supports multiple OAuth2 providers
 //! (Bluesky, GitHub, Google, LinkedIn) and is designed to be extensible for future
 //! authentication methods like plain login.
 //!

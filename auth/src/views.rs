@@ -271,7 +271,7 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         {}
         
         <div class="footer">
-            <p>Powered by WiFi Verify Authentication</p>
+            <p>Powered by Project Raindrops Authentication</p>
         </div>
     </div>
     

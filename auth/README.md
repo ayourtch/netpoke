@@ -1,4 +1,4 @@
-# WiFi Verify Authentication
+# Project Raindrops Authentication
 
 A reusable Rust authentication library that provides multiple authentication methods including plain login and OAuth2 providers with session management. Built to be easily portable to other projects.
 
