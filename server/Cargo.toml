@@ -15,11 +15,11 @@ rustls-webpki = { version = "*", features = ["ring"], default-features = false }
 
 
 # axum-server = { version = "*", features = ["tls-rustls-no-provider"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["fs", "trace"] }
+tower = "*"
+tower-http = { version = "*", features = ["fs", "trace"] }
 webrtc = "*"
 tokio-tungstenite = "*"
-futures = "0.3"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-uuid = { version = "1.6", features = ["v4", "serde"] }
+futures = "*"
+tracing = "*"
+tracing-subscriber = "*"
+uuid = { version = "*", features = ["v4", "serde"] }
