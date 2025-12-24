@@ -8,11 +8,13 @@ mod dashboard;
 use axum::{Router, routing::{get, post}, extract::State, Json};
 use std::net::SocketAddr;
 use tower_http::{trace::TraceLayer, services::ServeDir};
+use tower_http::services::ServeFile;
 use tracing_subscriber;
 use state::AppState;
 use common::{DashboardMessage, ClientInfo};
 use webrtc::stats::StatsReportType;
 use webrtc::ice::candidate::CandidatePairState;
+use rustls;
 
 use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
@@ -29,7 +31,8 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
         .route("/api/signaling/ice/remote", post(signaling::get_ice_candidates))
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .route("/api/dashboard/debug", get(dashboard_debug))
-        .nest_service("/", ServeDir::new("server/static"))
+        .route_service("/", ServeFile::new("server/static/index.html"))
+        .route_service("/{*path}", ServeDir::new("server/static"))
         .with_state(app_state)
         .layer(TraceLayer::new_for_http());
 
@@ -78,6 +81,9 @@ async fn https_server() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // https://github.com/snapview/tokio-tungstenite/issues/353
+    rustls::crypto::ring::default_provider().install_default().expect("Failed to install default rustls crypto provider");
+
     tracing_subscriber::fmt::init();
 
     let http = tokio::spawn(http_server());
