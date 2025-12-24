@@ -35,7 +35,7 @@ function updateClientsTable(clients) {
     const tbody = document.getElementById('clients-body');
 
     if (clients.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9">No clients connected</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10">No clients connected</td></tr>';
         return;
     }
 
@@ -79,10 +79,27 @@ function updateClientsTable(clients) {
             <td>${formatMetric(client.metrics.c2s_delay_avg)} ms</td>
             <td>${formatMetric(client.metrics.s2c_delay_avg)} ms</td>
             <td>${client.current_seq}</td>
+            <td><button class="cleanup-btn" onclick="cleanupClient('${client.id}')">Cleanup</button></td>
         `;
 
         tbody.appendChild(row);
     }
+}
+
+function cleanupClient(clientId) {
+    fetch(`/api/clients/${clientId}`, {
+        method: 'DELETE',
+    })
+    .then(response => {
+        if (!response.ok) {
+            console.error(`Failed to cleanup client ${clientId}:`, response.status);
+        } else {
+            console.log(`Client ${clientId} cleaned up successfully`);
+        }
+    })
+    .catch(error => {
+        console.error(`Error cleaning up client ${clientId}:`, error);
+    });
 }
 
 // Connect when page loads

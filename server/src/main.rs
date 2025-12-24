@@ -4,8 +4,9 @@ mod webrtc_manager;
 mod data_channels;
 mod measurements;
 mod dashboard;
+mod cleanup;
 
-use axum::{Router, routing::{get, post}, extract::State, Json};
+use axum::{Router, routing::{delete, get, post}, extract::State, Json};
 use std::net::SocketAddr;
 use tower_http::{trace::TraceLayer, services::ServeDir};
 use tower_http::services::ServeFile;
@@ -31,6 +32,7 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
         .route("/api/signaling/ice/remote", post(signaling::get_ice_candidates))
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .route("/api/dashboard/debug", get(dashboard_debug))
+        .route("/api/clients/{id}", delete(cleanup::cleanup_client_handler))
         .route_service("/", ServeFile::new("server/static/index.html"))
         .route_service("/{*path}", ServeDir::new("server/static"))
         .with_state(app_state)

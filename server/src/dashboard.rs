@@ -27,10 +27,17 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
             interval.tick().await;
 
             // Collect all client metrics
-            let clients_lock = state.clients.read().await;
+            // Clone Arc references first, then release lock to avoid blocking writes
+            let sessions: Vec<_> = {
+                let clients_lock = state.clients.read().await;
+                let sessions = clients_lock.values().cloned().collect();
+                drop(clients_lock);
+                sessions
+            };
+
             let mut clients_info = Vec::new();
 
-            for (_, session) in clients_lock.iter() {
+            for session in sessions.iter() {
                 let metrics = session.metrics.read().await.clone();
                 let connected_at = session.connected_at.elapsed().as_secs();
                 let measurement_state = session.measurement_state.read().await;
@@ -114,7 +121,6 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
                     current_seq,
                 });
             }
-            drop(clients_lock);
 
             let msg = DashboardMessage {
                 clients: clients_info,

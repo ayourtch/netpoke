@@ -11,6 +11,18 @@
         .ipv4 { background-color: #e3f2fd !important; }
         .ipv6 { background-color: #fff3e0 !important; }
         .parent-id { font-size: 0.9em; color: #666; }
+        .cleanup-btn {
+            background-color: #f44336;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            border-radius: 3px;
+        }
+        .cleanup-btn:hover {
+            background-color: #d32f2f;
+        }
     </style>
 </head>
 <body>
@@ -28,10 +40,11 @@
                 <th>C2S Delay (1s/10s/60s)</th>
                 <th>S2C Delay (1s/10s/60s)</th>
                 <th>Current Seq</th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody id="clients-body">
-            <tr><td colspan="9">No clients connected</td></tr>
+            <tr><td colspan="10">No clients connected</td></tr>
         </tbody>
     </table>
     <script src="/dashboard.js"></script>
