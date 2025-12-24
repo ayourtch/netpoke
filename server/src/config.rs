@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use wifi_verify_auth::AuthConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -7,6 +8,8 @@ pub struct Config {
     pub logging: LoggingConfig,
     #[serde(default)]
     pub security: SecurityConfig,
+    #[serde(default)]
+    pub auth: AuthConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +87,7 @@ impl Default for Config {
             server: ServerConfig::default(),
             logging: LoggingConfig::default(),
             security: SecurityConfig::default(),
+            auth: AuthConfig::default(),
         }
     }
 }

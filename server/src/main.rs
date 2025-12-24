@@ -7,8 +7,9 @@ mod dashboard;
 mod cleanup;
 mod config;
 
-use axum::{Router, routing::{delete, get, post}, extract::State, Json};
+use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tower_http::{trace::TraceLayer, services::ServeDir};
 use tower_http::services::ServeFile;
 use tracing_subscriber;
@@ -17,6 +18,7 @@ use common::{DashboardMessage, ClientInfo};
 use webrtc::stats::StatsReportType;
 use webrtc::ice::candidate::CandidatePairState;
 use rustls;
+use wifi_verify_auth::{AuthService, auth_routes, require_auth};
 
 use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
@@ -24,9 +26,11 @@ use axum_server::tls_rustls::RustlsConfig;
 use axum::routing::IntoMakeService;
 
 
-fn get_make_service() -> IntoMakeService<axum::Router> {
+fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<axum::Router> {
     let app_state = AppState::new();
-    let app = Router::new()
+    
+    // Build the main app with its routes
+    let main_app = Router::new()
         .route("/health", get(health_check))
         .route("/api/signaling/start", post(signaling::signaling_start))
         .route("/api/signaling/ice", post(signaling::ice_candidate))
@@ -34,17 +38,50 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .route("/api/dashboard/debug", get(dashboard_debug))
         .route("/api/clients/{id}", delete(cleanup::cleanup_client_handler))
-        .route_service("/", ServeFile::new("server/static/index.html"))
-        .route_service("/{*path}", ServeDir::new("server/static"))
-        .with_state(app_state)
-        .layer(TraceLayer::new_for_http());
+        .with_state(app_state);
+    
+    // Add authentication if enabled
+    let app = if let Some(auth_svc) = auth_service {
+        if auth_svc.is_enabled() && auth_svc.has_enabled_providers() {
+            tracing::info!("Authentication is enabled, adding auth routes and middleware");
+            
+            // Create auth routes with their own state
+            let auth_router = auth_routes().with_state(auth_svc.clone());
+            
+            // Protected routes - main app with auth middleware
+            let protected_app = main_app
+                .route_layer(middleware::from_fn_with_state(
+                    auth_svc.clone(),
+                    require_auth
+                ));
+            
+            // Combine: auth routes (public) + protected main app
+            Router::new()
+                .nest("/auth", auth_router)
+                .merge(protected_app)
+                .route_service("/", ServeFile::new("server/static/index.html"))
+                .route_service("/{*path}", ServeDir::new("server/static"))
+                .layer(TraceLayer::new_for_http())
+        } else {
+            tracing::info!("Authentication is disabled or no providers are enabled");
+            main_app
+                .route_service("/", ServeFile::new("server/static/index.html"))
+                .route_service("/{*path}", ServeDir::new("server/static"))
+                .layer(TraceLayer::new_for_http())
+        }
+    } else {
+        tracing::info!("No authentication service configured");
+        main_app
+            .route_service("/", ServeFile::new("server/static/index.html"))
+            .route_service("/{*path}", ServeDir::new("server/static"))
+            .layer(TraceLayer::new_for_http())
+    };
 
-    let srv = app.into_make_service();
-    srv
+    app.into_make_service()
 }
 
-async fn http_server(config: config::ServerConfig) {
-    let srv = get_make_service();
+async fn http_server(config: config::ServerConfig, auth_service: Option<Arc<AuthService>>) {
+    let srv = get_make_service(auth_service);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -65,8 +102,8 @@ async fn http_handler(uri: Uri) -> Redirect {
     Redirect::temporary(&uri)
 }
 
-async fn https_server(config: config::ServerConfig) {
-    let srv = get_make_service();
+async fn https_server(config: config::ServerConfig, auth_service: Option<Arc<AuthService>>) {
+    let srv = get_make_service(auth_service);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -128,13 +165,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  Host: {}", config.server.host);
     tracing::info!("  Log level: {}", config.logging.level);
     tracing::info!("  CORS enabled: {}", config.security.enable_cors);
+    
+    // Initialize authentication service if enabled
+    let auth_service = if config.auth.enable_auth {
+        tracing::info!("Authentication enabled:");
+        tracing::info!("  Bluesky: {}", config.auth.oauth.enable_bluesky);
+        tracing::info!("  GitHub: {}", config.auth.oauth.enable_github);
+        tracing::info!("  Google: {}", config.auth.oauth.enable_google);
+        tracing::info!("  LinkedIn: {}", config.auth.oauth.enable_linkedin);
+        
+        match AuthService::new(config.auth.clone()).await {
+            Ok(svc) => {
+                tracing::info!("Authentication service initialized successfully");
+                Some(Arc::new(svc))
+            }
+            Err(e) => {
+                tracing::error!("Failed to initialize authentication service: {}", e);
+                tracing::warn!("Continuing without authentication");
+                None
+            }
+        }
+    } else {
+        tracing::info!("Authentication disabled");
+        None
+    };
 
     let mut tasks = Vec::new();
 
     if config.server.enable_http {
         let http_config = config.server.clone();
+        let auth_svc = auth_service.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config).await
+            http_server(http_config, auth_svc).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -142,8 +204,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if config.server.enable_https {
         let https_config = config.server.clone();
+        let auth_svc = auth_service.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config).await
+            https_server(https_config, auth_svc).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

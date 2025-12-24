@@ -30,3 +30,46 @@ enable_cors = true
 
 # Allowed origins for CORS (when enabled)
 allowed_origins = ["http://localhost:3000", "https://localhost:3443"]
+
+# Authentication Configuration
+[auth]
+# Enable authentication globally
+enable_auth = false
+
+# OAuth2 Providers
+[auth.oauth]
+# Enable specific OAuth providers
+enable_bluesky = false
+enable_github = false
+enable_google = false
+enable_linkedin = false
+
+# Bluesky OAuth (decentralized, no central registration required!)
+# The client_id should be a URL to your client-metadata.json file
+# bluesky_client_id = "http://localhost:3000/client-metadata.json"
+# bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
+
+# GitHub OAuth (get credentials from https://github.com/settings/developers)
+# github_client_id = "your_github_client_id"
+# github_client_secret = "your_github_client_secret"
+# github_redirect_url = "http://localhost:3000/auth/github/callback"
+
+# Google OAuth (get credentials from https://console.cloud.google.com/apis/credentials)
+# google_client_id = "your_google_client_id"
+# google_client_secret = "your_google_client_secret"
+# google_redirect_url = "http://localhost:3000/auth/google/callback"
+
+# LinkedIn OAuth (get credentials from https://www.linkedin.com/developers/apps)
+# linkedin_client_id = "your_linkedin_client_id"
+# linkedin_client_secret = "your_linkedin_client_secret"
+# linkedin_redirect_url = "http://localhost:3000/auth/linkedin/callback"
+
+# Plain Login (future feature)
+[auth.plain_login]
+enabled = false
+
+# Session Configuration
+[auth.session]
+cookie_name = "session_id"
+timeout_seconds = 86400  # 24 hours
+secure = false  # Set to true for HTTPS only cookies

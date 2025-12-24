@@ -5,10 +5,11 @@ edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
+wifi-verify-auth = { path = "../auth" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-axum = { version = "*", features = ["ws"] }
+axum = { version = "0.8", features = ["ws"] }
 axum-server = { version = "*", features = ["tls-rustls"], default-features = false }
 rustls = { version = "*", features = ["ring"], default-features = false }
 rustls-webpki = { version = "*", features = ["ring"], default-features = false }
