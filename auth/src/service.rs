@@ -80,6 +80,19 @@ impl AuthService {
             || self.config.plain_login.enabled
     }
     
+    /// Check if a user is in the allowed users list
+    /// Returns true if the allowed_users list is empty (all users allowed)
+    /// or if the user's handle is in the list
+    pub fn is_user_allowed(&self, user_handle: &str) -> bool {
+        if self.config.allowed_users.is_empty() {
+            // If no allowed users configured, allow all authenticated users
+            true
+        } else {
+            // Check if user is in the allowed list
+            self.config.allowed_users.iter().any(|allowed| allowed == user_handle)
+        }
+    }
+    
     /// Start Bluesky authentication
     pub async fn start_bluesky_auth(&self, handle: &str) -> Result<(String, SessionData), AuthError> {
         let provider = self.bluesky_provider.as_ref()

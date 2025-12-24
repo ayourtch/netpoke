@@ -36,6 +36,20 @@ allowed_origins = ["http://localhost:3000", "https://localhost:3443"]
 # Enable authentication globally
 enable_auth = false
 
+# Access Control - List of allowed user handles/emails
+# If empty, all authenticated users are allowed
+# If not empty, only users in this list can access the application
+# For OAuth: use email or handle from the provider (e.g., "user@example.com" or "@alice.bsky.social")
+# For plain login: use the username configured in [[auth.plain_login.users]]
+allowed_users = []
+
+# Example with allowed users (uncomment to enable):
+# allowed_users = [
+#     "admin",                    # Plain login username
+#     "@alice.bsky.social",       # Bluesky handle
+#     "user@example.com",         # OAuth email (GitHub, Google, LinkedIn)
+# ]
+
 # OAuth2 Providers
 [auth.oauth]
 # Enable specific OAuth providers

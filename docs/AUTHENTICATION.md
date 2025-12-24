@@ -84,6 +84,86 @@ cargo run --bin wifi-verify-server
 
 Visit `http://localhost:3000` - you'll be redirected to the login page if authentication is enabled.
 
+## Access Control (Allowed Users List)
+
+The authentication system includes a powerful access control feature that allows you to restrict access to specific users, even after they successfully authenticate.
+
+### How It Works
+
+1. **User authenticates** via any provider (Plain Login, Bluesky, GitHub, Google, LinkedIn)
+2. **System checks** if the user's handle/email is in the `allowed_users` list
+3. **Access granted** if the list is empty (all authenticated users allowed) OR user is in the list
+4. **Access denied** if the list is not empty AND user is not in the list
+
+### Configuration
+
+Edit `server_config.toml`:
+
+```toml
+[auth]
+# List of allowed user handles/emails
+allowed_users = [
+    "admin",                    # Plain login username
+    "@alice.bsky.social",       # Bluesky handle
+    "user@example.com",         # OAuth email (GitHub, Google, LinkedIn)
+    "developer",                # Another plain login user
+]
+```
+
+**Important Notes:**
+- If `allowed_users` is **empty** (`[]`), all authenticated users can access the application
+- If `allowed_users` has entries, only those users will be granted access
+- For **Plain Login**: use the username (e.g., `"admin"`)
+- For **Bluesky**: use the handle including @ (e.g., `"@alice.bsky.social"`)
+- For **GitHub/Google/LinkedIn**: use the email or username returned by the provider
+
+### Example Scenarios
+
+**Scenario 1: Allow everyone who can authenticate**
+```toml
+[auth]
+allowed_users = []  # Empty list = all authenticated users allowed
+```
+
+**Scenario 2: Restrict to specific users**
+```toml
+[auth]
+allowed_users = [
+    "admin",
+    "developer@company.com",
+    "@security.team.bsky.social",
+]
+```
+
+**Scenario 3: Mix of authentication methods**
+```toml
+[auth]
+allowed_users = [
+    "admin",                      # Plain login
+    "ops@company.com",           # GitHub OAuth
+    "@team.member.bsky.social",  # Bluesky OAuth
+]
+
+[auth.plain_login]
+enabled = true
+
+[[auth.plain_login.users]]
+username = "admin"
+password = "$2b$12$..."
+
+[auth.oauth]
+enable_github = true
+enable_bluesky = true
+```
+
+### Access Denied Page
+
+If a user successfully authenticates but is not in the allowed list, they will see a professional "Access Denied" page that:
+- Displays their authenticated handle/email
+- Explains they don't have access
+- Provides a logout button
+- Suggests contacting the system administrator
+
 ## Provider-Specific Setup
 
 ### Plain Login (Username/Password)

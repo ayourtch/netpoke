@@ -312,3 +312,124 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
 </body>
 </html>"#, providers_html)
 }
+
+/// Access denied page HTML for users who authenticated but are not in the allowed list
+pub fn access_denied_page_html(user_handle: &str) -> String {
+    format!(r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>Access Denied - Project Raindrops</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        
+        .container {{
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+            text-align: center;
+        }}
+        
+        .icon {{
+            font-size: 64px;
+            margin-bottom: 20px;
+        }}
+        
+        h1 {{
+            color: #dc3545;
+            font-size: 28px;
+            margin-bottom: 16px;
+        }}
+        
+        p {{
+            color: #666;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+        }}
+        
+        .user-info {{
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 24px 0;
+            word-break: break-word;
+        }}
+        
+        .user-handle {{
+            font-weight: 600;
+            color: #333;
+            font-family: monospace;
+        }}
+        
+        .btn {{
+            display: inline-block;
+            margin-top: 24px;
+            padding: 12px 24px;
+            background-color: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }}
+        
+        .btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }}
+        
+        .footer {{
+            margin-top: 32px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }}
+        
+        .footer p {{
+            color: #999;
+            font-size: 12px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">🚫</div>
+        <h1>Access Denied</h1>
+        <p>You have successfully authenticated, but your account does not have access to this application.</p>
+        
+        <div class="user-info">
+            <p style="margin-bottom: 8px; color: #666; font-size: 14px;">Authenticated as:</p>
+            <p class="user-handle">{}</p>
+        </div>
+        
+        <p>If you believe this is an error, please contact your system administrator.</p>
+        
+        <form method="post" action="/auth/logout">
+            <button type="submit" class="btn">Logout</button>
+        </form>
+        
+        <div class="footer">
+            <p>Project Raindrops</p>
+        </div>
+    </div>
+</body>
+</html>"#, user_handle)
+}

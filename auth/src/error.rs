@@ -41,6 +41,9 @@ pub enum AuthError {
     
     #[error("Configuration error: {0}")]
     ConfigError(String),
+    
+    #[error("Access denied: User not in allowed list")]
+    AccessDenied,
 }
 
 impl From<AuthError> for StatusCode {
@@ -48,6 +51,7 @@ impl From<AuthError> for StatusCode {
         match error {
             AuthError::InvalidHandleFormat => StatusCode::BAD_REQUEST,
             AuthError::AuthenticationRequired => StatusCode::UNAUTHORIZED,
+            AuthError::AccessDenied => StatusCode::FORBIDDEN,
             AuthError::SessionNotFound | AuthError::SessionExpired | AuthError::InvalidSession => {
                 StatusCode::UNAUTHORIZED
             }

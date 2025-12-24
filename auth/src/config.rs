@@ -18,6 +18,12 @@ pub struct AuthConfig {
     /// Session configuration
     #[serde(default)]
     pub session: SessionConfig,
+    
+    /// Access control - list of allowed user handles/emails
+    /// If empty, all authenticated users are allowed
+    /// If not empty, only users in this list can access the application
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -116,6 +122,7 @@ impl Default for AuthConfig {
             oauth: OAuthConfig::default(),
             plain_login: PlainLoginConfig::default(),
             session: SessionConfig::default(),
+            allowed_users: vec![],
         }
     }
 }

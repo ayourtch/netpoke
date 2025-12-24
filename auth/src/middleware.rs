@@ -2,11 +2,12 @@ use axum::{
     extract::{Request, State},
     http::StatusCode,
     middleware::Next,
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use std::sync::Arc;
 
 use crate::service::AuthService;
+use crate::views::access_denied_page_html;
 
 /// Middleware to require authentication
 pub async fn require_auth(
@@ -29,8 +30,15 @@ pub async fn require_auth(
     if let Some(session_id) = session_id {
         // Validate session
         match auth_service.validate_session(&session_id).await {
-            Ok(_session_data) => {
-                // Session is valid, continue
+            Ok(session_data) => {
+                // Check if user is in allowed list
+                if !auth_service.is_user_allowed(&session_data.handle) {
+                    tracing::warn!("Access denied for user: {}", session_data.handle);
+                    let html = access_denied_page_html(&session_data.handle);
+                    return (StatusCode::FORBIDDEN, Html(html)).into_response();
+                }
+                
+                // Session is valid and user is allowed, continue
                 return next.run(request).await;
             }
             Err(e) => {
