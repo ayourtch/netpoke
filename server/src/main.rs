@@ -46,11 +46,13 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
 async fn http_server(config: config::ServerConfig) {
     let srv = get_make_service();
 
-    let addr = SocketAddr::from((
-        config.host.parse::<std::net::IpAddr>().unwrap_or([0, 0, 0, 0].into()),
-        config.http_port
-    ));
-    println!("http listening on {}", addr);
+    let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
+        tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
+        [0, 0, 0, 0].into()
+    });
+    let addr = SocketAddr::from((ip_addr, config.http_port));
+    
+    tracing::info!("HTTP server listening on {}", addr);
     axum_server::bind(addr)
         .serve(srv)
         .await
@@ -69,18 +71,25 @@ async fn https_server(config: config::ServerConfig) {
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
 
-    let rustls_config = RustlsConfig::from_pem_file(
-        cert_path,
-        key_path,
-    )
-    .await
-    .unwrap();
+    let rustls_config = RustlsConfig::from_pem_file(cert_path, key_path)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(
+                "Failed to load SSL certificates (cert: '{}', key: '{}'): {}",
+                cert_path,
+                key_path,
+                e
+            );
+            panic!("SSL certificate loading failed");
+        });
 
-    let addr = SocketAddr::from((
-        config.host.parse::<std::net::IpAddr>().unwrap_or([0, 0, 0, 0].into()),
-        config.https_port
-    ));
-    println!("https listening on {}", addr);
+    let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
+        tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
+        [0, 0, 0, 0].into()
+    });
+    let addr = SocketAddr::from((ip_addr, config.https_port));
+    
+    tracing::info!("HTTPS server listening on {}", addr);
     axum_server::bind_rustls(addr, rustls_config)
         .serve(srv)
         .await
