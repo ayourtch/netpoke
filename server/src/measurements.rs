@@ -126,7 +126,7 @@ pub async fn handle_probe_packet(
             // This is an echoed probe - client received our probe and echoed it back
             // probe.timestamp_ms is when client received it (client's echo timestamp)
             // We need to find the original sent probe to get the original sent time
-            tracing::info!("Received echoed S2C probe seq {} from client {}", probe.seq, session.id);
+            tracing::debug!("Received echoed S2C probe seq {} from client {}", probe.seq, session.id);
 
             if let Some(sent_probe) = state.sent_probes.iter().find(|p| p.seq == probe.seq) {
                 let sent_at_ms = sent_probe.sent_at_ms;  // Clone to avoid borrow issue
@@ -135,7 +135,7 @@ pub async fn handle_probe_packet(
                     sent_at_ms,
                     echoed_at_ms: probe.timestamp_ms,
                 });
-                tracing::info!("Matched echoed probe seq {}, delay: {}ms",
+                tracing::debug!("Matched echoed probe seq {}, delay: {}ms",
                     probe.seq, probe.timestamp_ms.saturating_sub(sent_at_ms));
 
                 // Keep only last 60 seconds of echoed probes

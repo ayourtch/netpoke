@@ -1,6 +1,7 @@
 mod webrtc;
 mod signaling;
 mod measurements;
+use crate::measurements::current_time_ms;
 
 use wasm_bindgen::prelude::*;
 use web_sys::{window, Document};
@@ -44,7 +45,9 @@ pub async fn start_measurement() -> Result<(), JsValue> {
         // Update UI with both sets of metrics
         let state_ipv4_ref = state_ipv4.borrow();
         let state_ipv6_ref = state_ipv6.borrow();
-        update_ui_dual(&state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
+
+        let dbg_message = format!("{:?}", &state_ipv4_ref);
+        update_ui_dual(&dbg_message, &state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
     }).forget();
 
     // Keep connections alive
@@ -54,7 +57,7 @@ pub async fn start_measurement() -> Result<(), JsValue> {
     Ok(())
 }
 
-fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
+fn update_ui_dual(dbg_message: &str, ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
     let window = match window() {
         Some(w) => w,
         None => return,
@@ -90,6 +93,15 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
             "0%".to_string()
         }
     };
+
+    let dtm = {
+       use wasm_timer::SystemTime;
+       let now = SystemTime::now();
+       // format!("{} = {:?}: {:?}", current_time_ms(), &now, &ipv4_metrics);
+       let dbg_message = format!("..");
+       format!("{} = {}", current_time_ms(), dbg_message)
+    };
+    set_element_text(&document, "ayxx", &dtm);
 
     // Update IPv4 metrics
     set_element_text(&document, "ipv4-s2c-tp-1", &format_bytes(ipv4_metrics.s2c_throughput[0]));

@@ -5,22 +5,26 @@ use common::{ProbePacket, Direction, BulkPacket, ClientMetrics};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::collections::VecDeque;
+use js_sys::Uint8Array;
 
+#[derive(Debug)]
 pub struct MeasurementState {
+    pub test_count: u64,
+    pub test_debug: String,
     pub probe_seq: u64,
     pub metrics: ClientMetrics,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReceivedProbe {
     pub seq: u64,
     pub sent_at_ms: u64,
     pub received_at_ms: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReceivedBulk {
     pub bytes: u64,
     pub received_at_ms: u64,
@@ -29,6 +33,8 @@ pub struct ReceivedBulk {
 impl MeasurementState {
     pub fn new() -> Self {
         Self {
+            test_count: 0,
+            test_debug: "".into(),
             probe_seq: 0,
             metrics: ClientMetrics::default(),
             received_probes: VecDeque::new(),
@@ -143,7 +149,18 @@ pub fn setup_probe_channel(
     let state_receiver = state.clone();
     let channel_for_echo = channel.clone();
     let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
-        if let Some(txt) = ev.data().as_string() {
+           let val = js_sys::JSON::stringify(&ev);
+           let array = Uint8Array::new(&ev.data());
+           let a_vec = array.to_vec();
+           let s = String::from_utf8_lossy(&a_vec);
+        {
+           let mut state = state_receiver.borrow_mut();
+           state.test_count += 1;
+           // state.test_debug = format!("Evt: {:?}", &s);
+        }
+        //if let Some(txt) = ev.data().as_string() {
+        if true {
+            let txt = s.clone();
             if let Ok(mut probe) = serde_json::from_str::<ProbePacket>(&txt) {
                 let now_ms = current_time_ms();
                 let mut state = state_receiver.borrow_mut();
@@ -251,6 +268,6 @@ pub fn setup_control_channel(channel: RtcDataChannel) {
     onopen.forget();
 }
 
-fn current_time_ms() -> u64 {
+pub fn current_time_ms() -> u64 {
     js_sys::Date::now() as u64
 }
