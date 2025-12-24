@@ -58,8 +58,20 @@ pub async fn cleanup_client_handler(
         }
     }
 
-    // Remove all clients in the deletion set
+    // Close WebRTC connections and remove all clients in the deletion set
     let mut removed = Vec::new();
+    for id in &to_remove {
+        if let Some(session) = clients.get(id) {
+            // Close the WebRTC peer connection to clean up resources
+            if let Err(e) = session.peer_connection.close().await {
+                tracing::warn!("Error closing peer connection for {}: {}", id, e);
+            } else {
+                tracing::info!("Closed peer connection for {}", id);
+            }
+        }
+    }
+
+    // Now remove from the HashMap
     for id in to_remove {
         clients.remove(&id);
         removed.push(id);
