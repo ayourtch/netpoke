@@ -23,3 +23,4 @@ futures = "*"
 tracing = "*"
 tracing-subscriber = "*"
 uuid = { version = "*", features = ["v4", "serde"] }
+config = { version = "*", features = ["toml"] }

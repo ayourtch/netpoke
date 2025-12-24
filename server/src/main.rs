@@ -5,6 +5,7 @@ mod data_channels;
 mod measurements;
 mod dashboard;
 mod cleanup;
+mod config;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json};
 use std::net::SocketAddr;
@@ -42,12 +43,13 @@ fn get_make_service() -> IntoMakeService<axum::Router> {
     srv
 }
 
-async fn http_server() {
-    // let app = Router::new().route("/", get(http_handler));
-
+async fn http_server(config: config::ServerConfig) {
     let srv = get_make_service();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from((
+        config.host.parse::<std::net::IpAddr>().unwrap_or([0, 0, 0, 0].into()),
+        config.http_port
+    ));
     println!("http listening on {}", addr);
     axum_server::bind(addr)
         .serve(srv)
@@ -61,19 +63,25 @@ async fn http_handler(uri: Uri) -> Redirect {
     Redirect::temporary(&uri)
 }
 
-async fn https_server() {
+async fn https_server(config: config::ServerConfig) {
     let srv = get_make_service();
 
-    let config = RustlsConfig::from_pem_file(
-        "server.crt",
-        "server.key",
+    let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
+    let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
+
+    let rustls_config = RustlsConfig::from_pem_file(
+        cert_path,
+        key_path,
     )
     .await
     .unwrap();
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3443));
+    let addr = SocketAddr::from((
+        config.host.parse::<std::net::IpAddr>().unwrap_or([0, 0, 0, 0].into()),
+        config.https_port
+    ));
     println!("https listening on {}", addr);
-    axum_server::bind_rustls(addr, config)
+    axum_server::bind_rustls(addr, rustls_config)
         .serve(srv)
         .await
         .unwrap();
@@ -86,13 +94,62 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // https://github.com/snapview/tokio-tungstenite/issues/353
     rustls::crypto::ring::default_provider().install_default().expect("Failed to install default rustls crypto provider");
 
-    tracing_subscriber::fmt::init();
+    // Load configuration
+    let config = config::Config::load_or_default();
+    
+    // Initialize logging with configured level
+    let log_level = config.logging.level.to_lowercase();
+    let env_filter = match log_level.as_str() {
+        "trace" => tracing::Level::TRACE,
+        "debug" => tracing::Level::DEBUG,
+        "info" => tracing::Level::INFO,
+        "warn" => tracing::Level::WARN,
+        "error" => tracing::Level::ERROR,
+        _ => tracing::Level::INFO,
+    };
+    
+    tracing_subscriber::fmt()
+        .with_max_level(env_filter)
+        .init();
 
-    let http = tokio::spawn(http_server());
-    let https = tokio::spawn(https_server());
+    tracing::info!("Starting WiFi Verify Server");
+    tracing::info!("Configuration loaded:");
+    tracing::info!("  HTTP enabled: {}, port: {}", config.server.enable_http, config.server.http_port);
+    tracing::info!("  HTTPS enabled: {}, port: {}", config.server.enable_https, config.server.https_port);
+    tracing::info!("  Host: {}", config.server.host);
+    tracing::info!("  Log level: {}", config.logging.level);
+    tracing::info!("  CORS enabled: {}", config.security.enable_cors);
 
-    // Ignore errors.
-    let _ = tokio::join!(http, https);
+    let mut tasks = Vec::new();
+
+    if config.server.enable_http {
+        let http_config = config.server.clone();
+        tasks.push(tokio::spawn(async move {
+            http_server(http_config).await
+        }));
+    } else {
+        tracing::info!("HTTP server disabled in configuration");
+    }
+
+    if config.server.enable_https {
+        let https_config = config.server.clone();
+        tasks.push(tokio::spawn(async move {
+            https_server(https_config).await
+        }));
+    } else {
+        tracing::info!("HTTPS server disabled in configuration");
+    }
+
+    if tasks.is_empty() {
+        tracing::error!("No servers enabled! Please enable at least one server (HTTP or HTTPS) in the configuration.");
+        return Err("No servers enabled".into());
+    }
+
+    // Wait for all tasks to complete (which they won't unless there's an error)
+    for task in tasks {
+        let _ = task.await;
+    }
+
     Ok(())
 }
 
