@@ -3,6 +3,7 @@
 /client/target/
 /server/target/
 /common/target/
+/auth/target/
 *.wasm
 /client/pkg/*.js
 node_modules/
@@ -10,3 +11,5 @@ node_modules/
 *.crt
 *.key
 server.log
+.env
+.env.local

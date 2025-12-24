@@ -1,0 +1,12 @@
+{
+  "client_id": "http://localhost:3000/client-metadata.json",
+  "application_type": "web",
+  "client_name": "WiFi Verify - Project Raindrops",
+  "client_uri": "http://localhost:3000",
+  "dpop_bound_access_tokens": true,
+  "grant_types": ["authorization_code", "refresh_token"],
+  "redirect_uris": ["http://localhost:3000/auth/bluesky/callback"],
+  "response_types": ["code"],
+  "scope": "atproto transition:generic",
+  "token_endpoint_auth_method": "none"
+}

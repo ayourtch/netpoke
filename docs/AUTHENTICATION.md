@@ -1,0 +1,228 @@
+# Authentication Setup Guide
+
+This guide explains how to set up and use the OAuth2 authentication system in WiFi Verify.
+
+## Overview
+
+The authentication system supports multiple OAuth2 providers:
+- **Bluesky** (decentralized OAuth with dynamic discovery)
+- **GitHub**
+- **Google**
+- **LinkedIn**
+
+Authentication can be enabled or disabled globally, and individual providers can be enabled/disabled independently.
+
+## Quick Start
+
+### 1. Enable Authentication
+
+Edit `server_config.toml`:
+
+```toml
+[auth]
+enable_auth = true
+
+[auth.oauth]
+enable_bluesky = true
+enable_github = false
+enable_google = false
+enable_linkedin = false
+```
+
+### 2. Configure OAuth Providers
+
+You can configure providers either in `server_config.toml` or using environment variables.
+
+#### Option A: Configuration File
+
+Add to `server_config.toml`:
+
+```toml
+[auth.oauth]
+bluesky_client_id = "http://localhost:3000/client-metadata.json"
+bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
+```
+
+#### Option B: Environment Variables
+
+Create a `.env` file (see `.env.example`) or set environment variables:
+
+```bash
+export BLUESKY_CLIENT_ID="http://localhost:3000/client-metadata.json"
+export BLUESKY_REDIRECT_URL="http://localhost:3000/auth/bluesky/callback"
+```
+
+### 3. Run the Server
+
+```bash
+cd /path/to/wifi-verify
+cargo run --bin wifi-verify-server
+```
+
+Visit `http://localhost:3000` - you'll be redirected to the login page if authentication is enabled.
+
+## Provider-Specific Setup
+
+### Bluesky
+
+Bluesky uses decentralized OAuth, so no central registration is required!
+
+1. Ensure `server/static/client-metadata.json` exists with your configuration
+2. The file is served at `/client-metadata.json` by the server
+3. Users authenticate by entering their Bluesky handle (e.g., `@alice.bsky.social`)
+
+**Configuration:**
+```toml
+[auth.oauth]
+enable_bluesky = true
+bluesky_client_id = "http://localhost:3000/client-metadata.json"
+bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
+```
+
+### GitHub
+
+1. Go to https://github.com/settings/developers
+2. Click "New OAuth App"
+3. Fill in:
+   - Application name: WiFi Verify
+   - Homepage URL: http://localhost:3000
+   - Authorization callback URL: http://localhost:3000/auth/github/callback
+4. Copy the Client ID and Client Secret
+
+**Configuration:**
+```toml
+[auth.oauth]
+enable_github = true
+github_client_id = "your_github_client_id"
+github_client_secret = "your_github_client_secret"
+github_redirect_url = "http://localhost:3000/auth/github/callback"
+```
+
+### Google
+
+1. Go to https://console.cloud.google.com/apis/credentials
+2. Create a new "OAuth 2.0 Client ID"
+3. Application type: Web application
+4. Add authorized redirect URI: http://localhost:3000/auth/google/callback
+5. Copy the Client ID and Client Secret
+
+**Configuration:**
+```toml
+[auth.oauth]
+enable_google = true
+google_client_id = "your_google_client_id"
+google_client_secret = "your_google_client_secret"
+google_redirect_url = "http://localhost:3000/auth/google/callback"
+```
+
+### LinkedIn
+
+1. Go to https://www.linkedin.com/developers/apps
+2. Create a new app
+3. Under "Auth" tab, add redirect URL: http://localhost:3000/auth/linkedin/callback
+4. Request access to "Sign In with LinkedIn using OpenID Connect"
+5. Copy the Client ID and Client Secret
+
+**Configuration:**
+```toml
+[auth.oauth]
+enable_linkedin = true
+linkedin_client_id = "your_linkedin_client_id"
+linkedin_client_secret = "your_linkedin_client_secret"
+linkedin_redirect_url = "http://localhost:3000/auth/linkedin/callback"
+```
+
+## Configuration Reference
+
+### Authentication Settings
+
+```toml
+[auth]
+# Enable/disable authentication globally
+enable_auth = true
+
+[auth.oauth]
+# Enable individual providers
+enable_bluesky = false
+enable_github = false
+enable_google = false
+enable_linkedin = false
+
+# Provider credentials (see above)
+# ...
+
+[auth.session]
+# Session cookie name
+cookie_name = "session_id"
+
+# Session timeout in seconds (default: 86400 = 24 hours)
+timeout_seconds = 86400
+
+# Require HTTPS for cookies (set to true in production)
+secure = false
+```
+
+## Routes
+
+When authentication is enabled, the following routes are available:
+
+- `GET /auth/login` - Login page (Project Raindrops)
+- `POST /auth/bluesky/login` - Start Bluesky auth
+- `GET /auth/bluesky/callback` - Bluesky callback
+- `GET /auth/github/login` - Start GitHub auth
+- `GET /auth/github/callback` - GitHub callback
+- `GET /auth/google/login` - Start Google auth
+- `GET /auth/google/callback` - Google callback
+- `GET /auth/linkedin/login` - Start LinkedIn auth
+- `GET /auth/linkedin/callback` - LinkedIn callback
+- `POST /auth/logout` - Logout
+
+## Security Considerations
+
+1. **HTTPS in Production**: Always use HTTPS in production and set `auth.session.secure = true`
+2. **Redirect URLs**: Ensure redirect URLs match exactly in both OAuth provider settings and configuration
+3. **Session Timeout**: Adjust `timeout_seconds` based on your security requirements
+4. **Client Secrets**: Never commit OAuth client secrets to version control
+5. **Environment Variables**: Use environment variables or secure secret management for production
+
+## Troubleshooting
+
+### "Authentication service failed to initialize"
+
+Check that:
+- At least one provider is enabled
+- Provider credentials are correctly configured
+- For Bluesky, `client-metadata.json` is accessible
+
+### "OAuth callback error"
+
+Check that:
+- Redirect URLs match in both provider settings and configuration
+- Credentials are correct
+- Provider is enabled in configuration
+
+### "Session validation failed"
+
+This is normal when:
+- Session has expired
+- User hasn't logged in yet
+- Cookie was cleared
+
+## Development Tips
+
+1. **Disable Auth for Development**: Set `enable_auth = false` to bypass authentication
+2. **Test Multiple Providers**: Enable multiple providers to test the login page
+3. **Session Cleanup**: Sessions are automatically cleaned up on validation
+4. **Logs**: Check server logs for authentication debug information
+
+## Architecture
+
+The authentication system is built as a separate reusable crate (`wifi-verify-auth`) that can be easily ported to other projects. Key components:
+
+- **Providers**: Individual OAuth provider implementations
+- **Service**: Central authentication service managing sessions
+- **Middleware**: Route protection middleware
+- **Views**: Professional login page UI (Project Raindrops)
+- **Routes**: HTTP handlers for auth flows
+
+For more details, see `auth/README.md`.
