@@ -7,6 +7,7 @@ mod dashboard;
 mod cleanup;
 mod config;
 mod auth_handlers;
+mod survey_middleware;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -70,12 +71,21 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
                     require_auth
                 ));
             
-            // Combine: auth routes (public) + public API + public static files + protected routes + protected static files
+            // Network test page - allow EITHER regular auth OR survey session (Magic Key)
+            let nettest_route = Router::new()
+                .route_service("/static/nettest.html", ServeFile::new("server/static/nettest.html"))
+                .route_layer(middleware::from_fn_with_state(
+                    auth_svc.clone(),
+                    survey_middleware::require_auth_or_survey_session
+                ));
+            
+            // Combine: auth routes (public) + public API + public static files + nettest (dual auth) + protected routes + protected static files
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
+                .merge(nettest_route)
                 .merge(protected_app)
                 .merge(protected_static)
                 .layer(TraceLayer::new_for_http())
