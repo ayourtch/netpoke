@@ -65,7 +65,25 @@ pub struct PlainLoginConfig {
     /// Enable plain login (username/password)
     #[serde(default)]
     pub enabled: bool,
-    // Future fields for user database, password hashing, etc.
+    
+    /// List of allowed users with passwords
+    #[serde(default)]
+    pub users: Vec<UserCredentials>,
+}
+
+/// User credentials for file-based authentication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCredentials {
+    /// Username
+    pub username: String,
+    
+    /// Password (plain text in config, hashed in memory)
+    /// In production, use bcrypt or argon2 hashed passwords
+    pub password: String,
+    
+    /// Optional display name
+    #[serde(default)]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,6 +146,7 @@ impl Default for PlainLoginConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            users: vec![],
         }
     }
 }

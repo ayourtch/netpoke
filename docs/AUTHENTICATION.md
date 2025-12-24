@@ -1,10 +1,11 @@
 # Authentication Setup Guide
 
-This guide explains how to set up and use the OAuth2 authentication system in WiFi Verify.
+This guide explains how to set up and use the authentication system in WiFi Verify.
 
 ## Overview
 
-The authentication system supports multiple OAuth2 providers:
+The authentication system supports multiple authentication methods:
+- **Plain Login** (username/password) - File-based authentication
 - **Bluesky** (decentralized OAuth with dynamic discovery)
 - **GitHub**
 - **Google**
@@ -22,18 +23,42 @@ Edit `server_config.toml`:
 [auth]
 enable_auth = true
 
+[auth.plain_login]
+enabled = true
+
 [auth.oauth]
-enable_bluesky = true
+enable_bluesky = false
 enable_github = false
 enable_google = false
 enable_linkedin = false
 ```
 
-### 2. Configure OAuth Providers
+### 2. Configure Authentication Methods
 
-You can configure providers either in `server_config.toml` or using environment variables.
+You can configure authentication either in `server_config.toml` or using environment variables.
 
-#### Option A: Configuration File
+#### Plain Login (Username/Password)
+
+Add users to `server_config.toml`:
+
+```toml
+[auth.plain_login]
+enabled = true
+
+[[auth.plain_login.users]]
+username = "admin"
+password = "admin123"  # Plain text (not recommended for production)
+display_name = "Administrator"
+
+[[auth.plain_login.users]]
+username = "user1"
+password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe"  # bcrypt hash
+display_name = "User One"
+```
+
+**Security Note**: For production, always use bcrypt hashed passwords (starting with `$2`). You can generate bcrypt hashes using online tools or the bcrypt CLI.
+
+#### OAuth Providers
 
 Add to `server_config.toml`:
 
@@ -43,9 +68,7 @@ bluesky_client_id = "http://localhost:3000/client-metadata.json"
 bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
 ```
 
-#### Option B: Environment Variables
-
-Create a `.env` file (see `.env.example`) or set environment variables:
+Or use environment variables (see `.env.example`):
 
 ```bash
 export BLUESKY_CLIENT_ID="http://localhost:3000/client-metadata.json"
@@ -62,6 +85,63 @@ cargo run --bin wifi-verify-server
 Visit `http://localhost:3000` - you'll be redirected to the login page if authentication is enabled.
 
 ## Provider-Specific Setup
+
+### Plain Login (Username/Password)
+
+Plain login provides file-based authentication without requiring external OAuth providers. This is ideal for:
+- Small deployments with a fixed set of users
+- Internal tools and services
+- Development and testing
+
+**Setup:**
+
+1. Enable plain login in `server_config.toml`:
+
+```toml
+[auth.plain_login]
+enabled = true
+```
+
+2. Add users to the configuration:
+
+```toml
+[[auth.plain_login.users]]
+username = "admin"
+password = "securepassword123"
+display_name = "System Administrator"
+
+[[auth.plain_login.users]]
+username = "user1"
+password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe"
+display_name = "Regular User"
+```
+
+**Password Security:**
+
+- **Plain text passwords** (e.g., `"admin123"`) are supported but **NOT recommended** for production
+- **Bcrypt hashed passwords** (starting with `$2b$` or `$2a$`) are strongly recommended for production
+- The system automatically detects if a password is bcrypt hashed and verifies accordingly
+- To generate a bcrypt hash:
+  - Use online tools like bcrypt-generator.com
+  - Use bcrypt CLI tools
+  - Use Python: `python -c "import bcrypt; print(bcrypt.hashpw(b'password', bcrypt.gensalt()).decode())"`
+
+**Example with bcrypt:**
+
+```bash
+# Generate a bcrypt hash (cost factor 12)
+$ python3 -c "import bcrypt; print(bcrypt.hashpw(b'mypassword', bcrypt.gensalt(12)).decode())"
+$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe
+```
+
+Then use it in config:
+
+```toml
+[[auth.plain_login.users]]
+username = "secure_user"
+password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe"
+display_name = "Secure User"
+```
 
 ### Bluesky
 

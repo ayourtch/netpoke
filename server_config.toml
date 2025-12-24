@@ -64,9 +64,26 @@ enable_linkedin = false
 # linkedin_client_secret = "your_linkedin_client_secret"
 # linkedin_redirect_url = "http://localhost:3000/auth/linkedin/callback"
 
-# Plain Login (future feature)
+# Plain Login (username/password) - File-based authentication
 [auth.plain_login]
 enabled = false
+
+# List of allowed users with passwords
+# SECURITY NOTE: In production, use bcrypt hashed passwords (starting with $2)
+# To generate a bcrypt hash: use online tools or bcrypt CLI
+# Example bcrypt hash: $2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe
+# For now, plain text passwords are supported but NOT recommended for production
+
+# Example users (commented out by default):
+# [[auth.plain_login.users]]
+# username = "admin"
+# password = "admin123"  # Plain text (not recommended for production)
+# display_name = "Administrator"
+#
+# [[auth.plain_login.users]]
+# username = "user1"
+# password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe"  # bcrypt hash
+# display_name = "User One"
 
 # Session Configuration
 [auth.session]

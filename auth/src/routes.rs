@@ -18,6 +18,12 @@ struct HandleForm {
 }
 
 #[derive(Deserialize)]
+struct PlainLoginForm {
+    username: String,
+    password: String,
+}
+
+#[derive(Deserialize)]
 struct AuthCallback {
     code: Option<String>,
     state: Option<String>,
@@ -29,6 +35,7 @@ struct AuthCallback {
 pub fn auth_routes() -> Router<Arc<AuthService>> {
     Router::new()
         .route("/login", get(login_page))
+        .route("/plain/login", post(plain_login))
         .route("/bluesky/login", post(bluesky_login))
         .route("/bluesky/callback", get(bluesky_callback))
         .route("/github/login", get(github_login))
@@ -42,12 +49,48 @@ pub fn auth_routes() -> Router<Arc<AuthService>> {
 
 async fn login_page(State(auth_service): State<Arc<AuthService>>) -> Html<String> {
     let html = login_page_html(
+        auth_service.config.plain_login.enabled,
         auth_service.config.oauth.enable_bluesky,
         auth_service.config.oauth.enable_github,
         auth_service.config.oauth.enable_google,
         auth_service.config.oauth.enable_linkedin,
     );
     Html(html)
+}
+
+async fn plain_login(
+    State(auth_service): State<Arc<AuthService>>,
+    Form(form): Form<PlainLoginForm>,
+) -> Result<Response, StatusCode> {
+    tracing::info!("Plain login request for username: {}", form.username);
+    
+    let session_data = auth_service
+        .authenticate_plain_login(&form.username, &form.password)
+        .await
+        .map_err(|e| {
+            tracing::error!("Plain login failed: {}", e);
+            StatusCode::UNAUTHORIZED
+        })?;
+    
+    let session_id = Uuid::new_v4().to_string();
+    auth_service.store_session(session_id.clone(), session_data).await;
+    
+    Ok((
+        StatusCode::FOUND,
+        [
+            (
+                header::SET_COOKIE,
+                format!(
+                    "{}={}; Path=/; HttpOnly; SameSite=Lax{}",
+                    auth_service.config.session.cookie_name,
+                    session_id,
+                    if auth_service.config.session.secure { "; Secure" } else { "" }
+                ),
+            ),
+            (header::LOCATION, "/".to_string()),
+        ],
+    )
+        .into_response())
 }
 
 async fn bluesky_login(

@@ -1,7 +1,7 @@
-use crate::config::{AuthConfig, OAuthConfig};
+use crate::config::AuthConfig;
 use crate::error::AuthError;
 use crate::session::SessionData;
-use crate::providers::{BlueskyProvider, GitHubProvider, GoogleProvider, LinkedInProvider};
+use crate::providers::{BlueskyProvider, GitHubProvider, GoogleProvider, LinkedInProvider, PlainLoginProvider};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -15,6 +15,7 @@ pub struct AuthService {
     github_provider: Option<GitHubProvider>,
     google_provider: Option<GoogleProvider>,
     linkedin_provider: Option<LinkedInProvider>,
+    plain_login_provider: Option<PlainLoginProvider>,
 }
 
 impl AuthService {
@@ -48,6 +49,12 @@ impl AuthService {
             None
         };
         
+        let plain_login_provider = if config.plain_login.enabled {
+            Some(PlainLoginProvider::new(&config.plain_login)?)
+        } else {
+            None
+        };
+        
         Ok(Self {
             config,
             sessions,
@@ -55,6 +62,7 @@ impl AuthService {
             github_provider,
             google_provider,
             linkedin_provider,
+            plain_login_provider,
         })
     }
     
@@ -69,6 +77,7 @@ impl AuthService {
             || self.config.oauth.enable_github
             || self.config.oauth.enable_google
             || self.config.oauth.enable_linkedin
+            || self.config.plain_login.enabled
     }
     
     /// Start Bluesky authentication
@@ -141,6 +150,17 @@ impl AuthService {
         let provider = self.linkedin_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("LinkedIn provider not enabled".to_string()))?;
         provider.complete_auth(code, session_data).await
+    }
+    
+    /// Authenticate with plain login (username/password)
+    pub async fn authenticate_plain_login(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<SessionData, AuthError> {
+        let provider = self.plain_login_provider.as_ref()
+            .ok_or_else(|| AuthError::ConfigError("Plain login provider not enabled".to_string()))?;
+        provider.authenticate(username, password).await
     }
     
     /// Store session data

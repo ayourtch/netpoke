@@ -1,6 +1,29 @@
 /// Project Raindrops login page HTML
-pub fn login_page_html(enable_bluesky: bool, enable_github: bool, enable_google: bool, enable_linkedin: bool) -> String {
+pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: bool, enable_google: bool, enable_linkedin: bool) -> String {
     let mut providers_html = String::new();
+    
+    if enable_plain {
+        providers_html.push_str(r#"
+        <div class="provider-section">
+            <h3>Login with Username & Password</h3>
+            <form method="post" action="/auth/plain/login">
+                <div class="form-group">
+                    <input type="text"
+                           name="username"
+                           placeholder="Username"
+                           required>
+                </div>
+                <div class="form-group">
+                    <input type="password"
+                           name="password"
+                           placeholder="Password"
+                           required>
+                </div>
+                <button type="submit" class="btn btn-primary">Login</button>
+            </form>
+        </div>
+        "#);
+    }
     
     if enable_bluesky {
         providers_html.push_str(r#"
@@ -149,7 +172,8 @@ pub fn login_page_html(enable_bluesky: bool, enable_github: bool, enable_google:
             margin: 15px 0;
         }}
         
-        input[type="text"] {{
+        input[type="text"],
+        input[type="password"] {{
             width: 100%;
             padding: 12px 16px;
             border: 2px solid #e0e0e0;
@@ -158,7 +182,8 @@ pub fn login_page_html(enable_bluesky: bool, enable_github: bool, enable_google:
             transition: border-color 0.3s ease;
         }}
         
-        input[type="text"]:focus {{
+        input[type="text"]:focus,
+        input[type="password"]:focus {{
             border-color: #667eea;
             outline: none;
         }}
@@ -185,6 +210,11 @@ pub fn login_page_html(enable_bluesky: bool, enable_github: bool, enable_google:
         
         .btn:active {{
             transform: translateY(0);
+        }}
+        
+        .btn-primary {{
+            background-color: #667eea;
+            color: white;
         }}
         
         .btn-bluesky {{

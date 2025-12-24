@@ -1,8 +1,13 @@
 # WiFi Verify Authentication
 
-A reusable Rust authentication library that provides OAuth2 authentication with multiple providers and session management. Built to be easily portable to other projects.
+A reusable Rust authentication library that provides multiple authentication methods including plain login and OAuth2 providers with session management. Built to be easily portable to other projects.
 
 ## Features
+
+- **Plain Login (Username/Password)**
+  - File-based authentication
+  - Bcrypt password hashing support
+  - No external dependencies required
 
 - **Multiple OAuth2 Providers**
   - Bluesky (with dynamic OAuth discovery and DPoP support)
@@ -23,7 +28,7 @@ A reusable Rust authentication library that provides OAuth2 authentication with 
 - **Flexible Architecture**
   - Middleware for protecting routes
   - Optional authentication support
-  - Designed for future extensibility (e.g., plain username/password login)
+  - Easy to extend with new providers
 
 - **Easy Configuration**
   - TOML-based configuration
@@ -40,20 +45,30 @@ Add authentication configuration to your `server_config.toml`:
 [auth]
 enable_auth = true
 
+# Plain Login (file-based)
+[auth.plain_login]
+enabled = true
+
+[[auth.plain_login.users]]
+username = "admin"
+password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe"  # bcrypt hash
+display_name = "Administrator"
+
+# OAuth Providers
 [auth.oauth]
-enable_bluesky = true
-enable_github = true
+enable_bluesky = false
+enable_github = false
 enable_google = false
 enable_linkedin = false
 
 # Bluesky OAuth (no central registration required!)
-bluesky_client_id = "http://localhost:3000/client-metadata.json"
-bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
+# bluesky_client_id = "http://localhost:3000/client-metadata.json"
+# bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
 
 # GitHub OAuth
-github_client_id = "your_github_client_id"
-github_client_secret = "your_github_client_secret"
-github_redirect_url = "http://localhost:3000/auth/github/callback"
+# github_client_id = "your_github_client_id"
+# github_client_secret = "your_github_client_secret"
+# github_redirect_url = "http://localhost:3000/auth/github/callback"
 
 [auth.session]
 cookie_name = "session_id"
