@@ -10,6 +10,7 @@ mod auth_handlers;
 mod survey_middleware;
 mod packet_tracker;
 mod icmp_listener;
+mod packet_tracking_api;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -43,6 +44,8 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .route("/api/dashboard/debug", get(dashboard_debug))
         .route("/api/clients/{id}", delete(cleanup::cleanup_client_handler))
+        .route("/api/tracking/events", get(packet_tracking_api::get_tracked_events))
+        .route("/api/tracking/stats", get(packet_tracking_api::get_tracked_stats))
         .with_state(app_state);
     
     // Add authentication if enabled

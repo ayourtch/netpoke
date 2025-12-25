@@ -51,7 +51,7 @@ pub struct PacketTracker {
     tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
     
     /// Queue of matched ICMP events
-    event_queue: Arc<RwLock<Vec<TrackedPacketEvent>>>,
+    pub(crate) event_queue: Arc<RwLock<Vec<TrackedPacketEvent>>>,
 }
 
 impl PacketTracker {

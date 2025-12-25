@@ -27,3 +27,4 @@ uuid = { version = "*", features = ["v4", "serde"] }
 config = { version = "*", features = ["toml"] }
 socket2 = { version = "0.5", features = ["all"] }
 libc = "0.2"
+base64 = "0.22"
