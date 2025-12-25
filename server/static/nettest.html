@@ -146,7 +146,7 @@
                                 tooltipFormat: 'yyyy-MM-dd HH:mm:ss.SSS'
                             },
                             ticks: {
-                                source: 'auto',
+                                source: 'data',
                                 maxRotation: 45,
                                 autoSkip: true
                             }
@@ -255,7 +255,8 @@
                             fill: false,
                             tension: 0.1,
                             pointRadius: 0,
-                            pointHitRadius: 5
+                            pointHitRadius: 5,
+                            spanGaps: false
                         });
                     }
                 }
