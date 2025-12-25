@@ -136,6 +136,53 @@ fn update_ui_dual(dbg_message: &str, ipv4_metrics: &common::ClientMetrics, ipv6_
     set_element_text(&document, "ipv6-s2c-reorder-1", &format_pct(ipv6_metrics.s2c_reorder_rate[0]));
     set_element_text(&document, "ipv6-s2c-reorder-10", &format_pct(ipv6_metrics.s2c_reorder_rate[1]));
     set_element_text(&document, "ipv6-s2c-reorder-60", &format_pct(ipv6_metrics.s2c_reorder_rate[2]));
+
+    // Update chart with metrics data
+    call_add_metrics_data(ipv4_metrics, ipv6_metrics);
+}
+
+fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen::JsCast;
+    
+    let window = match window() {
+        Some(w) => w,
+        None => return,
+    };
+
+    // Convert metrics to JS objects
+    let ipv4_obj = js_sys::Object::new();
+    let ipv6_obj = js_sys::Object::new();
+
+    // Helper function to set array property
+    let set_array_prop = |obj: &js_sys::Object, key: &str, values: &[f64]| {
+        let arr = js_sys::Array::new();
+        for &val in values {
+            arr.push(&JsValue::from_f64(val));
+        }
+        let _ = js_sys::Reflect::set(obj, &JsValue::from_str(key), &arr);
+    };
+
+    // Set IPv4 metrics
+    set_array_prop(&ipv4_obj, "s2c_throughput", &ipv4_metrics.s2c_throughput);
+    set_array_prop(&ipv4_obj, "s2c_delay_avg", &ipv4_metrics.s2c_delay_avg);
+    set_array_prop(&ipv4_obj, "s2c_jitter", &ipv4_metrics.s2c_jitter);
+    set_array_prop(&ipv4_obj, "s2c_loss_rate", &ipv4_metrics.s2c_loss_rate);
+    set_array_prop(&ipv4_obj, "s2c_reorder_rate", &ipv4_metrics.s2c_reorder_rate);
+
+    // Set IPv6 metrics
+    set_array_prop(&ipv6_obj, "s2c_throughput", &ipv6_metrics.s2c_throughput);
+    set_array_prop(&ipv6_obj, "s2c_delay_avg", &ipv6_metrics.s2c_delay_avg);
+    set_array_prop(&ipv6_obj, "s2c_jitter", &ipv6_metrics.s2c_jitter);
+    set_array_prop(&ipv6_obj, "s2c_loss_rate", &ipv6_metrics.s2c_loss_rate);
+    set_array_prop(&ipv6_obj, "s2c_reorder_rate", &ipv6_metrics.s2c_reorder_rate);
+
+    // Call JavaScript function
+    if let Ok(add_metrics_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addMetricsData")) {
+        if let Some(func) = add_metrics_fn.dyn_ref::<js_sys::Function>() {
+            let _ = func.call2(&JsValue::NULL, &ipv4_obj, &ipv6_obj);
+        }
+    }
 }
 
 fn update_ui(metrics: &common::ClientMetrics) {

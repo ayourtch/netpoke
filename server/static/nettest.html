@@ -19,6 +19,10 @@
         button:hover { background-color: #ddd; }
         .running { color: green; }
         .error { color: red; }
+        #chart-container { margin-top: 40px; }
+        #metrics-chart { max-height: 600px; }
+        .chart-controls { margin: 20px 0; }
+        .chart-controls button { margin-right: 10px; }
     </style>
 </head>
 <body>
@@ -58,6 +62,287 @@
         <p><em>C2S metrics are measured by the server and visible on the <a href="/static/dashboard.html">dashboard</a>.</em></p>
     </div>
 
+    <div id="chart-container">
+        <h2>Live Metrics Graph</h2>
+        <div class="chart-controls">
+            <button onclick="toggleMetric('throughput')">Toggle Throughput</button>
+            <button onclick="toggleMetric('delay')">Toggle Delay</button>
+            <button onclick="toggleMetric('jitter')">Toggle Jitter</button>
+            <button onclick="toggleMetric('loss')">Toggle Loss</button>
+            <button onclick="toggleMetric('reordering')">Toggle Reordering</button>
+            <button onclick="resetZoom()">Reset Zoom</button>
+        </div>
+        <canvas id="metrics-chart"></canvas>
+    </div>
+
+    <script src="/static/lib/chart.umd.js"></script>
+    <script src="/static/lib/chartjs-plugin-zoom.min.js"></script>
+    <script>
+        // Global variables for chart management
+        let metricsChart = null;
+        let chartData = {
+            timestamps: [],
+            ipv4: {
+                throughput_1s: [], throughput_10s: [], throughput_60s: [],
+                delay_1s: [], delay_10s: [], delay_60s: [],
+                jitter_1s: [], jitter_10s: [], jitter_60s: [],
+                loss_1s: [], loss_10s: [], loss_60s: [],
+                reorder_1s: [], reorder_10s: [], reorder_60s: []
+            },
+            ipv6: {
+                throughput_1s: [], throughput_10s: [], throughput_60s: [],
+                delay_1s: [], delay_10s: [], delay_60s: [],
+                jitter_1s: [], jitter_10s: [], jitter_60s: [],
+                loss_1s: [], loss_10s: [], loss_60s: [],
+                reorder_1s: [], reorder_10s: [], reorder_60s: []
+            }
+        };
+        const MAX_DATA_POINTS = 300; // 5 minutes at 1 second intervals
+        let lastChartUpdate = 0;
+        const CHART_UPDATE_INTERVAL = 1000; // Update chart every 1 second
+
+        // Visible metric groups
+        let visibleMetrics = {
+            throughput: true,
+            delay: true,
+            jitter: true,
+            loss: true,
+            reordering: true
+        };
+
+        function initChart() {
+            const ctx = document.getElementById('metrics-chart').getContext('2d');
+            
+            metricsChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: true,
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            title: {
+                                display: true,
+                                text: 'Time (seconds ago)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return Math.round(value);
+                                }
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            position: 'left',
+                            title: {
+                                display: true,
+                                text: 'Value'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                boxWidth: 20,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'x'
+                            },
+                            zoom: {
+                                wheel: {
+                                    enabled: true
+                                },
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'x'
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += context.parsed.y.toFixed(2);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    animation: false
+                }
+            });
+            
+            updateChartDatasets();
+        }
+
+        function updateChartDatasets() {
+            const datasets = [];
+            const colors = {
+                ipv4: { r: 33, g: 150, b: 243 },    // Blue
+                ipv6: { r: 255, g: 152, b: 0 }       // Orange
+            };
+
+            const metricConfigs = [
+                { key: 'throughput', name: 'Throughput', unit: 'KB/s', visible: visibleMetrics.throughput },
+                { key: 'delay', name: 'Delay', unit: 'ms', visible: visibleMetrics.delay },
+                { key: 'jitter', name: 'Jitter', unit: 'ms', visible: visibleMetrics.jitter },
+                { key: 'loss', name: 'Loss', unit: '%', visible: visibleMetrics.loss },
+                { key: 'reorder', name: 'Reorder', unit: '%', visible: visibleMetrics.reordering }
+            ];
+
+            const windows = [
+                { key: '1s', dash: [], width: 2 },
+                { key: '10s', dash: [5, 5], width: 1.5 },
+                { key: '60s', dash: [2, 2], width: 1 }
+            ];
+
+            for (const metric of metricConfigs) {
+                if (!metric.visible) continue;
+
+                for (const window of windows) {
+                    for (const [ipVersion, color] of Object.entries(colors)) {
+                        const dataKey = `${metric.key}_${window.key}`;
+                        const data = chartData[ipVersion][dataKey] || [];
+                        
+                        datasets.push({
+                            label: `${ipVersion.toUpperCase()} ${metric.name} ${window.key} (${metric.unit})`,
+                            data: data,
+                            borderColor: `rgba(${color.r}, ${color.g}, ${color.b}, 0.8)`,
+                            backgroundColor: `rgba(${color.r}, ${color.g}, ${color.b}, 0.1)`,
+                            borderWidth: window.width,
+                            borderDash: window.dash,
+                            fill: false,
+                            tension: 0.1,
+                            pointRadius: 0,
+                            pointHitRadius: 5
+                        });
+                    }
+                }
+            }
+
+            if (metricsChart) {
+                metricsChart.data.datasets = datasets;
+                metricsChart.update('none');
+            }
+        }
+
+        function toggleMetric(metricType) {
+            visibleMetrics[metricType] = !visibleMetrics[metricType];
+            updateChartDatasets();
+        }
+
+        function resetZoom() {
+            if (metricsChart) {
+                metricsChart.resetZoom();
+            }
+        }
+
+        function addMetricsData(ipv4Metrics, ipv6Metrics) {
+            const now = Date.now();
+            
+            // Only update chart every second to avoid performance issues
+            if (now - lastChartUpdate < CHART_UPDATE_INTERVAL) {
+                return;
+            }
+            lastChartUpdate = now;
+
+            const timestamp = now / 1000; // Convert to seconds
+            chartData.timestamps.push(timestamp);
+
+            // Helper to convert bytes/sec to KB/sec
+            const bytesToKB = (bytes) => bytes / 1024;
+
+            // Add IPv4 metrics
+            chartData.ipv4.throughput_1s.push({ x: timestamp, y: bytesToKB(ipv4Metrics.s2c_throughput[0]) });
+            chartData.ipv4.throughput_10s.push({ x: timestamp, y: bytesToKB(ipv4Metrics.s2c_throughput[1]) });
+            chartData.ipv4.throughput_60s.push({ x: timestamp, y: bytesToKB(ipv4Metrics.s2c_throughput[2]) });
+            chartData.ipv4.delay_1s.push({ x: timestamp, y: ipv4Metrics.s2c_delay_avg[0] });
+            chartData.ipv4.delay_10s.push({ x: timestamp, y: ipv4Metrics.s2c_delay_avg[1] });
+            chartData.ipv4.delay_60s.push({ x: timestamp, y: ipv4Metrics.s2c_delay_avg[2] });
+            chartData.ipv4.jitter_1s.push({ x: timestamp, y: ipv4Metrics.s2c_jitter[0] });
+            chartData.ipv4.jitter_10s.push({ x: timestamp, y: ipv4Metrics.s2c_jitter[1] });
+            chartData.ipv4.jitter_60s.push({ x: timestamp, y: ipv4Metrics.s2c_jitter[2] });
+            chartData.ipv4.loss_1s.push({ x: timestamp, y: ipv4Metrics.s2c_loss_rate[0] });
+            chartData.ipv4.loss_10s.push({ x: timestamp, y: ipv4Metrics.s2c_loss_rate[1] });
+            chartData.ipv4.loss_60s.push({ x: timestamp, y: ipv4Metrics.s2c_loss_rate[2] });
+            chartData.ipv4.reorder_1s.push({ x: timestamp, y: ipv4Metrics.s2c_reorder_rate[0] });
+            chartData.ipv4.reorder_10s.push({ x: timestamp, y: ipv4Metrics.s2c_reorder_rate[1] });
+            chartData.ipv4.reorder_60s.push({ x: timestamp, y: ipv4Metrics.s2c_reorder_rate[2] });
+
+            // Add IPv6 metrics
+            chartData.ipv6.throughput_1s.push({ x: timestamp, y: bytesToKB(ipv6Metrics.s2c_throughput[0]) });
+            chartData.ipv6.throughput_10s.push({ x: timestamp, y: bytesToKB(ipv6Metrics.s2c_throughput[1]) });
+            chartData.ipv6.throughput_60s.push({ x: timestamp, y: bytesToKB(ipv6Metrics.s2c_throughput[2]) });
+            chartData.ipv6.delay_1s.push({ x: timestamp, y: ipv6Metrics.s2c_delay_avg[0] });
+            chartData.ipv6.delay_10s.push({ x: timestamp, y: ipv6Metrics.s2c_delay_avg[1] });
+            chartData.ipv6.delay_60s.push({ x: timestamp, y: ipv6Metrics.s2c_delay_avg[2] });
+            chartData.ipv6.jitter_1s.push({ x: timestamp, y: ipv6Metrics.s2c_jitter[0] });
+            chartData.ipv6.jitter_10s.push({ x: timestamp, y: ipv6Metrics.s2c_jitter[1] });
+            chartData.ipv6.jitter_60s.push({ x: timestamp, y: ipv6Metrics.s2c_jitter[2] });
+            chartData.ipv6.loss_1s.push({ x: timestamp, y: ipv6Metrics.s2c_loss_rate[0] });
+            chartData.ipv6.loss_10s.push({ x: timestamp, y: ipv6Metrics.s2c_loss_rate[1] });
+            chartData.ipv6.loss_60s.push({ x: timestamp, y: ipv6Metrics.s2c_loss_rate[2] });
+            chartData.ipv6.reorder_1s.push({ x: timestamp, y: ipv6Metrics.s2c_reorder_rate[0] });
+            chartData.ipv6.reorder_10s.push({ x: timestamp, y: ipv6Metrics.s2c_reorder_rate[1] });
+            chartData.ipv6.reorder_60s.push({ x: timestamp, y: ipv6Metrics.s2c_reorder_rate[2] });
+
+            // Limit data points to prevent memory issues
+            if (chartData.timestamps.length > MAX_DATA_POINTS) {
+                chartData.timestamps.shift();
+                for (const ipVersion of ['ipv4', 'ipv6']) {
+                    for (const key in chartData[ipVersion]) {
+                        chartData[ipVersion][key].shift();
+                    }
+                }
+            }
+
+            // Update chart with relative time (most recent on right)
+            if (metricsChart) {
+                const latestTime = chartData.timestamps[chartData.timestamps.length - 1];
+                
+                // Update all datasets with relative time
+                metricsChart.data.datasets.forEach(dataset => {
+                    dataset.data = dataset.data.map(point => ({
+                        x: latestTime - point.x,
+                        y: point.y
+                    }));
+                });
+                
+                metricsChart.update('none');
+            }
+        }
+
+        // Initialize chart when page loads
+        window.addEventListener('load', () => {
+            initChart();
+        });
+
+        // Make addMetricsData globally available
+        window.addMetricsData = addMetricsData;
+    </script>
     <script type="module">
         const errorEl = document.getElementById('error');
         const statusEl = document.getElementById('status');

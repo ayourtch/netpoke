@@ -14,3 +14,5 @@ node_modules/
 server.log
 .env
 .env.local
+package.json
+package-lock.json
