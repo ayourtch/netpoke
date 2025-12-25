@@ -5,6 +5,12 @@ use crate::measurements::current_time_ms;
 
 use wasm_bindgen::prelude::*;
 use web_sys::{window, Document};
+use std::cell::RefCell;
+
+// Global wake lock sentinel (stored as JsValue since WakeLockSentinel might not be exposed)
+thread_local! {
+    static WAKE_LOCK: RefCell<Option<JsValue>> = RefCell::new(None);
+}
 
 #[wasm_bindgen(start)]
 pub fn main() {
@@ -14,9 +20,62 @@ pub fn main() {
     log::info!("WASM client initialized");
 }
 
+/// Request a wake lock to prevent the device from sleeping
+async fn request_wake_lock() -> Result<(), JsValue> {
+    let window = window().ok_or("No window")?;
+    let navigator = window.navigator();
+    
+    // Check if wake lock is supported
+    if js_sys::Reflect::has(&navigator, &JsValue::from_str("wakeLock")).unwrap_or(false) {
+        let wake_lock = js_sys::Reflect::get(&navigator, &JsValue::from_str("wakeLock"))?;
+        
+        // Request wake lock
+        let promise = js_sys::Reflect::apply(
+            &js_sys::Reflect::get(&wake_lock, &JsValue::from_str("request"))?.unchecked_into(),
+            &wake_lock,
+            &js_sys::Array::of1(&JsValue::from_str("screen"))
+        )?;
+        
+        let result = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
+        
+        log::info!("Wake lock acquired");
+        
+        // Store the sentinel globally
+        WAKE_LOCK.with(|lock| {
+            *lock.borrow_mut() = Some(result);
+        });
+        
+        Ok(())
+    } else {
+        log::warn!("Wake Lock API not supported in this browser");
+        Ok(())
+    }
+}
+
+/// Release the wake lock
+fn release_wake_lock() {
+    WAKE_LOCK.with(|lock| {
+        if let Some(sentinel) = lock.borrow_mut().take() {
+            // Call release() method on the sentinel
+            if let Ok(release_fn) = js_sys::Reflect::get(&sentinel, &JsValue::from_str("release")) {
+                if let Some(func) = release_fn.dyn_ref::<js_sys::Function>() {
+                    let _ = func.call0(&sentinel);
+                    log::info!("Wake lock released");
+                }
+            }
+        }
+    });
+}
+
 #[wasm_bindgen]
 pub async fn start_measurement() -> Result<(), JsValue> {
     log::info!("Starting dual-stack network measurement...");
+
+    // Request wake lock to prevent device from sleeping
+    if let Err(e) = request_wake_lock().await {
+        log::warn!("Failed to acquire wake lock: {:?}", e);
+        // Continue anyway - wake lock is optional
+    }
 
     // Create IPv4 connection (first connection, no parent)
     let ipv4_connection = webrtc::WebRtcConnection::new_with_ip_version("ipv4", None).await?;
@@ -55,6 +114,13 @@ pub async fn start_measurement() -> Result<(), JsValue> {
     std::mem::forget(ipv6_connection);
 
     Ok(())
+}
+
+/// Stop the measurement and release the wake lock
+#[wasm_bindgen]
+pub fn stop_measurement() {
+    log::info!("Stopping measurement...");
+    release_wake_lock();
 }
 
 fn update_ui_dual(dbg_message: &str, ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
