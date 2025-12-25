@@ -129,16 +129,25 @@
                     },
                     scales: {
                         x: {
-                            type: 'linear',
+                            type: 'time',
                             position: 'bottom',
                             title: {
                                 display: true,
-                                text: 'Time (seconds ago)'
+                                text: 'Time'
+                            },
+                            time: {
+                                displayFormats: {
+                                    millisecond: 'HH:mm:ss.SSS',
+                                    second: 'HH:mm:ss',
+                                    minute: 'HH:mm:ss',
+                                    hour: 'HH:mm'
+                                },
+                                tooltipFormat: 'yyyy-MM-dd HH:mm:ss.SSS'
                             },
                             ticks: {
-                                callback: function(value) {
-                                    return Math.round(value);
-                                }
+                                source: 'auto',
+                                maxRotation: 45,
+                                autoSkip: true
                             }
                         },
                         y: {
@@ -178,6 +187,14 @@
                         },
                         tooltip: {
                             callbacks: {
+                                title: function(context) {
+                                    if (context.length > 0) {
+                                        const timestamp = context[0].parsed.x;
+                                        const date = new Date(timestamp);
+                                        return date.toISOString().replace('T', ' ').replace('Z', '');
+                                    }
+                                    return '';
+                                },
                                 label: function(context) {
                                     let label = context.dataset.label || '';
                                     if (label) {
@@ -269,45 +286,45 @@
             }
             lastChartUpdate = now;
 
-            const timestamp = now / 1000; // Convert to seconds
-            chartData.timestamps.push(timestamp);
+            // Use milliseconds timestamp for Chart.js time scale
+            chartData.timestamps.push(now);
 
             // Helper to convert bytes/sec to KB/sec
             const bytesToKB = (bytes) => bytes / 1024;
 
             // Add IPv4 metrics
-            chartData.ipv4.throughput_1s.push({ x: timestamp, y: bytesToKB(ipv4Metrics.s2c_throughput[0]) });
-            chartData.ipv4.throughput_10s.push({ x: timestamp, y: bytesToKB(ipv4Metrics.s2c_throughput[1]) });
-            chartData.ipv4.throughput_60s.push({ x: timestamp, y: bytesToKB(ipv4Metrics.s2c_throughput[2]) });
-            chartData.ipv4.delay_1s.push({ x: timestamp, y: ipv4Metrics.s2c_delay_avg[0] });
-            chartData.ipv4.delay_10s.push({ x: timestamp, y: ipv4Metrics.s2c_delay_avg[1] });
-            chartData.ipv4.delay_60s.push({ x: timestamp, y: ipv4Metrics.s2c_delay_avg[2] });
-            chartData.ipv4.jitter_1s.push({ x: timestamp, y: ipv4Metrics.s2c_jitter[0] });
-            chartData.ipv4.jitter_10s.push({ x: timestamp, y: ipv4Metrics.s2c_jitter[1] });
-            chartData.ipv4.jitter_60s.push({ x: timestamp, y: ipv4Metrics.s2c_jitter[2] });
-            chartData.ipv4.loss_1s.push({ x: timestamp, y: ipv4Metrics.s2c_loss_rate[0] });
-            chartData.ipv4.loss_10s.push({ x: timestamp, y: ipv4Metrics.s2c_loss_rate[1] });
-            chartData.ipv4.loss_60s.push({ x: timestamp, y: ipv4Metrics.s2c_loss_rate[2] });
-            chartData.ipv4.reorder_1s.push({ x: timestamp, y: ipv4Metrics.s2c_reorder_rate[0] });
-            chartData.ipv4.reorder_10s.push({ x: timestamp, y: ipv4Metrics.s2c_reorder_rate[1] });
-            chartData.ipv4.reorder_60s.push({ x: timestamp, y: ipv4Metrics.s2c_reorder_rate[2] });
+            chartData.ipv4.throughput_1s.push({ x: now, y: bytesToKB(ipv4Metrics.s2c_throughput[0]) });
+            chartData.ipv4.throughput_10s.push({ x: now, y: bytesToKB(ipv4Metrics.s2c_throughput[1]) });
+            chartData.ipv4.throughput_60s.push({ x: now, y: bytesToKB(ipv4Metrics.s2c_throughput[2]) });
+            chartData.ipv4.delay_1s.push({ x: now, y: ipv4Metrics.s2c_delay_avg[0] });
+            chartData.ipv4.delay_10s.push({ x: now, y: ipv4Metrics.s2c_delay_avg[1] });
+            chartData.ipv4.delay_60s.push({ x: now, y: ipv4Metrics.s2c_delay_avg[2] });
+            chartData.ipv4.jitter_1s.push({ x: now, y: ipv4Metrics.s2c_jitter[0] });
+            chartData.ipv4.jitter_10s.push({ x: now, y: ipv4Metrics.s2c_jitter[1] });
+            chartData.ipv4.jitter_60s.push({ x: now, y: ipv4Metrics.s2c_jitter[2] });
+            chartData.ipv4.loss_1s.push({ x: now, y: ipv4Metrics.s2c_loss_rate[0] });
+            chartData.ipv4.loss_10s.push({ x: now, y: ipv4Metrics.s2c_loss_rate[1] });
+            chartData.ipv4.loss_60s.push({ x: now, y: ipv4Metrics.s2c_loss_rate[2] });
+            chartData.ipv4.reorder_1s.push({ x: now, y: ipv4Metrics.s2c_reorder_rate[0] });
+            chartData.ipv4.reorder_10s.push({ x: now, y: ipv4Metrics.s2c_reorder_rate[1] });
+            chartData.ipv4.reorder_60s.push({ x: now, y: ipv4Metrics.s2c_reorder_rate[2] });
 
             // Add IPv6 metrics
-            chartData.ipv6.throughput_1s.push({ x: timestamp, y: bytesToKB(ipv6Metrics.s2c_throughput[0]) });
-            chartData.ipv6.throughput_10s.push({ x: timestamp, y: bytesToKB(ipv6Metrics.s2c_throughput[1]) });
-            chartData.ipv6.throughput_60s.push({ x: timestamp, y: bytesToKB(ipv6Metrics.s2c_throughput[2]) });
-            chartData.ipv6.delay_1s.push({ x: timestamp, y: ipv6Metrics.s2c_delay_avg[0] });
-            chartData.ipv6.delay_10s.push({ x: timestamp, y: ipv6Metrics.s2c_delay_avg[1] });
-            chartData.ipv6.delay_60s.push({ x: timestamp, y: ipv6Metrics.s2c_delay_avg[2] });
-            chartData.ipv6.jitter_1s.push({ x: timestamp, y: ipv6Metrics.s2c_jitter[0] });
-            chartData.ipv6.jitter_10s.push({ x: timestamp, y: ipv6Metrics.s2c_jitter[1] });
-            chartData.ipv6.jitter_60s.push({ x: timestamp, y: ipv6Metrics.s2c_jitter[2] });
-            chartData.ipv6.loss_1s.push({ x: timestamp, y: ipv6Metrics.s2c_loss_rate[0] });
-            chartData.ipv6.loss_10s.push({ x: timestamp, y: ipv6Metrics.s2c_loss_rate[1] });
-            chartData.ipv6.loss_60s.push({ x: timestamp, y: ipv6Metrics.s2c_loss_rate[2] });
-            chartData.ipv6.reorder_1s.push({ x: timestamp, y: ipv6Metrics.s2c_reorder_rate[0] });
-            chartData.ipv6.reorder_10s.push({ x: timestamp, y: ipv6Metrics.s2c_reorder_rate[1] });
-            chartData.ipv6.reorder_60s.push({ x: timestamp, y: ipv6Metrics.s2c_reorder_rate[2] });
+            chartData.ipv6.throughput_1s.push({ x: now, y: bytesToKB(ipv6Metrics.s2c_throughput[0]) });
+            chartData.ipv6.throughput_10s.push({ x: now, y: bytesToKB(ipv6Metrics.s2c_throughput[1]) });
+            chartData.ipv6.throughput_60s.push({ x: now, y: bytesToKB(ipv6Metrics.s2c_throughput[2]) });
+            chartData.ipv6.delay_1s.push({ x: now, y: ipv6Metrics.s2c_delay_avg[0] });
+            chartData.ipv6.delay_10s.push({ x: now, y: ipv6Metrics.s2c_delay_avg[1] });
+            chartData.ipv6.delay_60s.push({ x: now, y: ipv6Metrics.s2c_delay_avg[2] });
+            chartData.ipv6.jitter_1s.push({ x: now, y: ipv6Metrics.s2c_jitter[0] });
+            chartData.ipv6.jitter_10s.push({ x: now, y: ipv6Metrics.s2c_jitter[1] });
+            chartData.ipv6.jitter_60s.push({ x: now, y: ipv6Metrics.s2c_jitter[2] });
+            chartData.ipv6.loss_1s.push({ x: now, y: ipv6Metrics.s2c_loss_rate[0] });
+            chartData.ipv6.loss_10s.push({ x: now, y: ipv6Metrics.s2c_loss_rate[1] });
+            chartData.ipv6.loss_60s.push({ x: now, y: ipv6Metrics.s2c_loss_rate[2] });
+            chartData.ipv6.reorder_1s.push({ x: now, y: ipv6Metrics.s2c_reorder_rate[0] });
+            chartData.ipv6.reorder_10s.push({ x: now, y: ipv6Metrics.s2c_reorder_rate[1] });
+            chartData.ipv6.reorder_60s.push({ x: now, y: ipv6Metrics.s2c_reorder_rate[2] });
 
             // Limit data points to prevent memory issues
             if (chartData.timestamps.length > MAX_DATA_POINTS) {
@@ -319,43 +336,9 @@
                 }
             }
 
-            // Update chart with relative time (most recent on right)
-            // We recalculate from the original absolute timestamps stored in chartData
-            // to avoid the flip-flop bug where transformed values get re-transformed
+            // Update chart directly without transformation
             if (metricsChart) {
-                const latestTime = chartData.timestamps[chartData.timestamps.length - 1];
-                
-                // Update datasets by recalculating relative time from original chartData
-                let datasetIndex = 0;
-                const metricConfigs = [
-                    { key: 'throughput', visible: visibleMetrics.throughput },
-                    { key: 'delay', visible: visibleMetrics.delay },
-                    { key: 'jitter', visible: visibleMetrics.jitter },
-                    { key: 'loss', visible: visibleMetrics.loss },
-                    { key: 'reorder', visible: visibleMetrics.reordering }
-                ];
-                
-                for (const metric of metricConfigs) {
-                    if (!metric.visible) continue;
-                    
-                    const windows = ['1s', '10s', '60s'];
-                    for (const window of windows) {
-                        for (const ipVersion of ['ipv4', 'ipv6']) {
-                            const dataKey = `${metric.key}_${window}`;
-                            const originalData = chartData[ipVersion][dataKey];
-                            
-                            if (datasetIndex < metricsChart.data.datasets.length) {
-                                // Transform from absolute timestamps to relative time
-                                metricsChart.data.datasets[datasetIndex].data = originalData.map(point => ({
-                                    x: latestTime - point.x,
-                                    y: point.y
-                                }));
-                            }
-                            datasetIndex++;
-                        }
-                    }
-                }
-                
+                updateChartDatasets();
                 metricsChart.update('none');
             }
         }
