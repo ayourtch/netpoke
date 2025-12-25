@@ -128,6 +128,7 @@ pub fn setup_probe_channel(
                 seq: state.probe_seq,
                 timestamp_ms: current_time_ms(),
                 direction: Direction::ClientToServer,
+                send_options: None,  // Client doesn't send options yet
             };
             state.probe_seq += 1;
 

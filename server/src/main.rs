@@ -8,6 +8,8 @@ mod cleanup;
 mod config;
 mod auth_handlers;
 mod survey_middleware;
+mod packet_tracker;
+mod icmp_listener;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -28,9 +30,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use axum::routing::IntoMakeService;
 
 
-fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<axum::Router> {
-    let app_state = AppState::new();
-    
+fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthService>>) -> IntoMakeService<axum::Router> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
         .route("/api/signaling/start", post(signaling::signaling_start))
@@ -128,8 +128,8 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
     app.into_make_service()
 }
 
-async fn http_server(config: config::ServerConfig, auth_service: Option<Arc<AuthService>>) {
-    let srv = get_make_service(auth_service);
+async fn http_server(config: config::ServerConfig, app_state: state::AppState, auth_service: Option<Arc<AuthService>>) {
+    let srv = get_make_service(app_state, auth_service);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -150,8 +150,8 @@ async fn http_handler(uri: Uri) -> Redirect {
     Redirect::temporary(&uri)
 }
 
-async fn https_server(config: config::ServerConfig, auth_service: Option<Arc<AuthService>>) {
-    let srv = get_make_service(auth_service);
+async fn https_server(config: config::ServerConfig, app_state: state::AppState, auth_service: Option<Arc<AuthService>>) {
+    let srv = get_make_service(app_state, auth_service);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -214,6 +214,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  Log level: {}", config.logging.level);
     tracing::info!("  CORS enabled: {}", config.security.enable_cors);
     
+    // Initialize packet tracker and ICMP listener
+    let app_state = state::AppState::new();
+    icmp_listener::start_icmp_listener(app_state.packet_tracker.clone());
+    tracing::info!("Packet tracking and ICMP listener initialized");
+    
     // Initialize authentication service if enabled
     let auth_service = if config.auth.enable_auth {
         tracing::info!("Authentication enabled:");
@@ -243,8 +248,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if config.server.enable_http {
         let http_config = config.server.clone();
         let auth_svc = auth_service.clone();
+        let app_state_clone = app_state.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, auth_svc).await
+            http_server(http_config, app_state_clone, auth_svc).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -253,8 +259,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if config.server.enable_https {
         let https_config = config.server.clone();
         let auth_svc = auth_service.clone();
+        let app_state_clone = app_state.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, auth_svc).await
+            https_server(https_config, app_state_clone, auth_svc).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

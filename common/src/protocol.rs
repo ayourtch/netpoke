@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::metrics::ClientMetrics;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Direction {
@@ -7,22 +8,57 @@ pub enum Direction {
     ServerToClient,
 }
 
+/// UDP socket options for packet transmission
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+pub struct SendOptions {
+    /// Time To Live (IPv4) or Hop Limit (IPv6)
+    pub ttl: Option<u8>,
+    
+    /// Don't Fragment bit (IPv4 only)
+    pub df_bit: Option<bool>,
+    
+    /// Type of Service (IPv4) or Traffic Class (IPv6)
+    pub tos: Option<u8>,
+    
+    /// Flow Label (IPv6 only)
+    pub flow_label: Option<u32>,
+    
+    /// Track this packet for ICMP correlation (milliseconds, 0 = no tracking)
+    pub track_for_ms: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ProbePacket {
     pub seq: u64,
     pub timestamp_ms: u64,
     pub direction: Direction,
+    
+    /// Optional send options for this packet
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_options: Option<SendOptions>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkPacket {
     pub data: Vec<u8>,
+    
+    /// Optional send options for this packet
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_options: Option<SendOptions>,
 }
 
 impl BulkPacket {
     pub fn new(size: usize) -> Self {
         Self {
             data: vec![0u8; size],
+            send_options: None,
+        }
+    }
+    
+    pub fn with_options(size: usize, options: SendOptions) -> Self {
+        Self {
+            data: vec![0u8; size],
+            send_options: Some(options),
         }
     }
 }
@@ -45,6 +81,28 @@ pub struct DashboardMessage {
     pub clients: Vec<ClientInfo>,
 }
 
+/// Event generated when an ICMP error matches a tracked packet
+#[derive(Debug, Clone)]
+pub struct TrackedPacketEvent {
+    /// Raw ICMP error packet
+    pub icmp_packet: Vec<u8>,
+    
+    /// Original UDP packet that was sent
+    pub udp_packet: Vec<u8>,
+    
+    /// Original cleartext data that was sent
+    pub cleartext: Vec<u8>,
+    
+    /// When the UDP packet was sent
+    pub sent_at: Instant,
+    
+    /// When the ICMP error was received
+    pub icmp_received_at: Instant,
+    
+    /// Send options that were used
+    pub send_options: SendOptions,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -55,6 +113,7 @@ mod tests {
             seq: 42,
             timestamp_ms: 1234567890,
             direction: Direction::ClientToServer,
+            send_options: None,
         };
 
         let json = serde_json::to_string(&packet).unwrap();

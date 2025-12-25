@@ -52,6 +52,7 @@ pub async fn start_probe_sender(
             seq,
             timestamp_ms: sent_at_ms,
             direction: Direction::ServerToClient,
+            send_options: None,  // Will be enhanced later to support per-packet options
         };
 
         if let Ok(json) = serde_json::to_vec(&probe) {

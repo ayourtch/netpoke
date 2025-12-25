@@ -6,10 +6,12 @@ use std::time::Instant;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::data_channel::RTCDataChannel;
 use common::ClientMetrics;
+use crate::packet_tracker::PacketTracker;
 
 #[derive(Clone)]
 pub struct AppState {
     pub clients: Arc<RwLock<HashMap<String, Arc<ClientSession>>>>,
+    pub packet_tracker: Arc<PacketTracker>,
 }
 
 pub struct ClientSession {
@@ -78,6 +80,7 @@ impl AppState {
     pub fn new() -> Self {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
+            packet_tracker: Arc::new(PacketTracker::new()),
         }
     }
 }
