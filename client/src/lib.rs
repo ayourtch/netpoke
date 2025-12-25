@@ -180,7 +180,9 @@ fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &co
     // Call JavaScript function
     if let Ok(add_metrics_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addMetricsData")) {
         if let Some(func) = add_metrics_fn.dyn_ref::<js_sys::Function>() {
-            let _ = func.call2(&JsValue::NULL, &ipv4_obj, &ipv6_obj);
+            if let Err(e) = func.call2(&JsValue::NULL, &ipv4_obj, &ipv6_obj) {
+                log::warn!("Failed to call addMetricsData: {:?}", e);
+            }
         }
     }
 }
