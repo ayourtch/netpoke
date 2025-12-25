@@ -31,12 +31,15 @@ use axum::routing::IntoMakeService;
 fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<axum::Router> {
     let app_state = AppState::new();
     
-    // Build the main app with its routes
-    let main_app = Router::new()
-        .route("/health", get(health_check))
+    // Signaling API routes - these need to be accessible by survey users (Magic Key)
+    let signaling_routes = Router::new()
         .route("/api/signaling/start", post(signaling::signaling_start))
         .route("/api/signaling/ice", post(signaling::ice_candidate))
         .route("/api/signaling/ice/remote", post(signaling::get_ice_candidates))
+        .with_state(app_state.clone());
+    
+    // Dashboard and admin routes - these should only be accessible by authenticated users
+    let dashboard_routes = Router::new()
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .route("/api/dashboard/debug", get(dashboard_debug))
         .route("/api/clients/{id}", delete(cleanup::cleanup_client_handler))
@@ -56,8 +59,15 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
                 .route("/api/auth/magic-key", post(auth_handlers::magic_key_auth))
                 .with_state(auth_svc.clone());
             
-            // Protected routes - main app with auth middleware
-            let protected_app = main_app
+            // Signaling routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_signaling = signaling_routes
+                .route_layer(middleware::from_fn_with_state(
+                    auth_svc.clone(),
+                    survey_middleware::require_auth_or_survey_session
+                ));
+            
+            // Protected dashboard routes - require full authentication
+            let protected_dashboard = dashboard_routes
                 .route_layer(middleware::from_fn_with_state(
                     auth_svc.clone(),
                     require_auth
@@ -79,19 +89,24 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
                     survey_middleware::require_auth_or_survey_session
                 ));
             
-            // Combine: auth routes (public) + public API + public static files + nettest (dual auth) + protected routes + protected static files
+            // Combine: auth routes (public) + public API + public static files + nettest (hybrid auth) + signaling (hybrid auth) + dashboard (protected) + static (protected)
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
+                .route("/health", get(health_check))
                 .merge(nettest_route)
-                .merge(protected_app)
+                .merge(hybrid_signaling)
+                .merge(protected_dashboard)
                 .merge(protected_static)
                 .layer(TraceLayer::new_for_http())
         } else {
             tracing::info!("Authentication is disabled or no providers are enabled");
-            main_app
+            Router::new()
+                .route("/health", get(health_check))
+                .merge(signaling_routes)
+                .merge(dashboard_routes)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
                 .nest_service("/static", ServeDir::new("server/static"))
@@ -99,7 +114,10 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
         }
     } else {
         tracing::info!("No authentication service configured");
-        main_app
+        Router::new()
+            .route("/health", get(health_check))
+            .merge(signaling_routes)
+            .merge(dashboard_routes)
             .route_service("/", ServeFile::new("server/static/public/index.html"))
             .nest_service("/public", ServeDir::new("server/static/public"))
             .nest_service("/static", ServeDir::new("server/static"))
