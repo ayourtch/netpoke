@@ -326,14 +326,6 @@
                 const latestTime = chartData.timestamps[chartData.timestamps.length - 1];
                 
                 // Update datasets by recalculating relative time from original chartData
-                const metricKeys = [
-                    'throughput_1s', 'throughput_10s', 'throughput_60s',
-                    'delay_1s', 'delay_10s', 'delay_60s',
-                    'jitter_1s', 'jitter_10s', 'jitter_60s',
-                    'loss_1s', 'loss_10s', 'loss_60s',
-                    'reorder_1s', 'reorder_10s', 'reorder_60s'
-                ];
-                
                 let datasetIndex = 0;
                 const metricConfigs = [
                     { key: 'throughput', visible: visibleMetrics.throughput },
