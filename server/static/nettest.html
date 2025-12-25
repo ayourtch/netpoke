@@ -23,11 +23,29 @@
         #metrics-chart { max-height: 600px; }
         .chart-controls { margin: 20px 0; }
         .chart-controls button { margin-right: 10px; }
+        #wake-lock-status { 
+            display: inline-block;
+            margin-left: 15px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            background-color: #f0f0f0;
+            color: #666;
+        }
+        #wake-lock-status.active { 
+            background-color: #4CAF50;
+            color: white;
+        }
+        #wake-lock-status.unsupported { 
+            background-color: #ff9800;
+            color: white;
+        }
     </style>
 </head>
 <body>
     <h1>Network Measurement Client</h1>
     <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
+    <span id="wake-lock-status">Wake Lock: Checking...</span>
     <div id="status">Loading WASM module...</div>
     <div id="ayxx"></div>
     <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
@@ -357,6 +375,21 @@
         const errorEl = document.getElementById('error');
         const statusEl = document.getElementById('status');
         const btnEl = document.getElementById('start-btn');
+        const wakeLockStatusEl = document.getElementById('wake-lock-status');
+
+        // Check if Wake Lock API is supported
+        function checkWakeLockSupport() {
+            if ('wakeLock' in navigator) {
+                wakeLockStatusEl.textContent = '🔓 Wake Lock: Ready';
+                wakeLockStatusEl.className = '';
+            } else {
+                wakeLockStatusEl.textContent = '⚠️ Wake Lock: Not Supported';
+                wakeLockStatusEl.className = 'unsupported';
+            }
+        }
+
+        // Call on page load
+        checkWakeLockSupport();
 
         // Wrap in async IIFE for better Safari compatibility
         (async () => {
@@ -385,6 +418,12 @@
                         await start_measurement();
                         statusEl.textContent = 'Running - measuring network...';
                         statusEl.className = 'running';
+                        
+                        // Update wake lock status
+                        if ('wakeLock' in navigator) {
+                            wakeLockStatusEl.textContent = '🔒 Wake Lock: Active';
+                            wakeLockStatusEl.className = 'active';
+                        }
                     } catch (e) {
                         const errMsg = 'Measurement error: ' + (e.message || e);
                         statusEl.textContent = 'Error';
