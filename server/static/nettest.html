@@ -320,16 +320,49 @@
             }
 
             // Update chart with relative time (most recent on right)
+            // We recalculate from the original absolute timestamps stored in chartData
+            // to avoid the flip-flop bug where transformed values get re-transformed
             if (metricsChart) {
                 const latestTime = chartData.timestamps[chartData.timestamps.length - 1];
                 
-                // Update all datasets with relative time
-                metricsChart.data.datasets.forEach(dataset => {
-                    dataset.data = dataset.data.map(point => ({
-                        x: latestTime - point.x,
-                        y: point.y
-                    }));
-                });
+                // Update datasets by recalculating relative time from original chartData
+                const metricKeys = [
+                    'throughput_1s', 'throughput_10s', 'throughput_60s',
+                    'delay_1s', 'delay_10s', 'delay_60s',
+                    'jitter_1s', 'jitter_10s', 'jitter_60s',
+                    'loss_1s', 'loss_10s', 'loss_60s',
+                    'reorder_1s', 'reorder_10s', 'reorder_60s'
+                ];
+                
+                let datasetIndex = 0;
+                const metricConfigs = [
+                    { key: 'throughput', visible: visibleMetrics.throughput },
+                    { key: 'delay', visible: visibleMetrics.delay },
+                    { key: 'jitter', visible: visibleMetrics.jitter },
+                    { key: 'loss', visible: visibleMetrics.loss },
+                    { key: 'reorder', visible: visibleMetrics.reordering }
+                ];
+                
+                for (const metric of metricConfigs) {
+                    if (!metric.visible) continue;
+                    
+                    const windows = ['1s', '10s', '60s'];
+                    for (const window of windows) {
+                        for (const ipVersion of ['ipv4', 'ipv6']) {
+                            const dataKey = `${metric.key}_${window}`;
+                            const originalData = chartData[ipVersion][dataKey];
+                            
+                            if (datasetIndex < metricsChart.data.datasets.length) {
+                                // Transform from absolute timestamps to relative time
+                                metricsChart.data.datasets[datasetIndex].data = originalData.map(point => ({
+                                    x: latestTime - point.x,
+                                    y: point.y
+                                }));
+                            }
+                            datasetIndex++;
+                        }
+                    }
+                }
                 
                 metricsChart.update('none');
             }

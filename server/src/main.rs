@@ -81,9 +81,10 @@ fn get_make_service(auth_service: Option<Arc<AuthService>>) -> IntoMakeService<a
                     require_auth
                 ));
             
-            // Network test page - allow EITHER regular auth OR survey session (Magic Key)
+            // Network test page and its dependencies - allow EITHER regular auth OR survey session (Magic Key)
             let nettest_route = Router::new()
                 .route_service("/static/nettest.html", ServeFile::new("server/static/nettest.html"))
+                .nest_service("/static/lib", ServeDir::new("server/static/lib"))
                 .route_layer(middleware::from_fn_with_state(
                     auth_svc.clone(),
                     survey_middleware::require_auth_or_survey_session
