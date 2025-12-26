@@ -2,6 +2,11 @@
 members = ["server", "client", "common", "auth"]
 resolver = "2"
 
+# Patch webrtc-util to use our locally modified version
+# This enables per-message UDP socket options (TTL, DF bit, TOS)
+[patch.crates-io]
+webrtc-util = { path = "vendored/webrtc-util" }
+
 [profile.release]
 debug = true # debug symbols cost nothing
 # super slow # lto = true # do whole program optimization

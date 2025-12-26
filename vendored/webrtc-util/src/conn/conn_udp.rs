@@ -1,0 +1,256 @@
+use tokio::net::UdpSocket;
+use std::os::unix::io::AsRawFd;
+
+use super::*;
+
+// UDP socket options support (added for wifi-verify)
+#[cfg(target_os = "linux")]
+use libc::{
+    c_void, iovec, msghdr, sendmsg, cmsghdr, IPPROTO_IP, IPPROTO_IPV6,
+    IP_TTL, IP_TOS, IPV6_HOPLIMIT, IPV6_TCLASS,
+};
+
+#[async_trait]
+impl Conn for UdpSocket {
+    async fn connect(&self, addr: SocketAddr) -> Result<()> {
+        Ok(self.connect(addr).await?)
+    }
+
+    async fn recv(&self, buf: &mut [u8]) -> Result<usize> {
+        Ok(self.recv(buf).await?)
+    }
+
+    async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr)> {
+        Ok(self.recv_from(buf).await?)
+    }
+
+    async fn send(&self, buf: &[u8]) -> Result<usize> {
+        Ok(self.send(buf).await?)
+    }
+
+    async fn send_to(&self, buf: &[u8], target: SocketAddr) -> Result<usize> {
+        // Check if we have UDP options to apply (passed via thread-local storage)
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(options) = get_current_send_options() {
+                return send_to_with_options(self, buf, target, &options).await;
+            }
+        }
+        
+        // Default: regular send_to
+        Ok(self.send_to(buf, target).await?)
+    }
+
+    fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(self.local_addr()?)
+    }
+
+    fn remote_addr(&self) -> Option<SocketAddr> {
+        None
+    }
+
+    async fn close(&self) -> Result<()> {
+        Ok(())
+    }
+
+    fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+        self
+    }
+}
+
+// ============================================================================
+// UDP Socket Options Support (added for wifi-verify project)
+// ============================================================================
+
+use std::cell::RefCell;
+
+thread_local! {
+    static SEND_OPTIONS: RefCell<Option<UdpSendOptions>> = RefCell::new(None);
+}
+
+/// UDP send options for per-message configuration
+#[derive(Debug, Clone, Copy)]
+pub struct UdpSendOptions {
+    pub ttl: Option<u8>,
+    pub tos: Option<u8>,
+    pub df_bit: Option<bool>,
+}
+
+/// Set send options for the current thread (will be used by next send_to call)
+pub fn set_send_options(options: Option<UdpSendOptions>) {
+    SEND_OPTIONS.with(|opts| {
+        *opts.borrow_mut() = options;
+    });
+}
+
+/// Get and clear current send options
+fn get_current_send_options() -> Option<UdpSendOptions> {
+    SEND_OPTIONS.with(|opts| opts.borrow_mut().take())
+}
+
+#[cfg(target_os = "linux")]
+async fn send_to_with_options(
+    socket: &UdpSocket,
+    buf: &[u8],
+    target: SocketAddr,
+    options: &UdpSendOptions,
+) -> Result<usize> {
+    use tokio::task;
+    
+    let fd = socket.as_raw_fd();
+    let buf = buf.to_vec();
+    let options = *options;
+    
+    // Run blocking sendmsg in a blocking task
+    let result = task::spawn_blocking(move || {
+        sendmsg_with_options(fd, &buf, target, &options)
+    }).await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
+    
+    Ok(result)
+}
+
+#[cfg(target_os = "linux")]
+fn sendmsg_with_options(
+    fd: std::os::unix::io::RawFd,
+    buf: &[u8],
+    dest: SocketAddr,
+    options: &UdpSendOptions,
+) -> Result<usize> {
+    unsafe {
+        // Prepare the data buffer
+        let mut iov = iovec {
+            iov_base: buf.as_ptr() as *mut c_void,
+            iov_len: buf.len(),
+        };
+        
+        // Prepare control message buffer
+        let mut cmsg_buf = vec![0u8; 256];
+        let mut cmsg_len = 0usize;
+        
+        // Build the msghdr structure
+        let (addr_storage, addr_len) = match dest {
+            SocketAddr::V4(addr) => {
+                let mut storage: libc::sockaddr_in = std::mem::zeroed();
+                storage.sin_family = libc::AF_INET as libc::sa_family_t;
+                storage.sin_port = addr.port().to_be();
+                storage.sin_addr = libc::in_addr {
+                    s_addr: u32::from_ne_bytes(addr.ip().octets()),
+                };
+                (
+                    &storage as *const libc::sockaddr_in as *const libc::sockaddr,
+                    std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
+                )
+            }
+            SocketAddr::V6(addr) => {
+                let mut storage: libc::sockaddr_in6 = std::mem::zeroed();
+                storage.sin6_family = libc::AF_INET6 as libc::sa_family_t;
+                storage.sin6_port = addr.port().to_be();
+                storage.sin6_addr = libc::in6_addr {
+                    s6_addr: addr.ip().octets(),
+                };
+                (
+                    &storage as *const libc::sockaddr_in6 as *const libc::sockaddr,
+                    std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t,
+                )
+            }
+        };
+        
+        let mut msg: msghdr = std::mem::zeroed();
+        msg.msg_name = addr_storage as *mut c_void;
+        msg.msg_namelen = addr_len;
+        msg.msg_iov = &mut iov;
+        msg.msg_iovlen = 1;
+        msg.msg_control = cmsg_buf.as_mut_ptr() as *mut c_void;
+        msg.msg_controllen = cmsg_buf.len();
+        
+        // Add control messages based on socket family
+        match dest {
+            SocketAddr::V4(_) => {
+                // Add IPv4 TTL control message
+                if let Some(ttl) = options.ttl {
+                    let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                    if !cmsg.is_null() {
+                        (*cmsg).cmsg_level = IPPROTO_IP;
+                        (*cmsg).cmsg_type = IP_TTL;
+                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
+                        
+                        let data_ptr = libc::CMSG_DATA(cmsg);
+                        *(data_ptr as *mut u8) = ttl;
+                        
+                        cmsg_len = (*cmsg).cmsg_len;
+                    }
+                }
+                
+                // Add IPv4 TOS control message
+                if let Some(tos) = options.tos {
+                    let cmsg = if cmsg_len > 0 {
+                        let first = libc::CMSG_FIRSTHDR(&msg);
+                        libc::CMSG_NXTHDR(&msg, first)
+                    } else {
+                        libc::CMSG_FIRSTHDR(&msg)
+                    };
+                    
+                    if !cmsg.is_null() {
+                        (*cmsg).cmsg_level = IPPROTO_IP;
+                        (*cmsg).cmsg_type = IP_TOS;
+                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
+                        
+                        let data_ptr = libc::CMSG_DATA(cmsg);
+                        *(data_ptr as *mut u8) = tos;
+                        
+                        cmsg_len += (*cmsg).cmsg_len;
+                    }
+                }
+            }
+            SocketAddr::V6(_) => {
+                // Add IPv6 Hop Limit control message
+                if let Some(ttl) = options.ttl {
+                    let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                    if !cmsg.is_null() {
+                        (*cmsg).cmsg_level = IPPROTO_IPV6;
+                        (*cmsg).cmsg_type = IPV6_HOPLIMIT;
+                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+                        
+                        let data_ptr = libc::CMSG_DATA(cmsg);
+                        *(data_ptr as *mut i32) = ttl as i32;
+                        
+                        cmsg_len = (*cmsg).cmsg_len;
+                    }
+                }
+                
+                // Add IPv6 Traffic Class control message
+                if let Some(tos) = options.tos {
+                    let cmsg = if cmsg_len > 0 {
+                        let first = libc::CMSG_FIRSTHDR(&msg);
+                        libc::CMSG_NXTHDR(&msg, first)
+                    } else {
+                        libc::CMSG_FIRSTHDR(&msg)
+                    };
+                    
+                    if !cmsg.is_null() {
+                        (*cmsg).cmsg_level = IPPROTO_IPV6;
+                        (*cmsg).cmsg_type = IPV6_TCLASS;
+                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+                        
+                        let data_ptr = libc::CMSG_DATA(cmsg);
+                        *(data_ptr as *mut i32) = tos as i32;
+                        
+                        cmsg_len += (*cmsg).cmsg_len;
+                    }
+                }
+            }
+        }
+        
+        // Update control message length
+        msg.msg_controllen = cmsg_len;
+        
+        // Send the message
+        let result = sendmsg(fd, &msg, 0);
+        
+        if result < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        
+        Ok(result as usize)
+    }
+}
