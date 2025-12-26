@@ -6,7 +6,7 @@ use super::*;
 // UDP socket options support (added for wifi-verify)
 #[cfg(target_os = "linux")]
 use libc::{
-    c_void, iovec, msghdr, sendmsg, cmsghdr, IPPROTO_IP, IPPROTO_IPV6,
+    c_void, iovec, msghdr, sendmsg, IPPROTO_IP, IPPROTO_IPV6,
     IP_TTL, IP_TOS, IPV6_HOPLIMIT, IPV6_TCLASS,
 };
 
@@ -313,5 +313,38 @@ fn sendmsg_with_options(
         println!("DEBUG: sendmsg succeeded, sent {} bytes", result);
         
         Ok(result as usize)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::UdpSocket;
+    use std::os::unix::io::AsRawFd;
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_ipv4_socket_family() {
+        // Create an IPv4 socket
+        let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
+        let fd = socket.as_raw_fd();
+        
+        let family = get_socket_family(fd).unwrap();
+        assert_eq!(family, libc::AF_INET as libc::sa_family_t, "IPv4 socket should have AF_INET family");
+        
+        println!("✓ IPv4 socket correctly identified with family: {}", family);
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_ipv6_socket_family() {
+        // Create an IPv6 socket (dual-stack)
+        let socket = UdpSocket::bind("[::]:0").await.unwrap();
+        let fd = socket.as_raw_fd();
+        
+        let family = get_socket_family(fd).unwrap();
+        assert_eq!(family, libc::AF_INET6 as libc::sa_family_t, "IPv6 socket should have AF_INET6 family");
+        
+        println!("✓ IPv6 socket correctly identified with family: {}", family);
     }
 }
