@@ -23,7 +23,7 @@
 
 This feature enables **per-packet control of UDP socket options** in WebRTC data channels, allowing you to set TTL, DF bit, and TOS/DSCP values on individual packets. This is achieved by:
 
-1. **Vendoring** `webrtc`, `webrtc-sctp`, `webrtc-data`, and `webrtc-util` with modifications
+1. **Vendoring** `webrtc`, `webrtc-sctp`, `webrtc-data`, `webrtc-util`, and `dtls` with modifications
 2. **Implementing** explicit per-packet options passing through all layers
 3. **Using** `sendmsg()` with control messages on Linux
 4. **Providing** type-safe API from application to UDP socket
@@ -103,6 +103,14 @@ SCTP Association Layer (vendored/webrtc-sctp)
   ├─ Association::bundle_data_chunks_into_packets() extracts options
   ├─ Packets created with options attached (Packet.udp_send_options)
   ├─ Association write loop extracts options from packets
+  │
+  ↓
+DTLS Layer (vendored/dtls)
+  ├─ DTLSConn::send_with_options() forwards to underlying connection
+  │
+  ↓
+Mux Layer (vendored/webrtc)
+  ├─ Endpoint::send_with_options() forwards to next_conn
   │
   ↓
 Connection Layer (vendored/webrtc-util)
@@ -517,6 +525,7 @@ webrtc = { path = "vendored/webrtc" }
 webrtc-util = { path = "vendored/webrtc-util" }
 webrtc-data = { path = "vendored/webrtc-data" }
 webrtc-sctp = { path = "vendored/webrtc-sctp" }
+dtls = { path = "vendored/dtls" }
 ```
 
 This overrides these crates while keeping all other dependencies from crates.io.
@@ -686,7 +695,7 @@ On non-Linux platforms, the code automatically falls back to standard `send()`:
 
 ### Vendored Crates Information
 
-Four crates are vendored with modifications:
+Five crates are vendored with modifications:
 
 1. **webrtc v0.14.0**
    - Repository: https://github.com/webrtc-rs/webrtc
@@ -723,7 +732,15 @@ Four crates are vendored with modifications:
    - Added sendmsg() implementation
    - Modified: `vendored/webrtc-util/src/conn/*.rs`
 
-**Note**: The commit SHA `a1f8f1919235d8452835852e018efd654f2f8366` corresponds to the exact git commit in the [webrtc-rs/webrtc](https://github.com/webrtc-rs/webrtc) repository from which webrtc-data, webrtc-sctp, and webrtc-util were obtained via crates.io.
+5. **dtls v0.13.0**
+   - Repository: https://github.com/webrtc-rs/dtls
+   - Crates.io: https://crates.io/crates/dtls/0.13.0
+   - Commit SHA: `e45b6e0906b9d30dd5c086ec1f31752ab92e5df9`
+   - Added `send_with_options()` and `send_to_with_options()` forwarding in `DTLSConn`
+   - Modified: `vendored/dtls/src/conn/mod.rs`
+   - **Critical**: DTLSConn sits between SCTP and the UDP socket, must forward options
+
+**Note**: The commit SHA `a1f8f1919235d8452835852e018efd654f2f8366` corresponds to the exact git commit in the [webrtc-rs/webrtc](https://github.com/webrtc-rs/webrtc) repository from which webrtc-data, webrtc-sctp, and webrtc-util were obtained via crates.io. The dtls commit SHA `e45b6e0906b9d30dd5c086ec1f31752ab92e5df9` is from the [webrtc-rs/dtls](https://github.com/webrtc-rs/dtls) repository.
 
 ### Updating Vendored Crates
 
@@ -739,6 +756,7 @@ When updating vendored crates:
 
 **webrtc:**
 - `src/data_channel/mod.rs` - Added `send_with_options()` method
+- `src/mux/endpoint.rs` - Added `send_with_options()` forwarding
 
 **webrtc-data:**
 - `src/data_channel/mod.rs` - Added `write_data_channel_with_options()`
@@ -754,6 +772,9 @@ When updating vendored crates:
 - `src/conn/mod.rs` - Extended Conn trait
 - `src/conn/conn_udp.rs` - Implemented sendmsg() support
 - `src/lib.rs` - Re-exported `UdpSendOptions`
+
+**dtls:**
+- `src/conn/mod.rs` - Added `send_with_options()` and `send_to_with_options()` forwarding in DTLSConn
 
 ## Examples
 

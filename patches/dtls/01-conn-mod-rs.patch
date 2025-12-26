@@ -1,0 +1,45 @@
+--- a/src/conn/mod.rs
++++ b/src/conn/mod.rs
+@@ -13,6 +13,9 @@ use portable_atomic::{AtomicBool, AtomicU16};
+ use tokio::sync::{mpsc, oneshot, Mutex};
+ use tokio::time::Duration;
+ use util::replay_detector::*;
+ use util::Conn;
++
++#[cfg(target_os = "linux")]
++use util::UdpSendOptions;
+ 
+ use crate::alert::*;
+@@ -153,6 +156,31 @@ impl Conn for DTLSConn {
+     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+         self
+     }
++    
++    /// Forward send_with_options to the underlying connection
++    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
++    #[cfg(target_os = "linux")]
++    async fn send_with_options(
++        &self,
++        buf: &[u8],
++        options: &UdpSendOptions,
++    ) -> UtilResult<usize> {
++        log::info!("🔵 DTLSConn::send_with_options: Forwarding to underlying conn with TTL={:?}, TOS={:?}, DF={:?}",
++            options.ttl, options.tos, options.df_bit);
++        self.conn.send_with_options(buf, options).await
++    }
++    
++    /// Forward send_to_with_options to the underlying connection
++    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
++    #[cfg(target_os = "linux")]
++    async fn send_to_with_options(
++        &self,
++        buf: &[u8],
++        target: SocketAddr,
++        options: &UdpSendOptions,
++    ) -> UtilResult<usize> {
++        log::info!("🔵 DTLSConn::send_to_with_options: Forwarding to underlying conn with TTL={:?}, TOS={:?}, DF={:?}, target={}",
++            options.ttl, options.tos, options.df_bit, target);
++        self.conn.send_to_with_options(buf, target, options).await
++    }
+ }
+ 

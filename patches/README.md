@@ -4,12 +4,13 @@ Modifications to vendored WebRTC crates for per-packet UDP socket options suppor
 
 ## Overview
 
-This project vendors four WebRTC crates with modifications to enable per-packet UDP socket options (TTL, TOS, DF bit) through explicit API calls:
+This project vendors five crates with modifications to enable per-packet UDP socket options (TTL, TOS, DF bit) through explicit API calls:
 
 1. **webrtc v0.14.0** - Added `RTCDataChannel::send_with_options()` API
 2. **webrtc-data v0.12.0** - Added `write_data_channel_with_options()` method
 3. **webrtc-sctp v0.13.0** - Added options fields and propagation through SCTP layer
 4. **webrtc-util v0.12.0** - Added `sendmsg()` implementation and `Conn::send_with_options()` trait method
+5. **dtls v0.13.0** - Added `send_with_options()` forwarding in `DTLSConn` to propagate options through DTLS layer
 
 ## Architecture
 
@@ -24,6 +25,9 @@ RTCDataChannel::send_with_options(data, options)
   → Packets with options attached (Packet.udp_send_options)
   → Association write loop extracts options
   → Conn::send_with_options(buf, options)
+  → DTLSConn::send_with_options() forwards to underlying connection
+  → Endpoint::send_with_options() forwards to next_conn
+  → UdpSocket::send_with_options()
   → UdpSocket sendmsg with control messages (TTL, TOS, DF bit)
 ```
 
@@ -56,6 +60,13 @@ RTCDataChannel::send_with_options(data, options)
 - **Path in VCS**: `util`
 - **Path**: vendored/webrtc-util/
 
+### dtls v0.13.0
+- **Repository**: https://github.com/webrtc-rs/dtls
+- **Crates.io**: https://crates.io/crates/dtls/0.13.0
+- **Commit SHA**: `e45b6e0906b9d30dd5c086ec1f31752ab92e5df9`
+- **Path**: vendored/dtls/
+- **Note**: Critical for forwarding options through DTLS layer to underlying UDP socket
+
 ## Patch Files
 
 ### webrtc-util/
@@ -63,6 +74,9 @@ RTCDataChannel::send_with_options(data, options)
 2. **02-lib-rs.patch** - Exports UdpSendOptions type
 3. **03-conn-mod-rs.patch** - Extends Conn trait with `send_with_options()` method
 4. **04-conn-udp-rs.patch** - Implements sendmsg() with control messages
+
+### dtls/
+1. **01-conn-mod-rs.patch** - Adds `send_with_options()` and `send_to_with_options()` forwarding to DTLSConn
 
 Note: Patches for webrtc, webrtc-data, and webrtc-sctp are not included as these crates are fully vendored. See git history for modifications.
 
