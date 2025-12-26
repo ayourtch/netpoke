@@ -277,10 +277,12 @@ fn sendmsg_with_options(
                 if !cmsg.is_null() {
                     (*cmsg).cmsg_level = IPPROTO_IP;
                     (*cmsg).cmsg_type = IP_TTL;
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
+                    // CRITICAL FIX: IP_TTL expects int (i32), not u8
+                    // See: ip(7) man page - IP_TTL takes an integer argument
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
                     
                     let data_ptr = libc::CMSG_DATA(cmsg);
-                    *(data_ptr as *mut u8) = ttl;
+                    *(data_ptr as *mut i32) = ttl as i32;
                     
                     cmsg_len = (*cmsg).cmsg_len;
                 }
@@ -298,10 +300,12 @@ fn sendmsg_with_options(
                 if !cmsg.is_null() {
                     (*cmsg).cmsg_level = IPPROTO_IP;
                     (*cmsg).cmsg_type = IP_TOS;
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
+                    // IP_TOS also expects int (i32), not u8
+                    // See: ip(7) man page - IP_TOS takes an integer argument
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
                     
                     let data_ptr = libc::CMSG_DATA(cmsg);
-                    *(data_ptr as *mut u8) = tos;
+                    *(data_ptr as *mut i32) = tos as i32;
                     
                     cmsg_len += (*cmsg).cmsg_len;
                 }
