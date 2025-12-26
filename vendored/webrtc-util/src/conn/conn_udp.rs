@@ -32,8 +32,12 @@ impl Conn for UdpSocket {
         // Check if we have UDP options to apply (passed via thread-local storage)
         #[cfg(target_os = "linux")]
         {
+            println!("DEBUG: send_to called, checking for send options");
             if let Some(options) = get_current_send_options() {
+                println!("DEBUG: Found send options, calling send_to_with_options with TTL={:?}", options.ttl);
                 return send_to_with_options(self, buf, target, &options).await;
+            } else {
+                println!("DEBUG: No send options found, using regular send_to");
             }
         }
         
@@ -81,11 +85,29 @@ pub fn set_send_options(options: Option<UdpSendOptions>) {
     SEND_OPTIONS.with(|opts| {
         *opts.borrow_mut() = options;
     });
+    
+    #[cfg(target_os = "linux")]
+    if let Some(opts) = options {
+        println!("DEBUG: set_send_options called with TTL={:?}, TOS={:?}, DF={:?}", 
+            opts.ttl, opts.tos, opts.df_bit);
+    } else {
+        println!("DEBUG: set_send_options called with None (clearing options)");
+    }
 }
 
 /// Get and clear current send options
 fn get_current_send_options() -> Option<UdpSendOptions> {
-    SEND_OPTIONS.with(|opts| opts.borrow_mut().take())
+    let result = SEND_OPTIONS.with(|opts| opts.borrow_mut().take());
+    
+    #[cfg(target_os = "linux")]
+    if let Some(ref opts) = result {
+        println!("DEBUG: get_current_send_options retrieved TTL={:?}, TOS={:?}, DF={:?}", 
+            opts.ttl, opts.tos, opts.df_bit);
+    } else {
+        println!("DEBUG: get_current_send_options retrieved None");
+    }
+    
+    result
 }
 
 #[cfg(target_os = "linux")]
@@ -97,6 +119,8 @@ async fn send_to_with_options(
 ) -> Result<usize> {
     use tokio::task;
     
+    println!("DEBUG: send_to_with_options called with TTL={:?}, target={}", options.ttl, target);
+    
     let fd = socket.as_raw_fd();
     let buf = buf.to_vec();
     let options = *options;
@@ -105,6 +129,8 @@ async fn send_to_with_options(
     let result = task::spawn_blocking(move || {
         sendmsg_with_options(fd, &buf, target, &options)
     }).await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
+    
+    println!("DEBUG: send_to_with_options sent {} bytes", result);
     
     Ok(result)
 }
@@ -116,6 +142,9 @@ fn sendmsg_with_options(
     dest: SocketAddr,
     options: &UdpSendOptions,
 ) -> Result<usize> {
+    println!("DEBUG: sendmsg_with_options called with fd={}, buf_len={}, dest={}, TTL={:?}", 
+        fd, buf.len(), dest, options.ttl);
+    
     unsafe {
         // Prepare the data buffer
         let mut iov = iovec {
@@ -168,6 +197,7 @@ fn sendmsg_with_options(
             SocketAddr::V4(_) => {
                 // Add IPv4 TTL control message
                 if let Some(ttl) = options.ttl {
+                    println!("DEBUG: Adding IPv4 TTL control message: {}", ttl);
                     let cmsg = libc::CMSG_FIRSTHDR(&msg);
                     if !cmsg.is_null() {
                         (*cmsg).cmsg_level = IPPROTO_IP;
@@ -244,12 +274,18 @@ fn sendmsg_with_options(
         // Update control message length
         msg.msg_controllen = cmsg_len;
         
+        println!("DEBUG: Calling sendmsg with msg_controllen={}", cmsg_len);
+        
         // Send the message
         let result = sendmsg(fd, &msg, 0);
         
         if result < 0 {
-            return Err(std::io::Error::last_os_error().into());
+            let err = std::io::Error::last_os_error();
+            println!("DEBUG: sendmsg failed with error: {}", err);
+            return Err(err.into());
         }
+        
+        println!("DEBUG: sendmsg succeeded, sent {} bytes", result);
         
         Ok(result as usize)
     }

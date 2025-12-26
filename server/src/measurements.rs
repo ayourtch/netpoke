@@ -331,18 +331,21 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
 pub async fn start_traceroute_sender(
     session: Arc<ClientSession>,
 ) {
+    tracing::info!("Starting traceroute sender for session {}", session.id);
     let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
     let mut current_ttl: u8 = 1;
     const MAX_TTL: u8 = 30;
 
     loop {
         interval.tick().await;
+        tracing::debug!("Traceroute tick for session {}, TTL {}", session.id, current_ttl);
 
         // Check if control channel is ready
         let channels = session.data_channels.read().await;
         let control_channel = match &channels.control {
             Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
             _ => {
+                tracing::debug!("Control channel not ready for session {}, skipping", session.id);
                 drop(channels);
                 continue;
             }
@@ -354,6 +357,7 @@ pub async fn start_traceroute_sender(
         let probe_channel = match &channels.probe {
             Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
             _ => {
+                tracing::debug!("Probe channel not ready for session {}, skipping", session.id);
                 drop(channels);
                 continue;
             }
@@ -392,6 +396,7 @@ pub async fn start_traceroute_sender(
             // This is only effective on Linux systems
             #[cfg(target_os = "linux")]
             {
+                tracing::debug!("Setting UDP send options: TTL={}, DF=true for seq {}", current_ttl, seq);
                 webrtc_util::set_send_options(Some(webrtc_util::UdpSendOptions {
                     ttl: Some(current_ttl),
                     tos: None,
@@ -399,6 +404,8 @@ pub async fn start_traceroute_sender(
                 }));
             }
 
+            tracing::debug!("Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
+                current_ttl, seq, json.len());
             let send_result = probe_channel.send(&json.into()).await;
 
             // Clear send options after sending
@@ -412,7 +419,7 @@ pub async fn start_traceroute_sender(
                 continue;
             }
 
-            tracing::debug!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
+            tracing::info!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
 
             // Wait a bit for potential ICMP response
             tokio::time::sleep(Duration::from_millis(200)).await;

@@ -84,8 +84,12 @@ impl PacketTracker {
         send_options: SendOptions,
     ) {
         if send_options.track_for_ms == 0 {
+            println!("DEBUG: track_packet called but track_for_ms is 0, not tracking");
             return;
         }
+        
+        println!("DEBUG: track_packet called: src_port={}, dest={}, track_for_ms={}, ttl={:?}", 
+            src_port, dest_addr, send_options.track_for_ms, send_options.ttl);
         
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
@@ -94,6 +98,8 @@ impl PacketTracker {
         let payload_prefix = udp_packet.get(28..36) // Assuming IPv4(20) + UDP(8) = 28 byte offset
             .unwrap_or(&udp_packet[28..])
             .to_vec();
+        
+        println!("DEBUG: Payload prefix extracted: len={}", payload_prefix.len());
         
         let key = UdpPacketKey {
             src_port,
@@ -114,6 +120,9 @@ impl PacketTracker {
         let mut packets = self.tracked_packets.write().await;
         packets.insert(key, tracked);
         
+        let count = packets.len();
+        println!("DEBUG: Packet tracked successfully, total tracked packets: {}", count);
+        
         tracing::debug!(
             "Tracking packet: src_port={}, dest={}, expires_in={}ms",
             src_port,
@@ -128,6 +137,9 @@ impl PacketTracker {
         icmp_packet: Vec<u8>,
         embedded_udp_info: EmbeddedUdpInfo,
     ) {
+        println!("DEBUG: match_icmp_error called: src_port={}, dest={}", 
+            embedded_udp_info.src_port, embedded_udp_info.dest_addr);
+        
         let key = UdpPacketKey {
             src_port: embedded_udp_info.src_port,
             dest_addr: embedded_udp_info.dest_addr,
@@ -135,7 +147,11 @@ impl PacketTracker {
         };
         
         let mut packets = self.tracked_packets.write().await;
+        println!("DEBUG: Current tracked packets count: {}", packets.len());
+        
         if let Some(tracked) = packets.remove(&key) {
+            println!("DEBUG: MATCH FOUND! Removing tracked packet and creating event");
+            
             let event = TrackedPacketEvent {
                 icmp_packet,
                 udp_packet: tracked.udp_packet,
@@ -148,11 +164,15 @@ impl PacketTracker {
             let mut queue = self.event_queue.write().await;
             queue.push(event);
             
+            println!("DEBUG: Event added to queue, queue size: {}", queue.len());
+            
             tracing::info!(
                 "ICMP error matched to tracked packet: src_port={}, dest={}",
                 key.src_port,
                 key.dest_addr
             );
+        } else {
+            println!("DEBUG: NO MATCH FOUND for tracked packet");
         }
     }
     
