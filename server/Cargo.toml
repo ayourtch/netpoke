@@ -19,6 +19,7 @@ rustls-webpki = { version = "*", features = ["ring"], default-features = false }
 tower = "*"
 tower-http = { version = "*", features = ["fs", "trace"] }
 webrtc = "*"
+webrtc-util = { path = "../vendored/webrtc-util" }
 tokio-tungstenite = "*"
 futures = "*"
 tracing = "*"

@@ -362,7 +362,6 @@ pub async fn start_traceroute_sender(
 
         // Create probe packet with specific TTL for traceroute
         let sent_at_ms = current_time_ms();
-        let sent_at_instant = std::time::Instant::now();
         let seq = {
             let mut state = session.measurement_state.write().await;
             let seq = state.probe_seq;
@@ -386,33 +385,31 @@ pub async fn start_traceroute_sender(
         };
 
         // Send probe with TTL
+        // Set the UDP send options before sending via WebRTC data channel
+        // The vendored webrtc-util will pick these up and apply them at the UDP layer
         if let Ok(json) = serde_json::to_vec(&probe) {
-            // Set send options for the UDP layer (Linux-specific)
+            // Convert ProbePacket send_options to UdpSendOptions and set them
+            // This is only effective on Linux systems
             #[cfg(target_os = "linux")]
             {
-                use webrtc_util::{UdpSendOptions, set_send_options};
-                set_send_options(Some(UdpSendOptions {
+                webrtc_util::set_send_options(Some(webrtc_util::UdpSendOptions {
                     ttl: Some(current_ttl),
                     tos: None,
                     df_bit: Some(true),
                 }));
             }
 
-            if let Err(e) = probe_channel.send(&json.into()).await {
-                tracing::error!("Failed to send traceroute probe: {}", e);
-                
-                #[cfg(target_os = "linux")]
-                {
-                    use webrtc_util::set_send_options;
-                    set_send_options(None);
-                }
-                continue;
-            }
+            let send_result = probe_channel.send(&json.into()).await;
 
+            // Clear send options after sending
             #[cfg(target_os = "linux")]
             {
-                use webrtc_util::set_send_options;
-                set_send_options(None);
+                webrtc_util::set_send_options(None);
+            }
+
+            if let Err(e) = send_result {
+                tracing::error!("Failed to send traceroute probe: {}", e);
+                continue;
             }
 
             tracing::debug!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
