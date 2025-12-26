@@ -214,6 +214,8 @@ impl AssociationInternal {
                 destination_port: self.destination_port,
                 verification_tag: 0,
                 chunks: vec![Box::new(stored_init)],
+                #[cfg(target_os = "linux")]
+                udp_send_options: None,
             };
 
             self.control_queue.push_back(outbound);
@@ -235,6 +237,8 @@ impl AssociationInternal {
                 destination_port: self.destination_port,
                 verification_tag: self.peer_verification_tag,
                 chunks: vec![Box::new(stored_cookie_echo.clone())],
+                #[cfg(target_os = "linux")]
+                udp_send_options: None,
             };
 
             self.control_queue.push_back(outbound);
@@ -861,6 +865,8 @@ impl AssociationInternal {
                             heartbeat_information: hbi.heartbeat_information.clone(),
                         })],
                     })],
+                    #[cfg(target_os = "linux")]
+                    udp_send_options: None,
                 }]);
             } else {
                 log::warn!(
@@ -916,6 +922,8 @@ impl AssociationInternal {
             source_port: self.source_port,
             destination_port: self.destination_port,
             chunks: vec![Box::new(ChunkCookieAck {})],
+            #[cfg(target_os = "linux")]
+            udp_send_options: None,
         }])
     }
 
@@ -1649,6 +1657,8 @@ impl AssociationInternal {
             source_port: self.source_port,
             destination_port: self.destination_port,
             chunks,
+            #[cfg(target_os = "linux")]
+            udp_send_options: None,
         }
     }
 
@@ -1683,6 +1693,8 @@ impl AssociationInternal {
                 source_port: self.source_port,
                 destination_port: self.destination_port,
                 chunks: vec![Box::new(cerr)],
+                #[cfg(target_os = "linux")]
+                udp_send_options: None,
             };
             return Ok(vec![outbound]);
         }
@@ -2239,6 +2251,8 @@ impl AssociationInternal {
                         source_port: self.source_port,
                         destination_port: self.destination_port,
                         chunks: vec![Box::new(err_chunk)],
+                        #[cfg(target_os = "linux")]
+                        udp_send_options: None,
                     };
                     self.control_queue.push_back(packet);
                     self.awake_write_loop();
@@ -2261,6 +2275,8 @@ impl AssociationInternal {
                         source_port: self.source_port,
                         destination_port: self.destination_port,
                         chunks: vec![Box::new(err_chunk)],
+                        #[cfg(target_os = "linux")]
+                        udp_send_options: None,
                     };
                     vec![packet]
                 }
