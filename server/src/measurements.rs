@@ -412,11 +412,15 @@ pub async fn start_traceroute_sender(
             // Base size + (TTL * 10 bytes) to make each hop distinguishable
             let target_size = 100 + (current_ttl as usize * 10);
             if json.len() < target_size {
-                json.resize(target_size, 0x20); // Pad with spaces
+                json.resize(target_size, b' '); // Pad with spaces
             }
             
             tracing::info!("🔵 Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
                 current_ttl, seq, json.len());
+            
+            // Clone json once for tracking (we need it after sending)
+            let json_for_tracking = json.clone();
+            let json_len = json.len();
             
             #[cfg(target_os = "linux")]
             let send_result = {
@@ -430,11 +434,11 @@ pub async fn start_traceroute_sender(
                     options.as_ref().and_then(|o| o.ttl),
                     options.as_ref().and_then(|o| o.tos),
                     options.as_ref().and_then(|o| o.df_bit));
-                probe_channel.send_with_options(&json.clone().into(), options).await
+                probe_channel.send_with_options(&json.into(), options).await
             };
             
             #[cfg(not(target_os = "linux"))]
-            let send_result = probe_channel.send(&json.clone().into()).await;
+            let send_result = probe_channel.send(&json.into()).await;
 
             if let Err(e) = send_result {
                 tracing::error!("Failed to send traceroute probe: {}", e);
@@ -455,7 +459,7 @@ pub async fn start_traceroute_sender(
                     // But what matters for matching is a UNIQUE value per TTL
                     // We use: base_overhead + json.len() as our "signature"
                     // The DTLS encryption will make this slightly larger, but the relative differences remain
-                    let estimated_udp_length = (json.len() + 100) as u16;
+                    let estimated_udp_length = (json_len + 100) as u16;
                     
                     tracing::info!("🔵 Tracking packet for ICMP: dest={}, TTL={}, estimated_udp_length={}, track_for_ms={}", 
                         dest, current_ttl, estimated_udp_length, send_options.track_for_ms);
@@ -464,7 +468,7 @@ pub async fn start_traceroute_sender(
                     let dummy_udp_packet = Vec::new();
                     
                     session.packet_tracker.track_packet(
-                        json.clone(),       // Use JSON as cleartext
+                        json_for_tracking,  // Use cloned JSON as cleartext
                         dummy_udp_packet,   // We don't have actual UDP packet here
                         0,                  // Source port unknown at this layer
                         dest,
