@@ -16,3 +16,4 @@ server.log
 .env.local
 package.json
 package-lock.json
+*.orig
