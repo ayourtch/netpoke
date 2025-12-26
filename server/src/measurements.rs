@@ -332,6 +332,21 @@ pub async fn start_traceroute_sender(
     session: Arc<ClientSession>,
 ) {
     tracing::info!("Starting traceroute sender for session {}", session.id);
+    
+    // Wait for peer address to be available before starting traceroute
+    // This is necessary for packet tracking to work correctly
+    tracing::info!("Waiting for peer address to be available for session {}", session.id);
+    loop {
+        {
+            let peer_addr = session.peer_address.lock().await;
+            if peer_addr.is_some() {
+                tracing::info!("Peer address available for session {}, starting traceroute", session.id);
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    
     let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
     let mut current_ttl: u8 = 1;
     const MAX_TTL: u8 = 30;
@@ -455,11 +470,12 @@ pub async fn start_traceroute_sender(
                     
                     // Estimate UDP packet length
                     // The actual UDP packet includes: DTLS + SCTP + Data Channel overhead
-                    // For WebRTC: roughly data_len + ~100 bytes overhead for DTLS/SCTP/UDP headers
+                    // For WebRTC: roughly data_len + ~126 bytes overhead for DTLS/SCTP/UDP headers
+                    // Measured empirically: 296 - 170 = 126 bytes
                     // But what matters for matching is a UNIQUE value per TTL
                     // We use: base_overhead + json.len() as our "signature"
                     // The DTLS encryption will make this slightly larger, but the relative differences remain
-                    let estimated_udp_length = (json_len + 100) as u16;
+                    let estimated_udp_length = (json_len + 126) as u16;
                     
                     tracing::info!("🔵 Tracking packet for ICMP: dest={}, TTL={}, estimated_udp_length={}, track_for_ms={}", 
                         dest, current_ttl, estimated_udp_length, send_options.track_for_ms);
