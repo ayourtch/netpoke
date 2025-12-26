@@ -1662,6 +1662,23 @@ impl AssociationInternal {
         }
     }
 
+    /// create_packet_with_options wraps chunks in a packet with UDP send options.
+    /// Added for wifi-verify: per-packet UDP options support
+    #[cfg(target_os = "linux")]
+    pub(crate) fn create_packet_with_options(
+        &self,
+        chunks: Vec<Box<dyn Chunk + Send + Sync>>,
+        udp_send_options: Option<util::UdpSendOptions>,
+    ) -> Packet {
+        Packet {
+            verification_tag: self.peer_verification_tag,
+            source_port: self.source_port,
+            destination_port: self.destination_port,
+            chunks,
+            udp_send_options,
+        }
+    }
+
     async fn handle_reconfig(&mut self, c: &ChunkReconfig) -> Result<Vec<Packet>> {
         log::trace!("[{}] handle_reconfig", self.name);
 
@@ -2002,6 +2019,8 @@ impl AssociationInternal {
         let mut packets = vec![];
         let mut chunks_to_send = vec![];
         let mut bytes_in_packet = COMMON_HEADER_SIZE;
+        #[cfg(target_os = "linux")]
+        let mut packet_udp_options: Option<util::UdpSendOptions> = None;
 
         for c in chunks {
             // RFC 4960 sec 6.1.  Transmission of DATA Chunks
@@ -2010,9 +2029,27 @@ impl AssociationInternal {
             //   bundled with new DATA chunks, as long as the resulting packet size
             //   does not exceed the path MTU.
             if bytes_in_packet + c.user_data.len() as u32 > self.mtu {
-                packets.push(self.create_packet(chunks_to_send));
+                #[cfg(target_os = "linux")]
+                {
+                    packets.push(self.create_packet_with_options(chunks_to_send, packet_udp_options));
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    packets.push(self.create_packet(chunks_to_send));
+                }
                 chunks_to_send = vec![];
                 bytes_in_packet = COMMON_HEADER_SIZE;
+                #[cfg(target_os = "linux")]
+                {
+                    packet_udp_options = None;
+                }
+            }
+
+            // Extract UDP options from the first chunk in the packet
+            // All chunks in the same message should have the same options
+            #[cfg(target_os = "linux")]
+            if packet_udp_options.is_none() {
+                packet_udp_options = c.udp_send_options;
             }
 
             bytes_in_packet += DATA_CHUNK_HEADER_SIZE + c.user_data.len() as u32;
@@ -2020,7 +2057,14 @@ impl AssociationInternal {
         }
 
         if !chunks_to_send.is_empty() {
-            packets.push(self.create_packet(chunks_to_send));
+            #[cfg(target_os = "linux")]
+            {
+                packets.push(self.create_packet_with_options(chunks_to_send, packet_udp_options));
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                packets.push(self.create_packet(chunks_to_send));
+            }
         }
 
         packets

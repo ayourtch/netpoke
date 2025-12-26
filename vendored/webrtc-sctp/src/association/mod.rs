@@ -487,6 +487,11 @@ impl Association {
             let done2 = Arc::clone(&done);
             let mut buffer = None;
             for raw in packets {
+                // Extract UDP send options from the packet before marshalling
+                // Added for wifi-verify: per-packet UDP options support
+                #[cfg(target_os = "linux")]
+                let udp_options = raw.udp_send_options;
+                
                 let mut buf = buffer
                     .take()
                     .unwrap_or_else(|| BytesMut::with_capacity(16 * 1024));
@@ -499,12 +504,26 @@ impl Association {
                     .await
                 {
                     Ok(Ok(mut buf)) => {
-                        let raw = buf.as_ref();
-                        if let Err(err) = net_conn.send(raw.as_ref()).await {
+                        let raw_bytes = buf.as_ref();
+                        
+                        // Send with UDP options if available (Linux only)
+                        #[cfg(target_os = "linux")]
+                        let send_result = if let Some(options) = udp_options {
+                            log::debug!("[{name2}] sending packet with UDP options: TTL={:?}, TOS={:?}, DF={:?}", 
+                                options.ttl, options.tos, options.df_bit);
+                            net_conn.send_with_options(raw_bytes, &options).await
+                        } else {
+                            net_conn.send(raw_bytes).await
+                        };
+                        
+                        #[cfg(not(target_os = "linux"))]
+                        let send_result = net_conn.send(raw_bytes).await;
+                        
+                        if let Err(err) = send_result {
                             log::warn!("[{name2}] failed to write packets on net_conn: {err}");
                             done2.store(true, Ordering::Relaxed)
                         } else {
-                            bytes_sent.fetch_add(raw.len(), Ordering::SeqCst);
+                            bytes_sent.fetch_add(raw_bytes.len(), Ordering::SeqCst);
                         }
 
                         // Reuse allocation. Have to use options, since spawn blocking can't borrow, has to take ownership.

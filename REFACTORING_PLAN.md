@@ -8,6 +8,144 @@ The current implementation uses thread-local storage (`SEND_OPTIONS`) to pass UD
 
 ## Solution: Per-Packet Options Passing via RTCDataChannel::send_with_options() ✅
 
+### Implementation Complete ✅
+
+Following the suggestion from @ayourtch, we implemented `RTCDataChannel::send_with_options()` which directly passes options to the underlying Stream, and completed the full integration through the Association write loop to the UDP socket.
+
+**Architecture:**
+```
+RTCDataChannel::send_with_options(data, options)
+  → DataChannel::write_data_channel_with_options(data, is_string, options)
+  → Stream::write_sctp_with_options(data, ppi, options)
+  → Chunks created with options attached
+  → Association::bundle_data_chunks_into_packets() extracts options from chunks
+  → Packets created with options attached
+  → Association write loop extracts options from packets
+  → Conn::send_with_options(buf, options) [for connected sockets]
+  → UdpSocket sendmsg with control messages (TTL, TOS, DF bit)
+```
+
+### Files Modified
+
+1. **Cargo.toml** ✅
+   - Added webrtc crate to vendored patches
+
+2. **vendored/webrtc/Cargo.toml** ✅
+   - Updated dependency paths to use vendored webrtc-data, webrtc-sctp, webrtc-util
+
+3. **vendored/webrtc/src/data_channel/mod.rs** ✅
+   - Added `send_with_options()` method that calls underlying DataChannel
+
+4. **vendored/webrtc-data/src/data_channel/mod.rs** ✅
+   - Added `write_data_channel_with_options()` for Linux
+   - Calls `Stream::write_sctp_with_options()` with options
+
+5. **vendored/webrtc-sctp/src/stream/mod.rs** ✅
+   - Added `write_sctp_with_options()` method
+   - Modified `packetize()` to attach options to chunks
+
+6. **vendored/webrtc-sctp/src/chunk/chunk_payload_data.rs** ✅
+   - Added `udp_send_options: Option<UdpSendOptions>` field
+
+7. **vendored/webrtc-sctp/src/packet.rs** ✅
+   - Added `udp_send_options: Option<UdpSendOptions>` field
+
+8. **vendored/webrtc-sctp/src/association/association_internal.rs** ✅
+   - Updated `bundle_data_chunks_into_packets()` to extract options from chunks
+   - Added `create_packet_with_options()` method
+   - Packets now carry UDP options from their chunks
+
+9. **vendored/webrtc-sctp/src/association/mod.rs** ✅
+   - Modified write loop to extract options from packets
+   - Uses `send_with_options()` when options are present
+   - Falls back to regular `send()` when no options
+
+10. **vendored/webrtc-util/src/conn/mod.rs** ✅
+    - Extended Conn trait with `send_with_options()` method (for connected sockets)
+    - Extended Conn trait with `send_to_with_options()` method (already existed)
+
+11. **vendored/webrtc-util/src/conn/conn_udp.rs** ✅
+    - Implemented `send_with_options()` for UdpSocket
+    - Updated `remote_addr()` to return peer address for connected sockets
+    - Both methods use `send_to_with_options_impl()` with appropriate addresses
+
+12. **server/src/measurements.rs** ✅
+    - Updated traceroute sender to use `send_with_options()` API
+    - Removed thread-local `set_send_options()` calls
+
+### Implementation Status
+
+✅ **Complete end-to-end implementation**
+- API layer: `RTCDataChannel::send_with_options()`
+- Data channel layer: `DataChannel::write_data_channel_with_options()`
+- SCTP stream layer: `Stream::write_sctp_with_options()`
+- Chunk layer: Options attached to `ChunkPayloadData`
+- Packet layer: Options extracted and attached to `Packet`
+- Association write loop: Options extracted and passed to socket
+- Conn trait: `send_with_options()` for connected sockets
+- UDP layer: `sendmsg()` with control messages
+
+✅ **Project compiles without errors**
+✅ **Server code updated to use new API**
+✅ **Options flow from application to UDP socket**
+
+### Benefits of This Approach
+
+1. **Clean API**: `send_with_options()` is explicit and type-safe
+2. **No Thread-Local**: Eliminates unreliable thread-local storage
+3. **Per-Packet Control**: Each packet can have different options
+4. **Backward Compatible**: Regular `send()` still works without options
+5. **Platform-Specific**: All Linux-specific code properly guarded
+6. **Proper Bundling**: Multiple chunks in the same packet use the same options
+
+### Testing Recommendations
+
+1. **Verify TTL is Being Set**
+   ```bash
+   # Run server
+   cargo run -p wifi-verify-server
+   
+   # Capture packets
+   sudo tcpdump -i any -vvv 'udp' | grep ttl
+   ```
+   Look for packets with TTL values 1, 2, 3, etc. from the traceroute function.
+
+2. **Check Debug Logs**
+   The implementation includes debug logging at each layer:
+   - Association write loop logs when sending with options
+   - UdpSocket logs when `send_with_options()` is called
+   - sendmsg logs control messages being set
+
+3. **Verify ICMP Responses**
+   With correct TTL values, intermediate routers should send ICMP Time Exceeded messages.
+
+### What Changed From Previous Approach
+
+**Before**: Thread-local storage affected all packets on the thread
+**After**: Options passed explicitly with each packet
+
+**Before**: No way to send concurrent packets with different options
+**After**: Each packet has independent options
+
+**Before**: Options set before send, unclear when they were used
+**After**: Options passed directly with the data, clear data flow
+
+### Architecture Benefits
+
+- **Type Safety**: Options are `Copy` structs, no lifetime issues
+- **Clear Ownership**: Options flow with the data they apply to
+- **No Side Effects**: No hidden state in thread-local storage
+- **Testable**: Easy to verify options are applied correctly
+- **Maintainable**: Clear code path from application to socket
+
+## Problem Summary
+The current implementation uses thread-local storage (`SEND_OPTIONS`) to pass UDP socket options (TTL, TOS, DF bit) to the underlying UDP socket. This approach has several issues:
+1. Thread-local storage affects ALL packets sent through that thread, not just specific packets
+2. Async tasks can migrate between threads, making thread-local unreliable
+3. Cannot apply different options to different packets being sent concurrently
+
+## Solution: Per-Packet Options Passing via RTCDataChannel::send_with_options() ✅
+
 ### Implementation Complete
 
 Following the suggestion from @ayourtch, we implemented `RTCDataChannel::send_with_options()` which directly passes options to the underlying Stream. This is cleaner than the original plan and leverages the existing connection between RTCDataChannel and DataChannel.

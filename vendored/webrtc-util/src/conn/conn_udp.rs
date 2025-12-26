@@ -48,7 +48,7 @@ impl Conn for UdpSocket {
     }
 
     fn remote_addr(&self) -> Option<SocketAddr> {
-        None
+        self.peer_addr().ok()
     }
 
     async fn close(&self) -> Result<()> {
@@ -57,6 +57,22 @@ impl Conn for UdpSocket {
 
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
         self
+    }
+    
+    #[cfg(target_os = "linux")]
+    async fn send_with_options(
+        &self,
+        buf: &[u8],
+        options: &UdpSendOptions,
+    ) -> Result<usize> {
+        println!("DEBUG: UdpSocket::send_with_options called with TTL={:?}", options.ttl);
+        // For connected sockets, we need to get the remote address
+        if let Some(remote_addr) = self.peer_addr().ok() {
+            send_to_with_options_impl(self, buf, remote_addr, options).await
+        } else {
+            // If not connected, fall back to regular send
+            Ok(self.send(buf).await?)
+        }
     }
     
     #[cfg(target_os = "linux")]

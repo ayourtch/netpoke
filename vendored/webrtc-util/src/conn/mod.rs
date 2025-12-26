@@ -39,6 +39,18 @@ pub trait Conn {
     async fn close(&self) -> Result<()>;
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync);
     
+    /// Send data with UDP socket options (TTL, TOS, DF bit) for connected sockets
+    /// Default implementation falls back to regular send
+    #[cfg(target_os = "linux")]
+    async fn send_with_options(
+        &self,
+        buf: &[u8],
+        _options: &UdpSendOptions,
+    ) -> Result<usize> {
+        // Default implementation ignores options and uses regular send
+        self.send(buf).await
+    }
+    
     /// Send data with UDP socket options (TTL, TOS, DF bit)
     /// Default implementation falls back to regular send_to
     #[cfg(target_os = "linux")]
