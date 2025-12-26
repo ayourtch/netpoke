@@ -48,6 +48,14 @@ pub trait Conn {
         _options: &UdpSendOptions,
     ) -> Result<usize> {
         // Default implementation ignores options and uses regular send
+        // Log error to help identify missing forwarding implementations
+        log::error!(
+            "❌ send_with_options called on connection without forwarding implementation! \
+             Options will be LOST: TTL={:?}, TOS={:?}, DF={:?}, buf_len={}, local_addr={:?}, remote_addr={:?}. \
+             This indicates a missing send_with_options implementation in the call chain.",
+            _options.ttl, _options.tos, _options.df_bit, buf.len(), 
+            self.local_addr().ok(), self.remote_addr()
+        );
         self.send(buf).await
     }
     
@@ -61,6 +69,14 @@ pub trait Conn {
         _options: &UdpSendOptions,
     ) -> Result<usize> {
         // Default implementation ignores options and uses regular send_to
+        // Log error to help identify missing forwarding implementations
+        log::error!(
+            "❌ send_to_with_options called on connection without forwarding implementation! \
+             Options will be LOST: TTL={:?}, TOS={:?}, DF={:?}, buf_len={}, target={}, local_addr={:?}. \
+             This indicates a missing send_to_with_options implementation in the call chain.",
+            _options.ttl, _options.tos, _options.df_bit, buf.len(), target,
+            self.local_addr().ok()
+        );
         self.send_to(buf, target).await
     }
 }
