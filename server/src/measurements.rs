@@ -422,11 +422,11 @@ pub async fn start_traceroute_sender(
                     options.as_ref().and_then(|o| o.ttl),
                     options.as_ref().and_then(|o| o.tos),
                     options.as_ref().and_then(|o| o.df_bit));
-                probe_channel.send_with_options(&json.into(), options).await
+                probe_channel.send_with_options(&json.clone().into(), options).await
             };
             
             #[cfg(not(target_os = "linux"))]
-            let send_result = probe_channel.send(&json.into()).await;
+            let send_result = probe_channel.send(&json.clone().into()).await;
 
             if let Err(e) = send_result {
                 tracing::error!("Failed to send traceroute probe: {}", e);
@@ -434,6 +434,34 @@ pub async fn start_traceroute_sender(
             }
 
             tracing::info!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
+            
+            // Track the packet for ICMP correlation
+            let peer_addr_opt = session.peer_address.lock().await.clone();
+            if let Some((peer_addr, peer_port)) = peer_addr_opt {
+                if let Ok(peer_ip) = peer_addr.parse::<std::net::IpAddr>() {
+                    let dest = std::net::SocketAddr::new(peer_ip, peer_port);
+                    
+                    tracing::info!("🔵 Tracking packet for ICMP: dest={}, TTL={}, track_for_ms={}", 
+                        dest, current_ttl, send_options.track_for_ms);
+                    
+                    // Create a dummy UDP packet for tracking (we don't have the actual packet at this layer)
+                    let dummy_udp_packet = Vec::new();
+                    
+                    session.packet_tracker.track_packet(
+                        json.clone(),       // Use JSON as cleartext
+                        dummy_udp_packet,   // We don't have actual UDP packet here
+                        0,                  // Source port unknown at this layer
+                        dest,
+                        send_options,
+                    ).await;
+                    
+                    tracing::info!("✅ Packet tracked for dest={}", dest);
+                } else {
+                    tracing::warn!("Failed to parse peer address: {}", peer_addr);
+                }
+            } else {
+                tracing::warn!("Peer address not available for tracking");
+            }
 
             // Wait a bit for potential ICMP response
             tokio::time::sleep(Duration::from_millis(200)).await;

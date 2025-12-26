@@ -143,6 +143,7 @@ pub async fn signaling_start(
         connected_at: std::time::Instant::now(),
         ice_candidates: ice_candidates.clone(),
         peer_address: peer_address.clone(),
+        packet_tracker: state.packet_tracker.clone(), // Share global packet tracker
     });
 
     // Set up data channel handlers

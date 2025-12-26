@@ -25,6 +25,7 @@ pub struct ClientSession {
     pub connected_at: Instant,
     pub ice_candidates: Arc<Mutex<VecDeque<String>>>,
     pub peer_address: Arc<Mutex<Option<(String, u16)>>>, // (address, port)
+    pub packet_tracker: Arc<PacketTracker>, // For ICMP correlation
 }
 
 pub struct DataChannels {

@@ -12,11 +12,11 @@ use tokio::sync::RwLock;
 use common::{SendOptions, TrackedPacketEvent};
 
 /// Key for matching UDP packets in ICMP errors
+/// Uses only destination address for matching, since source port may not be known when tracking
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct UdpPacketKey {
-    pub src_port: u16,
     pub dest_addr: SocketAddr,
-    /// First N bytes of UDP payload for matching
+    /// Optional payload prefix for additional matching (may be empty for ICMP Time Exceeded)
     pub payload_prefix: Vec<u8>,
 }
 
@@ -94,15 +94,14 @@ impl PacketTracker {
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
         
-        // Create key from first 8 bytes of UDP payload (after IP+UDP headers)
-        let payload_prefix = udp_packet.get(28..36) // Assuming IPv4(20) + UDP(8) = 28 byte offset
-            .unwrap_or(&udp_packet[28..])
-            .to_vec();
+        // Create key from destination address
+        // Note: payload_prefix would be extracted from udp_packet if we had proper offset
+        // For now, we'll use an empty prefix since ICMP Time Exceeded doesn't include payload anyway
+        let payload_prefix = Vec::new(); // Empty for now - ICMP doesn't include UDP payload
         
-        println!("DEBUG: Payload prefix extracted: len={}", payload_prefix.len());
+        println!("DEBUG: Creating tracking key with dest_addr={}", dest_addr);
         
         let key = UdpPacketKey {
-            src_port,
             dest_addr,
             payload_prefix,
         };
@@ -140,18 +139,37 @@ impl PacketTracker {
         println!("DEBUG: match_icmp_error called: src_port={}, dest={}", 
             embedded_udp_info.src_port, embedded_udp_info.dest_addr);
         
-        let key = UdpPacketKey {
-            src_port: embedded_udp_info.src_port,
-            dest_addr: embedded_udp_info.dest_addr,
-            payload_prefix: embedded_udp_info.payload_prefix,
-        };
-        
         let mut packets = self.tracked_packets.write().await;
         println!("DEBUG: Current tracked packets count: {}", packets.len());
         
-        if let Some(tracked) = packets.remove(&key) {
-            println!("DEBUG: MATCH FOUND! Removing tracked packet and creating event");
+        // Try to match with payload prefix if available
+        let key_with_payload = UdpPacketKey {
+            dest_addr: embedded_udp_info.dest_addr,
+            payload_prefix: embedded_udp_info.payload_prefix.clone(),
+        };
+        
+        let matched = if !embedded_udp_info.payload_prefix.is_empty() && packets.contains_key(&key_with_payload) {
+            println!("DEBUG: Trying match with payload prefix");
+            packets.remove(&key_with_payload)
+        } else {
+            // Try matching without payload (common for ICMP Time Exceeded)
+            println!("DEBUG: Trying match without payload, searching for dest={}", embedded_udp_info.dest_addr);
             
+            let key_without_payload = UdpPacketKey {
+                dest_addr: embedded_udp_info.dest_addr,
+                payload_prefix: Vec::new(),
+            };
+            
+            if let Some(tracked) = packets.remove(&key_without_payload) {
+                println!("DEBUG: MATCH FOUND without payload! dest={}", embedded_udp_info.dest_addr);
+                Some(tracked)
+            } else {
+                println!("DEBUG: NO MATCH FOUND for dest={}", embedded_udp_info.dest_addr);
+                None
+            }
+        };
+        
+        if let Some(tracked) = matched {
             let event = TrackedPacketEvent {
                 icmp_packet,
                 udp_packet: tracked.udp_packet,
@@ -167,12 +185,9 @@ impl PacketTracker {
             println!("DEBUG: Event added to queue, queue size: {}", queue.len());
             
             tracing::info!(
-                "ICMP error matched to tracked packet: src_port={}, dest={}",
-                key.src_port,
-                key.dest_addr
+                "ICMP error matched to tracked packet: dest={}",
+                embedded_udp_info.dest_addr
             );
-        } else {
-            println!("DEBUG: NO MATCH FOUND for tracked packet");
         }
     }
     
