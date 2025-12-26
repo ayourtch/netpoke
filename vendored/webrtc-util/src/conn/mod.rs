@@ -5,7 +5,7 @@ pub mod conn_udp;
 pub mod conn_udp_listener;
 
 // Re-export UDP socket options support (added for wifi-verify)
-pub use conn_udp::{UdpSendOptions, set_send_options};
+pub use conn_udp::UdpSendOptions;
 
 #[cfg(test)]
 mod conn_bridge_test;

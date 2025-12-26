@@ -1,7 +1,7 @@
 # UDP Socket Options Refactoring - Implementation Complete ✅
 
 ## Problem Summary
-The current implementation uses thread-local storage (`SEND_OPTIONS`) to pass UDP socket options (TTL, TOS, DF bit) to the underlying UDP socket. This approach has several issues:
+The old implementation used thread-local storage (`SEND_OPTIONS`) to pass UDP socket options (TTL, TOS, DF bit) to the underlying UDP socket. This approach had several issues:
 1. Thread-local storage affects ALL packets sent through that thread, not just specific packets
 2. Async tasks can migrate between threads, making thread-local unreliable
 3. Cannot apply different options to different packets being sent concurrently
@@ -11,6 +11,8 @@ The current implementation uses thread-local storage (`SEND_OPTIONS`) to pass UD
 ### Implementation Complete ✅
 
 Following the suggestion from @ayourtch, we implemented `RTCDataChannel::send_with_options()` which directly passes options to the underlying Stream, and completed the full integration through the Association write loop to the UDP socket.
+
+**Thread-local storage has been completely removed** - the old `set_send_options()` function and all backward compatibility code has been removed from the codebase.
 
 **Architecture:**
 ```
@@ -68,10 +70,19 @@ RTCDataChannel::send_with_options(data, options)
     - Implemented `send_with_options()` for UdpSocket
     - Updated `remote_addr()` to return peer address for connected sockets
     - Both methods use `send_to_with_options_impl()` with appropriate addresses
+    - **Removed thread-local storage**: Deleted `SEND_OPTIONS`, `set_send_options()`, and `get_current_send_options()`
+    - **Removed backward compatibility code**: `send_to()` no longer checks thread-local storage
+    - **Removed deprecated tests**: Tests using old thread-local API removed
 
-12. **server/src/measurements.rs** ✅
+12. **vendored/webrtc-util/src/conn/mod.rs** ✅
+    - Removed `set_send_options` from exports (kept only `UdpSendOptions` type)
+
+13. **vendored/webrtc-util/src/lib.rs** ✅
+    - Removed `set_send_options` from exports (kept only `UdpSendOptions` type)
+
+14. **server/src/measurements.rs** ✅
     - Updated traceroute sender to use `send_with_options()` API
-    - Removed thread-local `set_send_options()` calls
+    - Old thread-local `set_send_options()` calls were already removed in previous commit
 
 ### Implementation Status
 
@@ -84,6 +95,13 @@ RTCDataChannel::send_with_options(data, options)
 - Association write loop: Options extracted and passed to socket
 - Conn trait: `send_with_options()` for connected sockets
 - UDP layer: `sendmsg()` with control messages
+
+✅ **Thread-local storage completely removed**
+- No more `SEND_OPTIONS` thread_local variable
+- No more `set_send_options()` function
+- No more `get_current_send_options()` function
+- No backward compatibility code checking thread-local storage
+- Old tests using thread-local API removed
 
 ✅ **Project compiles without errors**
 ✅ **Server code updated to use new API**

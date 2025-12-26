@@ -29,17 +29,6 @@ impl Conn for UdpSocket {
     }
 
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> Result<usize> {
-        // Check if we have UDP options to apply (passed via thread-local storage)
-        // NOTE: This is for backward compatibility. New code should use send_to_with_options.
-        #[cfg(target_os = "linux")]
-        {
-            if let Some(options) = get_current_send_options() {
-                println!("DEBUG: Found send options from thread-local, calling send_to_with_options_impl with TTL={:?}", options.ttl);
-                return send_to_with_options_impl(self, buf, target, &options).await;
-            }
-        }
-        
-        // Default: regular send_to
         Ok(self.send_to(buf, target).await?)
     }
 
@@ -91,49 +80,12 @@ impl Conn for UdpSocket {
 // UDP Socket Options Support (added for wifi-verify project)
 // ============================================================================
 
-use std::cell::RefCell;
-
-thread_local! {
-    static SEND_OPTIONS: RefCell<Option<UdpSendOptions>> = RefCell::new(None);
-}
-
 /// UDP send options for per-message configuration
 #[derive(Debug, Clone, Copy)]
 pub struct UdpSendOptions {
     pub ttl: Option<u8>,
     pub tos: Option<u8>,
     pub df_bit: Option<bool>,
-}
-
-/// Set send options for the current thread (will be used by next send_to call)
-pub fn set_send_options(options: Option<UdpSendOptions>) {
-    SEND_OPTIONS.with(|opts| {
-        *opts.borrow_mut() = options;
-    });
-    
-    #[cfg(target_os = "linux")]
-    if let Some(opts) = options {
-        println!("DEBUG: set_send_options called with TTL={:?}, TOS={:?}, DF={:?}", 
-            opts.ttl, opts.tos, opts.df_bit);
-    } else {
-        println!("DEBUG: set_send_options called with None (clearing options)");
-    }
-}
-
-/// Get and clear current send options
-fn get_current_send_options() -> Option<UdpSendOptions> {
-    // CRITICAL FIX: Use clone() instead of take() to preserve the value
-    // The value should persist until explicitly cleared with set_send_options(None)
-    // Using take() caused the options to disappear after first check
-    let result = SEND_OPTIONS.with(|opts| opts.borrow().clone());
-    
-    #[cfg(target_os = "linux")]
-    if let Some(ref opts) = result {
-        println!("DEBUG: get_current_send_options retrieved TTL={:?}, TOS={:?}, DF={:?}", 
-            opts.ttl, opts.tos, opts.df_bit);
-    }
-    
-    result
 }
 
 #[cfg(target_os = "linux")]
@@ -395,69 +347,5 @@ mod tests {
         assert_eq!(family, libc::AF_INET6 as libc::sa_family_t, "IPv6 socket should have AF_INET6 family");
         
         println!("✓ IPv6 socket correctly identified with family: {}", family);
-    }
-
-    #[tokio::test]
-    #[cfg(target_os = "linux")]
-    async fn test_send_with_ttl_ipv4_socket() {
-        // Create an IPv4 socket
-        let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
-        
-        // Set send options with low TTL
-        let options = UdpSendOptions {
-            ttl: Some(1),
-            tos: None,
-            df_bit: Some(true),
-        };
-        
-        set_send_options(Some(options));
-        
-        // Try to send a packet to a public DNS server (won't actually reach it with TTL=1)
-        let dest: SocketAddr = "8.8.8.8:53".parse().unwrap();
-        let result = socket.send_to(b"test", dest).await;
-        
-        // Should either succeed or fail with PermissionDenied (not "Address family not supported")
-        match result {
-            Ok(_) => println!("✓ IPv4 socket successfully sent packet with TTL=1"),
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                println!("✓ IPv4 socket received expected PermissionDenied (needs CAP_NET_RAW)")
-            }
-            Err(e) => panic!("Unexpected error: {:?}", e),
-        }
-        
-        set_send_options(None);
-    }
-
-    #[tokio::test]
-    #[cfg(target_os = "linux")]
-    async fn test_send_with_ttl_ipv6_socket() {
-        // Create an IPv6 socket (dual-stack)
-        let socket = UdpSocket::bind("[::]:0").await.unwrap();
-        
-        // Set send options with low TTL
-        let options = UdpSendOptions {
-            ttl: Some(1),
-            tos: None,
-            df_bit: Some(true),
-        };
-        
-        set_send_options(Some(options));
-        
-        // Try to send to IPv4 address via dual-stack socket
-        // This is the scenario that was failing before the fix with
-        // "Address family not supported by protocol" error
-        let dest: SocketAddr = "8.8.8.8:53".parse().unwrap();
-        let result = socket.send_to(b"test", dest).await;
-        
-        // Should either succeed or fail with PermissionDenied (not "Address family not supported")
-        match result {
-            Ok(_) => println!("✓ IPv6 socket successfully sent packet to IPv4 address with TTL=1"),
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                println!("✓ IPv6 socket received expected PermissionDenied (needs CAP_NET_RAW)")
-            }
-            Err(e) => panic!("Unexpected error (expected success or PermissionDenied, not Address family error): {:?}", e),
-        }
-        
-        set_send_options(None);
     }
 }
