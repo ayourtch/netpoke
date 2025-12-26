@@ -5,6 +5,7 @@ resolver = "2"
 # Patch webrtc crates to use our locally modified versions
 # This enables per-message UDP socket options (TTL, DF bit, TOS) passed through the stack
 [patch.crates-io]
+webrtc = { path = "vendored/webrtc" }
 webrtc-util = { path = "vendored/webrtc-util" }
 webrtc-data = { path = "vendored/webrtc-data" }
 webrtc-sctp = { path = "vendored/webrtc-sctp" }

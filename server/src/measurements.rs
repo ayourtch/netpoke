@@ -388,30 +388,24 @@ pub async fn start_traceroute_sender(
             send_options: Some(send_options),
         };
 
-        // Send probe with TTL
-        // Set the UDP send options before sending via WebRTC data channel
-        // The vendored webrtc-util will pick these up and apply them at the UDP layer
+        // Send probe with TTL using the new send_with_options API
         if let Ok(json) = serde_json::to_vec(&probe) {
-            // Convert ProbePacket send_options to UdpSendOptions and set them
-            // This is only effective on Linux systems
+            tracing::debug!("Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
+                current_ttl, seq, json.len());
+            
             #[cfg(target_os = "linux")]
-            {
-                tracing::debug!("Setting UDP send options: TTL={}, DF=true for seq {}", current_ttl, seq);
-                webrtc_util::set_send_options(Some(webrtc_util::UdpSendOptions {
+            let send_result = {
+                use webrtc_util::UdpSendOptions;
+                let options = Some(UdpSendOptions {
                     ttl: Some(current_ttl),
                     tos: None,
                     df_bit: Some(true),
-                }));
-            }
-
-            tracing::debug!("Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
-                current_ttl, seq, json.len());
+                });
+                probe_channel.send_with_options(&json.into(), options).await
+            };
+            
+            #[cfg(not(target_os = "linux"))]
             let send_result = probe_channel.send(&json.into()).await;
-
-            // NOTE: We do NOT clear send options here because the actual UDP send happens
-            // asynchronously in the WebRTC stack. The options need to persist until the
-            // UDP socket's send_to is called. Since we set new options before each send,
-            // there's no need to explicitly clear them.
 
             if let Err(e) = send_result {
                 tracing::error!("Failed to send traceroute probe: {}", e);

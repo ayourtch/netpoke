@@ -18,6 +18,10 @@ use sctp::stream::*;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use util::marshal::*;
 
+// Added for wifi-verify: UDP socket options support
+#[cfg(target_os = "linux")]
+use util::UdpSendOptions;
+
 use crate::error::{Error, Result};
 use crate::message::message_channel_ack::*;
 use crate::message::message_channel_open::*;
@@ -267,6 +271,59 @@ impl DataChannel {
 
     /// WriteDataChannel writes len(p) bytes from p
     pub async fn write_data_channel(&self, data: &Bytes, is_string: bool) -> Result<usize> {
+        #[cfg(target_os = "linux")]
+        {
+            self.write_data_channel_with_options(data, is_string, None).await
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.write_data_channel_impl(data, is_string).await
+        }
+    }
+
+    /// WriteDataChannel with UDP socket options (Linux only)
+    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    #[cfg(target_os = "linux")]
+    pub async fn write_data_channel_with_options(
+        &self,
+        data: &Bytes,
+        is_string: bool,
+        options: Option<UdpSendOptions>,
+    ) -> Result<usize> {
+        let data_len = data.len();
+
+        // https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-12#section-6.6
+        // SCTP does not support the sending of empty user messages.  Therefore,
+        // if an empty message has to be sent, the appropriate PPID (WebRTC
+        // String Empty or WebRTC Binary Empty) is used and the SCTP user
+        // message of one zero byte is sent.  When receiving an SCTP user
+        // message with one of these PPIDs, the receiver MUST ignore the SCTP
+        // user message and process it as an empty message.
+        let ppi = match (is_string, data_len) {
+            (false, 0) => PayloadProtocolIdentifier::BinaryEmpty,
+            (false, _) => PayloadProtocolIdentifier::Binary,
+            (true, 0) => PayloadProtocolIdentifier::StringEmpty,
+            (true, _) => PayloadProtocolIdentifier::String,
+        };
+
+        let n = if data_len == 0 {
+            let _ = self
+                .stream
+                .write_sctp_with_options(&Bytes::from_static(&[0]), ppi, options)
+                .await?;
+            0
+        } else {
+            let n = self.stream.write_sctp_with_options(data, ppi, options).await?;
+            self.bytes_sent.fetch_add(n, Ordering::SeqCst);
+            n
+        };
+
+        self.messages_sent.fetch_add(1, Ordering::SeqCst);
+        Ok(n)
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    async fn write_data_channel_impl(&self, data: &Bytes, is_string: bool) -> Result<usize> {
         let data_len = data.len();
 
         // https://tools.ietf.org/html/draft-ietf-rtcweb-data-channel-12#section-6.6
