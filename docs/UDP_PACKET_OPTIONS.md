@@ -463,42 +463,141 @@ Ok(self.send_to(buf, target).await?)
 
 ## Maintenance
 
+### Vendored Crate Information
+
+The `webrtc-util` crate is vendored with modifications to support per-packet UDP socket options.
+
+**Version Details:**
+- **Crate**: webrtc-util v0.12.0
+- **Repository**: https://github.com/webrtc-rs/webrtc
+- **Path**: util/
+- **Commit SHA**: `a1f8f1919235d8452835852e018efd654f2f8366`
+- **Crates.io**: https://crates.io/crates/webrtc-util/0.12.0
+
+This information is critical for tracking the exact source of the vendored code and enables future updates.
+
 ### Updating Vendored webrtc-util
 
-To update the vendored crate to a new version:
+The project includes scripts to automate updating the vendored crate while preserving modifications.
+
+#### Quick Update Process
 
 ```bash
-# Run the refresh script
+# 1. Update to a new version (edit scripts/refresh-vendored.sh to change VERSION)
 ./scripts/refresh-vendored.sh
 
-# Manually verify modifications are preserved
-diff -u vendored/webrtc-util.orig/src/conn/conn_udp.rs \
-        vendored/webrtc-util/src/conn/conn_udp.rs
+# 2. The script will:
+#    - Download fresh webrtc-util from crates.io
+#    - Backup the old version
+#    - Apply all patches from patches/webrtc-util/
+#    - Report success or failure
 
-# Test compilation
+# 3. Verify the changes
 cargo check --all
-
-# Run tests
 cargo test --all
+
+# 4. If successful, commit
+git add vendored/ patches/
+git commit -m "Update vendored webrtc-util to vX.Y.Z"
+```
+
+#### Manual Update Process
+
+If the automated script fails (e.g., patches don't apply cleanly):
+
+```bash
+# 1. Download the specific version from crates.io
+cargo download webrtc-util@0.13.0  # or desired version
+
+# 2. Extract and move to vendored directory
+tar xzf webrtc-util-0.13.0.crate
+rm -rf vendored/webrtc-util.old
+mv vendored/webrtc-util vendored/webrtc-util.old
+mv webrtc-util-0.13.0 vendored/webrtc-util
+
+# 3. Try applying patches
+./scripts/apply-patches.sh
+
+# 4. If patches fail, manually apply changes:
+#    - Review patches/webrtc-util/*.patch files
+#    - Apply changes manually to new version
+#    - Update patch files if necessary
+
+# 5. Update version information
+#    - Edit vendored/webrtc-util/VENDORED_VERSION_INFO.md
+#    - Update commit SHA from .cargo_vcs_info.json
+#    - Update version numbers
+
+# 6. Verify and test
+cargo check --all
+cargo test --all
+
+# 7. Commit all changes
+git add vendored/ patches/
+git commit -m "Update vendored webrtc-util to v0.13.0"
+```
+
+#### Updating to Track Upstream Changes
+
+To get the latest commit SHA when updating:
+
+```bash
+# Check the commit SHA in the downloaded crate
+cat vendored/webrtc-util/.cargo_vcs_info.json
+
+# This shows the exact git commit from webrtc-rs/webrtc repo
+# Update VENDORED_VERSION_INFO.md with this information
+```
+
+#### Equivalent to "cargo update"
+
+To perform an equivalent of `cargo update` for all dependencies including the vendored crate:
+
+```bash
+# 1. Update all non-vendored dependencies
+cargo update
+
+# 2. Check if there's a newer webrtc-util version
+cargo search webrtc-util | head -1
+
+# 3. If you want to update, edit scripts/refresh-vendored.sh
+#    Change VERSION="0.12.0" to the new version
+
+# 4. Run the refresh script
+./scripts/refresh-vendored.sh
+
+# 5. Test everything
+cargo check --all
+cargo test --all
+
+# 6. Commit both Cargo.lock and vendored changes
+git add Cargo.lock vendored/ patches/
+git commit -m "cargo update: Update all dependencies including vendored webrtc-util"
 ```
 
 ### Files Modified in Vendored Crate
 
 1. **`vendored/webrtc-util/Cargo.toml`**
    - Added: `libc = "0.2"` (Linux only)
+   - See: `patches/webrtc-util/01-cargo-toml.patch`
 
 2. **`vendored/webrtc-util/src/conn/conn_udp.rs`**
    - Added: `UdpSendOptions` struct
    - Added: Thread-local storage functions
    - Added: `send_to_with_options()` function
-   - Added: Control message building functions
-   - Modified: `Conn::send_to()` implementation
+   - Added: `sendmsg_with_options()` implementation (~195 lines)
+   - Modified: `Conn::send_to()` to check for options
+   - See: `patches/webrtc-util/04-conn-udp-rs.patch`
 
 3. **`vendored/webrtc-util/src/conn/mod.rs`**
    - Added: Re-exports of `UdpSendOptions`, `set_send_options`
+   - See: `patches/webrtc-util/03-conn-mod-rs.patch`
 
 4. **`vendored/webrtc-util/src/lib.rs`**
    - Added: Public re-exports at crate level
+   - See: `patches/webrtc-util/02-lib-rs.patch`
+
+All patch files are in `patches/webrtc-util/` and can be inspected to understand exact modifications.
 
 ### Verification Procedure
 
@@ -513,9 +612,30 @@ After any modification:
 ### Documentation of Changes
 
 All modifications are documented in:
-- `patches/README.md` - Summary of changes
+- `vendored/webrtc-util/VENDORED_VERSION_INFO.md` - Version and commit information
+- `patches/README.md` - Summary of patches
+- `patches/webrtc-util/*.patch` - Actual patch files (machine-readable)
 - This document - Complete feature documentation
-- Code comments in modified files
+- Code comments in modified files (search for "wifi-verify")
+
+### Patch Management
+
+The patch files serve multiple purposes:
+1. **Documentation**: Show exactly what was changed
+2. **Automation**: Enable scripted updates via `./scripts/apply-patches.sh`
+3. **Review**: Easy to review modifications with `diff` tools
+4. **Portability**: Can be applied to different versions (with potential conflicts)
+
+To regenerate patches if you manually modify the vendored crate:
+
+```bash
+# Create patches from your changes
+cd vendored
+diff -Naur webrtc-util.backup/Cargo.toml webrtc-util/Cargo.toml > ../patches/webrtc-util/01-cargo-toml.patch
+diff -Naur webrtc-util.backup/src/lib.rs webrtc-util/src/lib.rs > ../patches/webrtc-util/02-lib-rs.patch
+diff -Naur webrtc-util.backup/src/conn/mod.rs webrtc-util/src/conn/mod.rs > ../patches/webrtc-util/03-conn-mod-rs.patch
+diff -Naur webrtc-util.backup/src/conn/conn_udp.rs webrtc-util/src/conn/conn_udp.rs > ../patches/webrtc-util/04-conn-udp-rs.patch
+```
 
 ## Examples
 

@@ -1,0 +1,13 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -114,6 +114,10 @@ version = "0.4.4"
+ [target."cfg(not(windows))".dependencies.nix]
+ version = "0.26.2"
+ 
++# Added for wifi-verify: UDP socket options support
++[target."cfg(target_os = \"linux\")".dependencies.libc]
++version = "0.2"
++
+ [target."cfg(windows)".dependencies.bitflags]
+ version = "1.3"
+ 
