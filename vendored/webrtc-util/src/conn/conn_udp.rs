@@ -32,12 +32,9 @@ impl Conn for UdpSocket {
         // Check if we have UDP options to apply (passed via thread-local storage)
         #[cfg(target_os = "linux")]
         {
-            println!("DEBUG: send_to called, checking for send options");
             if let Some(options) = get_current_send_options() {
                 println!("DEBUG: Found send options, calling send_to_with_options with TTL={:?}", options.ttl);
                 return send_to_with_options(self, buf, target, &options).await;
-            } else {
-                println!("DEBUG: No send options found, using regular send_to");
             }
         }
         
@@ -106,8 +103,6 @@ fn get_current_send_options() -> Option<UdpSendOptions> {
     if let Some(ref opts) = result {
         println!("DEBUG: get_current_send_options retrieved TTL={:?}, TOS={:?}, DF={:?}", 
             opts.ttl, opts.tos, opts.df_bit);
-    } else {
-        println!("DEBUG: get_current_send_options retrieved None");
     }
     
     result
