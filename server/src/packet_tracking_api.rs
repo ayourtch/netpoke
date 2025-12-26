@@ -6,6 +6,7 @@ use axum::{
 };
 use serde::{Serialize, Deserialize};
 use crate::state::AppState;
+use base64::{Engine as _, engine::general_purpose};
 
 /// Response structure for tracked packet events
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,9 +56,9 @@ pub async fn get_tracked_events(
                 icmp_received_at_ms: icmp_duration.as_millis() as u64,
                 rtt_ms: rtt.as_millis() as u64,
                 send_options: event.send_options,
-                icmp_packet_b64: Some(base64::encode(&event.icmp_packet)),
-                udp_packet_b64: Some(base64::encode(&event.udp_packet)),
-                cleartext_b64: Some(base64::encode(&event.cleartext)),
+                icmp_packet_b64: Some(general_purpose::STANDARD.encode(&event.icmp_packet)),
+                udp_packet_b64: Some(general_purpose::STANDARD.encode(&event.udp_packet)),
+                cleartext_b64: Some(general_purpose::STANDARD.encode(&event.cleartext)),
             }
         })
         .collect();
