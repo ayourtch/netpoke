@@ -20,7 +20,9 @@ pub fn init_tracking_callback<F>(callback: F)
 where
     F: Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant) + Send + Sync + 'static,
 {
-    TRACKING_CALLBACK.set(Box::new(callback)).expect("Tracking callback already initialized");
+    if TRACKING_CALLBACK.set(Box::new(callback)).is_err() {
+        panic!("Tracking callback already initialized");
+    }
 }
 
 /// Track a UDP packet by invoking the global callback

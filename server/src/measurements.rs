@@ -333,20 +333,6 @@ pub async fn start_traceroute_sender(
 ) {
     tracing::info!("Starting traceroute sender for session {}", session.id);
     
-    // Wait for peer address to be available before starting traceroute
-    // This is necessary for packet tracking to work correctly
-    tracing::info!("Waiting for peer address to be available for session {}", session.id);
-    loop {
-        {
-            let peer_addr = session.peer_address.lock().await;
-            if peer_addr.is_some() {
-                tracing::info!("Peer address available for session {}, starting traceroute", session.id);
-                break;
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    
     let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
     let mut current_ttl: u8 = 1;
     const MAX_TTL: u8 = 30;
@@ -433,10 +419,6 @@ pub async fn start_traceroute_sender(
             tracing::info!("🔵 Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
                 current_ttl, seq, json.len());
             
-            // Clone json once for tracking (we need it after sending)
-            let json_for_tracking = json.clone();
-            let json_len = json.len();
-            
             #[cfg(target_os = "linux")]
             let send_result = {
                 use webrtc_util::UdpSendOptions;
@@ -462,43 +444,9 @@ pub async fn start_traceroute_sender(
 
             tracing::info!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
             
-            // Track the packet for ICMP correlation
-            let peer_addr_opt = session.peer_address.lock().await.clone();
-            if let Some((peer_addr, peer_port)) = peer_addr_opt {
-                if let Ok(peer_ip) = peer_addr.parse::<std::net::IpAddr>() {
-                    let dest = std::net::SocketAddr::new(peer_ip, peer_port);
-                    
-                    // Estimate UDP packet length
-                    // The actual UDP packet includes: DTLS + SCTP + Data Channel overhead
-                    // For WebRTC: roughly data_len + ~126 bytes overhead for DTLS/SCTP/UDP headers
-                    // Measured empirically: 296 - 170 = 126 bytes
-                    // But what matters for matching is a UNIQUE value per TTL
-                    // We use: base_overhead + json.len() as our "signature"
-                    // The DTLS encryption will make this slightly larger, but the relative differences remain
-                    let estimated_udp_length = (json_len + 126) as u16;
-                    
-                    tracing::info!("🔵 Tracking packet for ICMP: dest={}, TTL={}, estimated_udp_length={}, track_for_ms={}", 
-                        dest, current_ttl, estimated_udp_length, send_options.track_for_ms);
-                    
-                    // Create a dummy UDP packet for tracking (we don't have the actual packet at this layer)
-                    let dummy_udp_packet = Vec::new();
-                    
-                    session.packet_tracker.track_packet(
-                        json_for_tracking,  // Use cloned JSON as cleartext
-                        dummy_udp_packet,   // We don't have actual UDP packet here
-                        0,                  // Source port unknown at this layer
-                        dest,
-                        estimated_udp_length,
-                        send_options,
-                    ).await;
-                    
-                    tracing::info!("✅ Packet tracked for dest={}, udp_length={}", dest, estimated_udp_length);
-                } else {
-                    tracing::warn!("Failed to parse peer address: {}", peer_addr);
-                }
-            } else {
-                tracing::warn!("Peer address not available for tracking");
-            }
+            // Note: Packet tracking now happens automatically at the UDP layer
+            // The vendored webrtc-util code will call wifi_verify_track_udp_packet()
+            // with exact measurements when the packet is actually sent via sendmsg
 
             // Wait a bit for potential ICMP response
             tokio::time::sleep(Duration::from_millis(200)).await;
