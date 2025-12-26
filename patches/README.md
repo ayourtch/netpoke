@@ -33,21 +33,27 @@ RTCDataChannel::send_with_options(data, options)
 - **Repository**: https://github.com/webrtc-rs/webrtc
 - **Crates.io**: https://crates.io/crates/webrtc/0.14.0
 - **Path**: vendored/webrtc/
+- **Note**: Main workspace crate, manually vendored
 
 ### webrtc-data v0.12.0
-- **Repository**: https://github.com/webrtc-rs/data
+- **Repository**: https://github.com/webrtc-rs/webrtc (data/ subdirectory)
 - **Crates.io**: https://crates.io/crates/webrtc-data/0.12.0
+- **Commit SHA**: `a1f8f1919235d8452835852e018efd654f2f8366`
+- **Path in VCS**: `data`
 - **Path**: vendored/webrtc-data/
 
 ### webrtc-sctp v0.13.0
-- **Repository**: https://github.com/webrtc-rs/sctp
+- **Repository**: https://github.com/webrtc-rs/webrtc (sctp/ subdirectory)
 - **Crates.io**: https://crates.io/crates/webrtc-sctp/0.13.0
+- **Commit SHA**: `a1f8f1919235d8452835852e018efd654f2f8366`
+- **Path in VCS**: `sctp`
 - **Path**: vendored/webrtc-sctp/
 
 ### webrtc-util v0.12.0
-- **Repository**: https://github.com/webrtc-rs/util
+- **Repository**: https://github.com/webrtc-rs/webrtc (util/ subdirectory)
 - **Crates.io**: https://crates.io/crates/webrtc-util/0.12.0
 - **Commit SHA**: `a1f8f1919235d8452835852e018efd654f2f8366`
+- **Path in VCS**: `util`
 - **Path**: vendored/webrtc-util/
 
 ## Patch Files

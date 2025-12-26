@@ -689,24 +689,41 @@ On non-Linux platforms, the code automatically falls back to standard `send()`:
 Four crates are vendored with modifications:
 
 1. **webrtc v0.14.0**
+   - Repository: https://github.com/webrtc-rs/webrtc
+   - Crates.io: https://crates.io/crates/webrtc/0.14.0
+   - Note: Main workspace crate, manually vendored
    - Added `RTCDataChannel::send_with_options()`
    - Modified: `vendored/webrtc/src/data_channel/mod.rs`
 
 2. **webrtc-data v0.12.0**
+   - Repository: https://github.com/webrtc-rs/webrtc (data/ subdirectory)
+   - Crates.io: https://crates.io/crates/webrtc-data/0.12.0
+   - Commit SHA: `a1f8f1919235d8452835852e018efd654f2f8366`
+   - Path in VCS: `data`
    - Added `write_data_channel_with_options()`
    - Modified: `vendored/webrtc-data/src/data_channel/mod.rs`
 
 3. **webrtc-sctp v0.13.0**
+   - Repository: https://github.com/webrtc-rs/webrtc (sctp/ subdirectory)
+   - Crates.io: https://crates.io/crates/webrtc-sctp/0.13.0
+   - Commit SHA: `a1f8f1919235d8452835852e018efd654f2f8366`
+   - Path in VCS: `sctp`
    - Added `udp_send_options` fields to `ChunkPayloadData` and `Packet`
    - Added `write_sctp_with_options()` method
    - Modified packet bundling and Association write loop
    - Modified: Multiple files in `vendored/webrtc-sctp/src/`
 
 4. **webrtc-util v0.12.0**
+   - Repository: https://github.com/webrtc-rs/webrtc (util/ subdirectory)
+   - Crates.io: https://crates.io/crates/webrtc-util/0.12.0
+   - Commit SHA: `a1f8f1919235d8452835852e018efd654f2f8366`
+   - Path in VCS: `util`
    - Added `Conn::send_with_options()` trait method
    - Implemented `send_with_options()` for UdpSocket
    - Added sendmsg() implementation
    - Modified: `vendored/webrtc-util/src/conn/*.rs`
+
+**Note**: The commit SHA `a1f8f1919235d8452835852e018efd654f2f8366` corresponds to the exact git commit in the [webrtc-rs/webrtc](https://github.com/webrtc-rs/webrtc) repository from which webrtc-data, webrtc-sctp, and webrtc-util were obtained via crates.io.
 
 ### Updating Vendored Crates
 
