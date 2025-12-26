@@ -288,7 +288,7 @@ impl Candidate for CandidateBase {
         dst: &(dyn Candidate + Send + Sync),
         options: &util::UdpSendOptions,
     ) -> Result<usize> {
-        log::info!(
+        log::debug!(
             "🔵 CandidateBase::write_to_with_options: Sending {} bytes with TTL={:?}, TOS={:?}, DF={:?} to {}",
             raw.len(), options.ttl, options.tos, options.df_bit, dst.addr()
         );

@@ -1,0 +1,51 @@
+--- a/src/candidate/mod.rs
++++ b/src/candidate/mod.rs
+@@ -83,6 +83,35 @@ pub trait Candidate: fmt::Display {
+     fn seen(&self, outbound: bool);
+ 
+     async fn write_to(&self, raw: &[u8], dst: &(dyn Candidate + Send + Sync)) -> Result<usize>;
++    
++    /// Write data with UDP socket options (TTL, TOS, DF bit) to a destination candidate.
++    /// 
++    /// This method enables per-packet UDP socket options, which is essential for features
++    /// like traceroute over WebRTC data channels. The options are forwarded through the
++    /// networking stack down to the actual UDP socket syscalls.
++    /// 
++    /// # Parameters
++    /// * `raw` - The data to send
++    /// * `dst` - The destination candidate
++    /// * `options` - UDP socket options including TTL, TOS (Type of Service), and DF (Don't Fragment) bit
++    /// 
++    /// # Returns
++    /// The number of bytes written
++    /// 
++    /// # Note
++    /// Default implementation falls back to `write_to` without options for candidates
++    /// that don't support per-packet options.
++    /// 
++    /// Added for wifi-verify: enables per-packet UDP options
++    #[cfg(target_os = "linux")]
++    async fn write_to_with_options(
++        &self,
++        raw: &[u8],
++        dst: &(dyn Candidate + Send + Sync),
++        _options: &util::UdpSendOptions,
++    ) -> Result<usize> {
++        // Default implementation falls back to write_to without options
++        log::warn!("⚠️  Candidate::write_to_with_options not implemented, falling back to write_to (options will be LOST)");
++        self.write_to(raw, dst).await
++    }
++    
+     fn equal(&self, other: &dyn Candidate) -> bool;
+@@ -325,4 +354,11 @@ impl CandidatePair {
+     pub async fn write(&self, b: &[u8]) -> Result<usize> {
+         self.local.write_to(b, &*self.remote).await
+     }
++
++    /// Write data with UDP socket options (TTL, TOS, DF bit)
++    /// Added for wifi-verify: enables per-packet UDP options
++    #[cfg(target_os = "linux")]
++    pub async fn write_with_options(&self, b: &[u8], options: &util::UdpSendOptions) -> Result<usize> {
++        self.local.write_to_with_options(b, &*self.remote, options).await
++    }
+ }

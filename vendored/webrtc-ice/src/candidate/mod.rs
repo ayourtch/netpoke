@@ -83,7 +83,24 @@ pub trait Candidate: fmt::Display {
 
     async fn write_to(&self, raw: &[u8], dst: &(dyn Candidate + Send + Sync)) -> Result<usize>;
     
-    /// Write data with UDP socket options (TTL, TOS, DF bit)
+    /// Write data with UDP socket options (TTL, TOS, DF bit) to a destination candidate.
+    /// 
+    /// This method enables per-packet UDP socket options, which is essential for features
+    /// like traceroute over WebRTC data channels. The options are forwarded through the
+    /// networking stack down to the actual UDP socket syscalls.
+    /// 
+    /// # Parameters
+    /// * `raw` - The data to send
+    /// * `dst` - The destination candidate
+    /// * `options` - UDP socket options including TTL, TOS (Type of Service), and DF (Don't Fragment) bit
+    /// 
+    /// # Returns
+    /// The number of bytes written
+    /// 
+    /// # Note
+    /// Default implementation falls back to `write_to` without options for candidates
+    /// that don't support per-packet options.
+    /// 
     /// Added for wifi-verify: enables per-packet UDP options
     #[cfg(target_os = "linux")]
     async fn write_to_with_options(

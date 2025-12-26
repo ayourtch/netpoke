@@ -12,7 +12,7 @@
  
  #[cfg(test)]
  mod conn_bridge_test;
-@@ -38,6 +43,44 @@ pub trait Conn {
+@@ -38,6 +43,48 @@ pub trait Conn {
      fn remote_addr(&self) -> Option<SocketAddr>;
      async fn close(&self) -> Result<()>;
      fn as_any(&self) -> &(dyn std::any::Any + Send + Sync);
@@ -28,12 +28,15 @@
 +    ) -> Result<usize> {
 +        // Default implementation ignores options and uses regular send
 +        // Log error to help identify missing forwarding implementations
++        let backtrace = std::backtrace::Backtrace::capture();
 +        log::error!(
 +            "❌ send_with_options called on connection without forwarding implementation! \
 +             Options will be LOST: TTL={:?}, TOS={:?}, DF={:?}, buf_len={}, local_addr={:?}, remote_addr={:?}. \
-+             This indicates a missing send_with_options implementation in the call chain.",
++             This indicates a missing send_with_options implementation in the call chain.\n\
++             Backtrace:\n{:?}",
 +            _options.ttl, _options.tos, _options.df_bit, buf.len(), 
-+            self.local_addr().ok(), self.remote_addr()
++            self.local_addr().ok(), self.remote_addr(),
++            backtrace
 +        );
 +        self.send(buf).await
 +    }
@@ -50,12 +53,15 @@
 +    ) -> Result<usize> {
 +        // Default implementation ignores options and uses regular send_to
 +        // Log error to help identify missing forwarding implementations
++        let backtrace = std::backtrace::Backtrace::capture();
 +        log::error!(
 +            "❌ send_to_with_options called on connection without forwarding implementation! \
 +             Options will be LOST: TTL={:?}, TOS={:?}, DF={:?}, buf_len={}, target={}, local_addr={:?}. \
-+             This indicates a missing send_to_with_options implementation in the call chain.",
++             This indicates a missing send_to_with_options implementation in the call chain.\n\
++             Backtrace:\n{:?}",
 +            _options.ttl, _options.tos, _options.df_bit, buf.len(), target,
-+            self.local_addr().ok()
++            self.local_addr().ok(),
++            backtrace
 +        );
 +        self.send_to(buf, target).await
 +    }

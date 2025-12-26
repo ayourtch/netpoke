@@ -1,0 +1,32 @@
+--- a/src/candidate/candidate_base.rs
++++ b/src/candidate/candidate_base.rs
+@@ -279,6 +279,28 @@ impl Candidate for CandidateBase {
+         self.seen(true);
+         Ok(n)
+     }
++
++    /// Write data with UDP socket options (TTL, TOS, DF bit)
++    /// Added for wifi-verify: enables per-packet UDP options
++    #[cfg(target_os = "linux")]
++    async fn write_to_with_options(
++        &self,
++        raw: &[u8],
++        dst: &(dyn Candidate + Send + Sync),
++        options: &util::UdpSendOptions,
++    ) -> Result<usize> {
++        log::debug!(
++            "🔵 CandidateBase::write_to_with_options: Sending {} bytes with TTL={:?}, TOS={:?}, DF={:?} to {}",
++            raw.len(), options.ttl, options.tos, options.df_bit, dst.addr()
++        );
++        
++        let n = if let Some(conn) = &self.conn {
++            let addr = dst.addr();
++            conn.send_to_with_options(raw, addr, options).await?
++        } else {
++            0
++        };
++        self.seen(true);
++        Ok(n)
++    }
+ 
+     /// Used to compare two candidateBases.

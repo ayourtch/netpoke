@@ -4,13 +4,14 @@ Modifications to vendored WebRTC crates for per-packet UDP socket options suppor
 
 ## Overview
 
-This project vendors five crates with modifications to enable per-packet UDP socket options (TTL, TOS, DF bit) through explicit API calls:
+This project vendors six crates with modifications to enable per-packet UDP socket options (TTL, TOS, DF bit) through explicit API calls:
 
 1. **webrtc v0.14.0** - Added `RTCDataChannel::send_with_options()` API
 2. **webrtc-data v0.12.0** - Added `write_data_channel_with_options()` method
 3. **webrtc-sctp v0.13.0** - Added options fields and propagation through SCTP layer
-4. **webrtc-util v0.12.0** - Added `sendmsg()` implementation and `Conn::send_with_options()` trait method
+4. **webrtc-util v0.12.0** - Added `sendmsg()` implementation, `Conn::send_with_options()` trait method, and backtrace logging
 5. **dtls v0.13.0** - Added `send_with_options()` forwarding in `DTLSConn` to propagate options through DTLS layer
+6. **webrtc-ice v0.14.0** - Added `send_with_options()` support in `AgentConn` and candidate layers
 
 ## Architecture
 
@@ -27,7 +28,10 @@ RTCDataChannel::send_with_options(data, options)
   → Conn::send_with_options(buf, options)
   → DTLSConn::send_with_options() forwards to underlying connection
   → Endpoint::send_with_options() forwards to next_conn
-  → UdpSocket::send_with_options()
+  → AgentConn::send_with_options() forwards through ICE layer
+  → CandidatePair::write_with_options() 
+  → CandidateBase::write_to_with_options()
+  → UdpSocket::send_to_with_options()
   → UdpSocket sendmsg with control messages (TTL, TOS, DF bit)
 ```
 
@@ -67,18 +71,24 @@ RTCDataChannel::send_with_options(data, options)
 - **Path**: vendored/dtls/
 - **Note**: Critical for forwarding options through DTLS layer to underlying UDP socket
 
-## Patch Files
+### webrtc-ice v0.14.0
+- **Repository**: https://github.com/webrtc-rs/ice
+- **Crates.io**: https://crates.io/crates/webrtc-ice/0.14.0
+- **Path**: vendored/webrtc-ice/
+- **Note**: Implements `send_with_options()` in `AgentConn` and candidate layers to forward UDP options to the actual UDP socket
 
-### webrtc-util/
-1. **01-cargo-toml.patch** - Adds libc dependency for Linux
-2. **02-lib-rs.patch** - Exports UdpSendOptions type
-3. **03-conn-mod-rs.patch** - Extends Conn trait with `send_with_options()` method
-4. **04-conn-udp-rs.patch** - Implements sendmsg() with control messages
+## Patch Files
 
 ### dtls/
 1. **01-conn-mod-rs.patch** - Adds `send_with_options()` and `send_to_with_options()` forwarding to DTLSConn
 
-Note: Patches for webrtc, webrtc-data, and webrtc-sctp are not included as these crates are fully vendored. See git history for modifications.
+### webrtc-util/
+1. **01-cargo-toml.patch** - Adds libc dependency for Linux
+2. **02-lib-rs.patch** - Exports UdpSendOptions type
+3. **03-conn-mod-rs.patch** - Extends Conn trait with `send_with_options()` method and backtrace logging
+4. **04-conn-udp-rs.patch** - Implements sendmsg() with control messages
+
+Note: Patches for webrtc, webrtc-data, webrtc-sctp, and webrtc-ice are not included as these crates are fully vendored. See git history for modifications.
 
 ## Key Changes
 
@@ -92,11 +102,15 @@ Note: Patches for webrtc, webrtc-data, and webrtc-sctp are not included as these
 - ✅ `RTCDataChannel::send_with_options()` - Public API
 - ✅ `DataChannel::write_data_channel_with_options()` - Data channel layer
 - ✅ `Stream::write_sctp_with_options()` - SCTP stream layer
-- ✅ `Conn::send_with_options()` - Connection trait method
+- ✅ `Conn::send_with_options()` - Connection trait method with backtrace logging
 - ✅ Options fields in ChunkPayloadData and Packet structs
 - ✅ Options extraction in Association packet bundling
 - ✅ Options application in Association write loop
 - ✅ `sendmsg()` with control messages for Linux
+- ✅ `AgentConn::send_with_options()` - ICE agent connection layer
+- ✅ `CandidatePair::write_with_options()` - ICE candidate pair layer
+- ✅ `CandidateBase::write_to_with_options()` - ICE candidate base implementation
+- ✅ Backtrace capture in default `send_with_options()` for debugging
 
 ## Applying Patches
 
@@ -127,6 +141,9 @@ When updating vendored crates:
 ## Documentation
 
 For complete implementation details, usage guide, and testing instructions, see:
+- `ICE_SEND_OPTIONS_FIX.md` - ICE layer implementation and backtrace addition
+- `DTLS_FORWARDING_FIX.md` - DTLS layer forwarding details
+- `TRACEROUTE_FIX_SUMMARY.md` - Overall traceroute implementation
 - `docs/UDP_PACKET_OPTIONS.md` - Complete feature documentation
 
 ## Platform Support

@@ -257,7 +257,7 @@ impl Conn for AgentConn {
         buf: &[u8],
         options: &util::UdpSendOptions,
     ) -> std::result::Result<usize, util::Error> {
-        log::info!(
+        log::debug!(
             "🔵 AgentConn::send_with_options: Sending {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
             buf.len(), options.ttl, options.tos, options.df_bit
         );
@@ -281,7 +281,7 @@ impl Conn for AgentConn {
         match result {
             Ok(n) => {
                 self.bytes_sent.fetch_add(buf.len(), Ordering::SeqCst);
-                log::info!("✅ AgentConn::send_with_options: Successfully sent {} bytes", n);
+                log::debug!("✅ AgentConn::send_with_options: Successfully sent {} bytes", n);
                 Ok(n)
             }
             Err(err) => {

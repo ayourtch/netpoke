@@ -1,0 +1,49 @@
+--- a/src/agent/agent_transport.rs
++++ b/src/agent/agent_transport.rs
+@@ -248,4 +248,46 @@ impl Conn for AgentConn {
+     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
+         self
+     }
++
++    /// Send data with UDP socket options (TTL, TOS, DF bit) for connected sockets
++    /// Added for wifi-verify: enables per-packet UDP options like TTL for traceroute
++    #[cfg(target_os = "linux")]
++    async fn send_with_options(
++        &self,
++        buf: &[u8],
++        options: &util::UdpSendOptions,
++    ) -> std::result::Result<usize, util::Error> {
++        log::debug!(
++            "🔵 AgentConn::send_with_options: Sending {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
++            buf.len(), options.ttl, options.tos, options.df_bit
++        );
++
++        if self.done.load(Ordering::SeqCst) {
++            return Err(io::Error::other("Conn is closed").into());
++        }
++
++        if is_message(buf) {
++            return Err(util::Error::Other("ErrIceWriteStunMessage".into()));
++        }
++
++        let result = if let Some(pair) = self.get_selected_pair() {
++            pair.write_with_options(buf, options).await
++        } else if let Some(pair) = self.get_best_available_candidate_pair().await {
++            pair.write_with_options(buf, options).await
++        } else {
++            Ok(0)
++        };
++
++        match result {
++            Ok(n) => {
++                self.bytes_sent.fetch_add(buf.len(), Ordering::SeqCst);
++                log::debug!("✅ AgentConn::send_with_options: Successfully sent {} bytes", n);
++                Ok(n)
++            }
++            Err(err) => {
++                log::error!("❌ AgentConn::send_with_options: Failed to send: {}", err);
++                Err(io::Error::other(err.to_string()).into())
++            }
++        }
++    }
+ }
