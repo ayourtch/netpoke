@@ -11,6 +11,7 @@ mod survey_middleware;
 mod packet_tracker;
 mod icmp_listener;
 mod packet_tracking_api;
+mod tracking_channel;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -219,6 +220,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Initialize packet tracker and ICMP listener
     let app_state = state::AppState::new();
+    
+    // Initialize the global tracking callback for UDP-to-ICMP communication
+    let tracking_sender = app_state.tracking_sender.clone();
+    tracking_channel::init_tracking_callback(move |dest_addr, udp_length, ttl, cleartext, sent_at| {
+        use crate::packet_tracker::UdpPacketInfo;
+        use common::SendOptions;
+        
+        // Only track if TTL is set (indicating traceroute probe)
+        if let Some(ttl_value) = ttl {
+            let info = UdpPacketInfo {
+                dest_addr,
+                udp_length,
+                cleartext,
+                send_options: SendOptions {
+                    ttl: Some(ttl_value),
+                    df_bit: Some(true),
+                    tos: None,
+                    flow_label: None,
+                    track_for_ms: 5000, // Track for 5 seconds
+                },
+                sent_at,
+            };
+            
+            if let Err(e) = tracking_sender.send(info) {
+                tracing::error!("Failed to send tracking info: {}", e);
+            }
+        }
+    });
+    tracing::info!("Global tracking callback initialized");
+    
     icmp_listener::start_icmp_listener(app_state.packet_tracker.clone());
     tracing::info!("Packet tracking and ICMP listener initialized");
     

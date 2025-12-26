@@ -6,12 +6,14 @@ use std::time::Instant;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::data_channel::RTCDataChannel;
 use common::ClientMetrics;
-use crate::packet_tracker::PacketTracker;
+use crate::packet_tracker::{PacketTracker, UdpPacketInfo};
+use tokio::sync::mpsc;
 
 #[derive(Clone)]
 pub struct AppState {
     pub clients: Arc<RwLock<HashMap<String, Arc<ClientSession>>>>,
     pub packet_tracker: Arc<PacketTracker>,
+    pub tracking_sender: mpsc::UnboundedSender<UdpPacketInfo>,
 }
 
 pub struct ClientSession {
@@ -79,9 +81,11 @@ pub struct EchoedProbe {
 
 impl AppState {
     pub fn new() -> Self {
+        let (tracker, tx) = PacketTracker::new();
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
-            packet_tracker: Arc::new(PacketTracker::new()),
+            packet_tracker: Arc::new(tracker),
+            tracking_sender: tx,
         }
     }
 }

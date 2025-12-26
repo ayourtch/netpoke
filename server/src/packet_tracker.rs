@@ -8,8 +8,27 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use common::{SendOptions, TrackedPacketEvent};
+
+/// Data sent from UDP layer to ICMP listener for packet tracking
+#[derive(Debug, Clone)]
+pub struct UdpPacketInfo {
+    /// Destination address of the packet
+    pub dest_addr: SocketAddr,
+    
+    /// Actual UDP packet length (UDP header + payload)
+    pub udp_length: u16,
+    
+    /// Original cleartext data before encryption
+    pub cleartext: Vec<u8>,
+    
+    /// Send options (TTL, TOS, etc.)
+    pub send_options: SendOptions,
+    
+    /// When the packet was sent
+    pub sent_at: Instant,
+}
 
 /// Key for matching UDP packets in ICMP errors
 /// Uses destination address and UDP packet length for unique identification
@@ -51,13 +70,19 @@ pub struct PacketTracker {
     
     /// Queue of matched ICMP events
     pub(crate) event_queue: Arc<RwLock<Vec<TrackedPacketEvent>>>,
+    
+    /// Receiver for packet tracking data from UDP layer
+    tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
 }
 
 impl PacketTracker {
-    pub fn new() -> Self {
+    pub fn new() -> (Self, mpsc::UnboundedSender<UdpPacketInfo>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        
         let tracker = Self {
             tracked_packets: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
+            tracking_rx: Arc::new(tokio::sync::Mutex::new(rx)),
         };
         
         // Start cleanup task
@@ -70,7 +95,14 @@ impl PacketTracker {
             }
         });
         
-        tracker
+        // Start tracking receiver task
+        let tracking_rx = tracker.tracking_rx.clone();
+        let tracked_packets = tracker.tracked_packets.clone();
+        tokio::spawn(async move {
+            Self::tracking_receiver_task(tracking_rx, tracked_packets).await;
+        });
+        
+        (tracker, tx)
     }
     
     /// Track a packet for ICMP correlation
@@ -186,6 +218,53 @@ impl PacketTracker {
         self.tracked_packets.read().await.len()
     }
     
+    /// Task that receives tracking data from UDP layer and stores it
+    async fn tracking_receiver_task(
+        tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
+        tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
+    ) {
+        let mut rx = tracking_rx.lock().await;
+        
+        while let Some(info) = rx.recv().await {
+            if info.send_options.track_for_ms == 0 {
+                continue;
+            }
+            
+            println!("DEBUG: Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}", 
+                info.dest_addr, info.udp_length, info.send_options.ttl);
+            
+            let expires_at = info.sent_at + std::time::Duration::from_millis(info.send_options.track_for_ms as u64);
+            
+            let key = UdpPacketKey {
+                dest_addr: info.dest_addr,
+                udp_length: info.udp_length,
+            };
+            
+            let tracked = TrackedPacket {
+                cleartext: info.cleartext,
+                udp_packet: Vec::new(), // Not available at this layer
+                sent_at: info.sent_at,
+                expires_at,
+                send_options: info.send_options,
+                dest_addr: info.dest_addr,
+                src_port: 0, // Not available at this layer
+            };
+            
+            let mut packets = tracked_packets.write().await;
+            packets.insert(key, tracked);
+            
+            let count = packets.len();
+            println!("DEBUG: Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
+            
+            tracing::debug!(
+                "Tracked packet from UDP layer: dest={}, udp_length={}, ttl={:?}",
+                info.dest_addr,
+                info.udp_length,
+                info.send_options.ttl
+            );
+        }
+    }
+    
     /// Clean up expired tracking entries
     async fn cleanup_expired(tracked_packets: &Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>) {
         let now = Instant::now();
@@ -203,7 +282,8 @@ impl PacketTracker {
 
 impl Default for PacketTracker {
     fn default() -> Self {
-        Self::new()
+        let (tracker, _tx) = Self::new();
+        tracker
     }
 }
 
@@ -223,7 +303,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_packet_tracker_basic() {
-        let tracker = PacketTracker::new();
+        let (tracker, _tx) = PacketTracker::new();
         
         let options = SendOptions {
             ttl: Some(64),
@@ -250,7 +330,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_icmp_matching_with_udp_length() {
-        let tracker = PacketTracker::new();
+        let (tracker, _tx) = PacketTracker::new();
         
         let options = SendOptions {
             ttl: Some(1),
@@ -297,7 +377,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_icmp_no_match_different_length() {
-        let tracker = PacketTracker::new();
+        let (tracker, _tx) = PacketTracker::new();
         
         let options = SendOptions {
             ttl: Some(1),
@@ -343,7 +423,7 @@ mod tests {
     
     #[tokio::test]
     async fn test_packet_expiry() {
-        let tracker = PacketTracker::new();
+        let (tracker, _tx) = PacketTracker::new();
         
         let options = SendOptions {
             ttl: Some(64),
