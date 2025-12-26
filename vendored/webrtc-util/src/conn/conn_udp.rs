@@ -195,35 +195,40 @@ fn sendmsg_with_options(
         let mut cmsg_len = 0usize;
         
         // Build the msghdr structure
-        let (addr_storage, addr_len) = match dest {
+        // CRITICAL FIX: We must keep the address storage alive for the entire duration
+        // of the sendmsg call. Previously, we were returning references to local variables
+        // in the match arms, which created dangling pointers causing EAFNOSUPPORT (97)
+        // and EINVAL (22) errors.
+        let mut addr_storage_v4: libc::sockaddr_in = std::mem::zeroed();
+        let mut addr_storage_v6: libc::sockaddr_in6 = std::mem::zeroed();
+        
+        let (addr_ptr, addr_len) = match dest {
             SocketAddr::V4(addr) => {
-                let mut storage: libc::sockaddr_in = std::mem::zeroed();
-                storage.sin_family = libc::AF_INET as libc::sa_family_t;
-                storage.sin_port = addr.port().to_be();
-                storage.sin_addr = libc::in_addr {
+                addr_storage_v4.sin_family = libc::AF_INET as libc::sa_family_t;
+                addr_storage_v4.sin_port = addr.port().to_be();
+                addr_storage_v4.sin_addr = libc::in_addr {
                     s_addr: u32::from_ne_bytes(addr.ip().octets()),
                 };
                 (
-                    &storage as *const libc::sockaddr_in as *const libc::sockaddr,
+                    &addr_storage_v4 as *const libc::sockaddr_in as *const libc::sockaddr,
                     std::mem::size_of::<libc::sockaddr_in>() as libc::socklen_t,
                 )
             }
             SocketAddr::V6(addr) => {
-                let mut storage: libc::sockaddr_in6 = std::mem::zeroed();
-                storage.sin6_family = libc::AF_INET6 as libc::sa_family_t;
-                storage.sin6_port = addr.port().to_be();
-                storage.sin6_addr = libc::in6_addr {
+                addr_storage_v6.sin6_family = libc::AF_INET6 as libc::sa_family_t;
+                addr_storage_v6.sin6_port = addr.port().to_be();
+                addr_storage_v6.sin6_addr = libc::in6_addr {
                     s6_addr: addr.ip().octets(),
                 };
                 (
-                    &storage as *const libc::sockaddr_in6 as *const libc::sockaddr,
+                    &addr_storage_v6 as *const libc::sockaddr_in6 as *const libc::sockaddr,
                     std::mem::size_of::<libc::sockaddr_in6>() as libc::socklen_t,
                 )
             }
         };
         
         let mut msg: msghdr = std::mem::zeroed();
-        msg.msg_name = addr_storage as *mut c_void;
+        msg.msg_name = addr_ptr as *mut c_void;
         msg.msg_namelen = addr_len;
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
