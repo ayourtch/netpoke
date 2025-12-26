@@ -134,6 +134,18 @@ async fn send_to_with_options(
 }
 
 #[cfg(target_os = "linux")]
+/// Queries the address family of a socket using getsockname()
+/// 
+/// This is critical for determining which control message protocol level to use
+/// when setting socket options like TTL. An IPv6 socket must use IPPROTO_IPV6
+/// control messages even when sending to IPv4 addresses via IPv4-mapped IPv6.
+/// 
+/// # Arguments
+/// * `fd` - The raw file descriptor of the socket
+/// 
+/// # Returns
+/// * `Ok(sa_family_t)` - The address family (AF_INET or AF_INET6)
+/// * `Err(Error)` - If getsockname() fails
 fn get_socket_family(fd: std::os::unix::io::RawFd) -> Result<libc::sa_family_t> {
     unsafe {
         let mut addr: libc::sockaddr_storage = std::mem::zeroed();
