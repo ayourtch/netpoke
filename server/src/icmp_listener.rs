@@ -160,7 +160,13 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         packet[embedded_udp_start + 3],
     ]);
     
-    // Extract first 8 bytes of UDP payload (for matching)
+    // Extract UDP length (offset 4-5 in UDP header)
+    let udp_length = u16::from_be_bytes([
+        packet[embedded_udp_start + 4],
+        packet[embedded_udp_start + 5],
+    ]);
+    
+    // Extract first 8 bytes of UDP payload (for matching) - though usually empty in ICMP Time Exceeded
     let payload_start = embedded_udp_start + 8;
     let payload_end = std::cmp::min(payload_start + 8, packet.len());
     let payload_prefix = packet[payload_start..payload_end].to_vec();
@@ -168,19 +174,22 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     println!("DEBUG: Parsed ICMP error successfully:");
     println!("  ICMP type={}, code={}", icmp_type, icmp_code);
     println!("  src_port={}, dest={}:{}", src_port, dest_ip, dest_port);
+    println!("  udp_length={}", udp_length);
     println!("  payload_prefix len={}", payload_prefix.len());
     
     tracing::debug!(
-        "Parsed ICMP error: type={}, src_port={}, dest={}:{}",
+        "Parsed ICMP error: type={}, src_port={}, dest={}:{}, udp_length={}",
         icmp_type,
         src_port,
         dest_ip,
-        dest_port
+        dest_port,
+        udp_length
     );
     
     Some(EmbeddedUdpInfo {
         src_port,
         dest_addr: SocketAddr::new(IpAddr::V4(dest_ip), dest_port),
+        udp_length,
         payload_prefix,
     })
 }

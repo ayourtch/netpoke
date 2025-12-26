@@ -12,12 +12,11 @@ use tokio::sync::RwLock;
 use common::{SendOptions, TrackedPacketEvent};
 
 /// Key for matching UDP packets in ICMP errors
-/// Uses only destination address for matching, since source port may not be known when tracking
+/// Uses destination address and UDP packet length for unique identification
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct UdpPacketKey {
     pub dest_addr: SocketAddr,
-    /// Optional payload prefix for additional matching (may be empty for ICMP Time Exceeded)
-    pub payload_prefix: Vec<u8>,
+    pub udp_length: u16,  // UDP packet length (includes 8-byte UDP header + payload)
 }
 
 /// Information about a tracked packet
@@ -81,6 +80,7 @@ impl PacketTracker {
         udp_packet: Vec<u8>,
         src_port: u16,
         dest_addr: SocketAddr,
+        udp_length: u16,  // Expected UDP packet length (UDP header + payload)
         send_options: SendOptions,
     ) {
         if send_options.track_for_ms == 0 {
@@ -88,22 +88,18 @@ impl PacketTracker {
             return;
         }
         
-        println!("DEBUG: track_packet called: src_port={}, dest={}, track_for_ms={}, ttl={:?}", 
-            src_port, dest_addr, send_options.track_for_ms, send_options.ttl);
+        println!("DEBUG: track_packet called: src_port={}, dest={}, udp_length={}, track_for_ms={}, ttl={:?}", 
+            src_port, dest_addr, udp_length, send_options.track_for_ms, send_options.ttl);
         
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
         
-        // Create key from destination address
-        // Note: payload_prefix would be extracted from udp_packet if we had proper offset
-        // For now, we'll use an empty prefix since ICMP Time Exceeded doesn't include payload anyway
-        let payload_prefix = Vec::new(); // Empty for now - ICMP doesn't include UDP payload
-        
-        println!("DEBUG: Creating tracking key with dest_addr={}", dest_addr);
+        // Create key from destination address and UDP length
+        println!("DEBUG: Creating tracking key with dest_addr={}, udp_length={}", dest_addr, udp_length);
         
         let key = UdpPacketKey {
             dest_addr,
-            payload_prefix,
+            udp_length,
         };
         
         let tracked = TrackedPacket {
@@ -136,40 +132,24 @@ impl PacketTracker {
         icmp_packet: Vec<u8>,
         embedded_udp_info: EmbeddedUdpInfo,
     ) {
-        println!("DEBUG: match_icmp_error called: src_port={}, dest={}", 
-            embedded_udp_info.src_port, embedded_udp_info.dest_addr);
+        println!("DEBUG: match_icmp_error called: src_port={}, dest={}, udp_length={}", 
+            embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
         
         let mut packets = self.tracked_packets.write().await;
         println!("DEBUG: Current tracked packets count: {}", packets.len());
         
-        // Try to match with payload prefix if available
-        let key_with_payload = UdpPacketKey {
+        // Match based on destination address and UDP length
+        let key = UdpPacketKey {
             dest_addr: embedded_udp_info.dest_addr,
-            payload_prefix: embedded_udp_info.payload_prefix.clone(),
+            udp_length: embedded_udp_info.udp_length,
         };
         
-        let matched = if !embedded_udp_info.payload_prefix.is_empty() && packets.contains_key(&key_with_payload) {
-            println!("DEBUG: Trying match with payload prefix");
-            packets.remove(&key_with_payload)
-        } else {
-            // Try matching without payload (common for ICMP Time Exceeded)
-            println!("DEBUG: Trying match without payload, searching for dest={}", embedded_udp_info.dest_addr);
-            
-            let key_without_payload = UdpPacketKey {
-                dest_addr: embedded_udp_info.dest_addr,
-                payload_prefix: Vec::new(),
-            };
-            
-            if let Some(tracked) = packets.remove(&key_without_payload) {
-                println!("DEBUG: MATCH FOUND without payload! dest={}", embedded_udp_info.dest_addr);
-                Some(tracked)
-            } else {
-                println!("DEBUG: NO MATCH FOUND for dest={}", embedded_udp_info.dest_addr);
-                None
-            }
-        };
+        let matched = packets.remove(&key);
         
         if let Some(tracked) = matched {
+            println!("DEBUG: MATCH FOUND! dest={}, udp_length={}", 
+                embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+            
             let event = TrackedPacketEvent {
                 icmp_packet,
                 udp_packet: tracked.udp_packet,
@@ -185,9 +165,13 @@ impl PacketTracker {
             println!("DEBUG: Event added to queue, queue size: {}", queue.len());
             
             tracing::info!(
-                "ICMP error matched to tracked packet: dest={}",
-                embedded_udp_info.dest_addr
+                "ICMP error matched to tracked packet: dest={}, udp_length={}",
+                embedded_udp_info.dest_addr,
+                embedded_udp_info.udp_length
             );
+        } else {
+            println!("DEBUG: NO MATCH FOUND for dest={}, udp_length={}", 
+                embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
         }
     }
     
@@ -228,6 +212,7 @@ impl Default for PacketTracker {
 pub struct EmbeddedUdpInfo {
     pub src_port: u16,
     pub dest_addr: SocketAddr,
+    pub udp_length: u16,  // UDP packet length from UDP header
     pub payload_prefix: Vec<u8>,
 }
 
@@ -256,6 +241,7 @@ mod tests {
             vec![0; 50],        // udp packet
             12345,              // src port
             dest,
+            100,                // udp_length
             options,
         ).await;
         
@@ -263,7 +249,7 @@ mod tests {
     }
     
     #[tokio::test]
-    async fn test_icmp_matching_without_payload() {
+    async fn test_icmp_matching_with_udp_length() {
         let tracker = PacketTracker::new();
         
         let options = SendOptions {
@@ -275,23 +261,26 @@ mod tests {
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let udp_length = 150;
         
-        // Track a packet
+        // Track a packet with specific UDP length
         tracker.track_packet(
             vec![1, 2, 3, 4],
             vec![0; 50],
             12345,
             dest,
+            udp_length,
             options,
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
         
-        // Simulate ICMP error with no payload (like Time Exceeded)
+        // Simulate ICMP error with matching UDP length
         let embedded_info = EmbeddedUdpInfo {
             src_port: 12345,
             dest_addr: dest,
-            payload_prefix: Vec::new(), // Empty payload
+            udp_length,
+            payload_prefix: Vec::new(), // Empty payload (ICMP Time Exceeded)
         };
         
         let fake_icmp = vec![0u8; 56]; // Fake ICMP packet
@@ -304,6 +293,52 @@ mod tests {
         // Should have one event in the queue
         let events = tracker.drain_events().await;
         assert_eq!(events.len(), 1);
+    }
+    
+    #[tokio::test]
+    async fn test_icmp_no_match_different_length() {
+        let tracker = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        
+        // Track a packet with UDP length 150
+        tracker.track_packet(
+            vec![1, 2, 3, 4],
+            vec![0; 50],
+            12345,
+            dest,
+            150,
+            options,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with DIFFERENT UDP length
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 200,  // Different length!
+            payload_prefix: Vec::new(),
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        
+        tracker.match_icmp_error(fake_icmp, embedded_info).await;
+        
+        // Packet should NOT have been matched (different UDP length)
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Should have no events in the queue
+        let events = tracker.drain_events().await;
+        assert_eq!(events.len(), 0);
     }
     
     #[tokio::test]
@@ -325,6 +360,7 @@ mod tests {
             vec![0; 50],
             12345,
             dest,
+            100,  // udp_length
             options,
         ).await;
         

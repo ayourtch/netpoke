@@ -406,7 +406,15 @@ pub async fn start_traceroute_sender(
         };
 
         // Send probe with TTL using the new send_with_options API
-        if let Ok(json) = serde_json::to_vec(&probe) {
+        if let Ok(mut json) = serde_json::to_vec(&probe) {
+            // Pad the JSON to create unique lengths for each TTL
+            // This helps with matching ICMP errors based on UDP packet length
+            // Base size + (TTL * 10 bytes) to make each hop distinguishable
+            let target_size = 100 + (current_ttl as usize * 10);
+            if json.len() < target_size {
+                json.resize(target_size, 0x20); // Pad with spaces
+            }
+            
             tracing::info!("🔵 Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
                 current_ttl, seq, json.len());
             
@@ -441,8 +449,16 @@ pub async fn start_traceroute_sender(
                 if let Ok(peer_ip) = peer_addr.parse::<std::net::IpAddr>() {
                     let dest = std::net::SocketAddr::new(peer_ip, peer_port);
                     
-                    tracing::info!("🔵 Tracking packet for ICMP: dest={}, TTL={}, track_for_ms={}", 
-                        dest, current_ttl, send_options.track_for_ms);
+                    // Estimate UDP packet length
+                    // The actual UDP packet includes: DTLS + SCTP + Data Channel overhead
+                    // For WebRTC: roughly data_len + ~100 bytes overhead for DTLS/SCTP/UDP headers
+                    // But what matters for matching is a UNIQUE value per TTL
+                    // We use: base_overhead + json.len() as our "signature"
+                    // The DTLS encryption will make this slightly larger, but the relative differences remain
+                    let estimated_udp_length = (json.len() + 100) as u16;
+                    
+                    tracing::info!("🔵 Tracking packet for ICMP: dest={}, TTL={}, estimated_udp_length={}, track_for_ms={}", 
+                        dest, current_ttl, estimated_udp_length, send_options.track_for_ms);
                     
                     // Create a dummy UDP packet for tracking (we don't have the actual packet at this layer)
                     let dummy_udp_packet = Vec::new();
@@ -452,10 +468,11 @@ pub async fn start_traceroute_sender(
                         dummy_udp_packet,   // We don't have actual UDP packet here
                         0,                  // Source port unknown at this layer
                         dest,
+                        estimated_udp_length,
                         send_options,
                     ).await;
                     
-                    tracing::info!("✅ Packet tracked for dest={}", dest);
+                    tracing::info!("✅ Packet tracked for dest={}, udp_length={}", dest, estimated_udp_length);
                 } else {
                     tracing::warn!("Failed to parse peer address: {}", peer_addr);
                 }
