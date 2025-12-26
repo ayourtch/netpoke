@@ -334,9 +334,12 @@ mod tests {
     fn test_signaling_response_serialization() {
         let resp = SignalingStartResponse {
             client_id: "test-123".to_string(),
+            parent_client_id: None,
+            ip_version: Some("ipv4".to_string()),
             sdp: "test-answer".to_string(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("test-123"));
+        assert!(json.contains("ipv4"));
     }
 }

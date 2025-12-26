@@ -271,8 +271,9 @@ mod tests {
         
         assert_eq!(tracker.tracked_count().await, 1);
         
-        // Wait for expiry
-        tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+        // Wait for expiry + cleanup interval (cleanup runs every 1 second)
+        // The packet expires after 100ms, but cleanup only runs every 1000ms
+        tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
         
         // Should be cleaned up
         assert_eq!(tracker.tracked_count().await, 0);

@@ -129,8 +129,11 @@ mod tests {
     fn test_signaling_request_serialization() {
         let req = SignalingStartRequest {
             sdp: "test-sdp".to_string(),
+            parent_client_id: None,
+            ip_version: Some("ipv4".to_string()),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("test-sdp"));
+        assert!(json.contains("ipv4"));
     }
 }
