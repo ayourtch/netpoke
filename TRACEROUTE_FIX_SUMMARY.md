@@ -1,7 +1,7 @@
 # Traceroute Function Fix Summary
 
 ## Problem Statement
-The traceroute function was not setting small TTL values on packets, and ICMP packets were not being received or correlated.
+The traceroute function was experiencing "Address family not supported by protocol (os error 97)" errors when trying to send UDP packets with custom TTL values.
 
 ## Root Cause Analysis
 
@@ -31,7 +31,43 @@ fn get_current_send_options() -> Option<UdpSendOptions> {
 5. With `.take()`, the value was consumed on first check, so actual sends saw `None`
 6. With `.clone()`, the value persists until explicitly cleared with `set_send_options(None)`
 
-### Issue 2: ICMP Packets Not Being Correlated (ARCHITECTURE LIMITATION ⚠️)
+### Issue 2: Address Family Not Supported Error (FIXED ✅)
+
+**Root Cause**: Socket family mismatch in control message protocol level
+
+The code was using the **destination address family** to determine which control message protocol level to use (IPPROTO_IP vs IPPROTO_IPV6). However, the correct approach is to use the **socket's own address family**.
+
+**The Problem**:
+- WebRTC creates IPv6 sockets (bound to `[::]`) that handle both IPv4 and IPv6 via dual-stack
+- When sending to IPv4 addresses from an IPv6 socket, the destination is V4 but the socket is V6
+- Using `IPPROTO_IP` control messages on an IPv6 socket causes "Address family not supported" error
+- The fix: Query the socket's address family using `getsockname()` and use appropriate protocol level
+
+**Solution Implemented**:
+1. Added `get_socket_family()` function that uses `getsockname()` to determine socket family
+2. Modified `sendmsg_with_options()` to check socket family instead of destination family
+3. Use `IPPROTO_IPV6`/`IPV6_HOPLIMIT` for IPv6 sockets (even when sending to IPv4 addresses)
+4. Use `IPPROTO_IP`/`IP_TTL` only for IPv4 sockets
+
+**Code Change**:
+```rust
+// Query the socket's actual family (not the destination's)
+let socket_family = get_socket_family(fd)?;
+let is_ipv6_socket = socket_family == libc::AF_INET6 as libc::sa_family_t;
+
+// Use appropriate control messages based on SOCKET family
+if is_ipv6_socket {
+    // Use IPPROTO_IPV6 even for IPv4 destinations
+    (*cmsg).cmsg_level = IPPROTO_IPV6;
+    (*cmsg).cmsg_type = IPV6_HOPLIMIT;
+} else {
+    // Use IPPROTO_IP for IPv4 sockets
+    (*cmsg).cmsg_level = IPPROTO_IP;
+    (*cmsg).cmsg_type = IP_TTL;
+}
+```
+
+### Issue 3: ICMP Packets Not Being Correlated (ARCHITECTURE LIMITATION ⚠️)
 
 **Root Cause**: Packet tracking infrastructure exists but is never integrated
 
@@ -56,13 +92,39 @@ The packet tracking system requires:
 
 ## Changes Made
 
-### 1. Critical Bug Fix
+### 1. Critical Bug Fix: Socket Family Detection
+**File**: `vendored/webrtc-util/src/conn/conn_udp.rs`
+
+Added `get_socket_family()` function:
+```rust
+fn get_socket_family(fd: RawFd) -> Result<libc::sa_family_t> {
+    // Use getsockname to query the socket's actual address family
+    // Returns AF_INET or AF_INET6
+}
+```
+
+Modified `sendmsg_with_options()` to:
+- Query socket family using `getsockname()` instead of checking destination address
+- Use `IPPROTO_IPV6`/`IPV6_HOPLIMIT` for IPv6 sockets (even with IPv4 destinations)
+- Use `IPPROTO_IP`/`IP_TTL` for IPv4 sockets
+- This fixes "Address family not supported by protocol" error
+
+### 2. Previous Bug Fix: Clone Instead of Take
 **File**: `vendored/webrtc-util/src/conn/conn_udp.rs`
 - Changed `get_current_send_options()` from `.take()` to `.clone()`
 - Added comment explaining why clone is necessary
-- This fixes TTL not being set on packets
+- This fixed TTL not being set on packets
 
-### 2. Comprehensive Debug Logging
+### 3. Comprehensive Testing
+**File**: `vendored/webrtc-util/src/conn/conn_udp.rs`
+
+Added unit tests:
+- `test_ipv4_socket_family()` - Verifies IPv4 socket detection
+- `test_ipv6_socket_family()` - Verifies IPv6 socket detection  
+- `test_send_with_ttl_ipv4_socket()` - Tests sending with TTL from IPv4 socket
+- `test_send_with_ttl_ipv6_socket()` - Tests sending with TTL from IPv6 socket to IPv4 address
+
+### 4. Comprehensive Debug Logging
 
 Added extensive debug logging to help troubleshoot:
 
@@ -102,19 +164,31 @@ Added extensive debug logging to help troubleshoot:
    - The `.clone()` fix ensures options persist through async layers
    - Options remain until explicitly cleared with `set_send_options(None)`
 
-2. ✅ **ICMP listener is running**
+2. ✅ **Socket family detection works correctly**
+   - Detects IPv4 vs IPv6 sockets using `getsockname()`
+   - Uses appropriate control messages for each socket type
+   - No more "Address family not supported by protocol" errors
+
+3. ✅ **IPv6 sockets can send to IPv4 addresses with custom TTL**
+   - Dual-stack sockets (bound to `[::]`) work correctly
+   - Uses IPv6 control messages (`IPPROTO_IPV6`/`IPV6_HOPLIMIT`)
+   - Packets are sent successfully with correct TTL values
+
+4. ✅ **ICMP listener is running**
    - Started in `main.rs` at application startup
    - Listens on raw ICMP socket (requires `CAP_NET_RAW` or root)
    - Can receive and parse ICMP packets
 
-3. ✅ **Debug logging shows complete flow**
+5. ✅ **Debug logging shows complete flow**
    - Can trace execution from traceroute sender through to UDP send
    - Can see when TTL values are set and retrieved
    - Can see ICMP packets being received
+   - Shows socket family detection in action
 
-4. ✅ **Code compiles successfully**
-   - All changes compile without errors
-   - Only minor warnings about unused code (packet tracking)
+6. ✅ **Comprehensive unit tests**
+   - Tests verify socket family detection
+   - Tests verify sending with TTL on both IPv4 and IPv6 sockets
+   - Tests confirm no "Address family not supported" errors
 
 ## What Doesn't Work (Known Limitations)
 
@@ -206,18 +280,27 @@ To fully enable ICMP correlation, one of these approaches is needed:
 
 ## Files Changed
 
-1. `vendored/webrtc-util/src/conn/conn_udp.rs` - Critical bug fix and debug logging
+1. `vendored/webrtc-util/src/conn/conn_udp.rs` - Critical bug fixes and comprehensive testing
+   - Added `get_socket_family()` function for socket family detection
+   - Modified `sendmsg_with_options()` to use socket family instead of destination family
+   - Changed `get_current_send_options()` from `.take()` to `.clone()`
+   - Added debug logging for all socket operations
+   - Added unit tests for socket family detection and sending with TTL
 2. `server/src/measurements.rs` - Debug logging for traceroute sender
 3. `server/src/icmp_listener.rs` - Debug logging for ICMP reception
 4. `server/src/packet_tracker.rs` - Debug logging for tracking operations
 5. `server/src/packet_tracking_api.rs` - Fixed base64 deprecation
+6. `TRACEROUTE_FIX_SUMMARY.md` - Updated documentation with new fix details
 
 ## Conclusion
 
-**Primary Issue FIXED**: TTL is now properly set on UDP packets due to the `.clone()` fix.
+**Primary Issues FIXED**: 
+1. ✅ TTL is now properly set on UDP packets due to the `.clone()` fix
+2. ✅ "Address family not supported by protocol" error is fixed via socket family detection
+3. ✅ IPv6 sockets can now send to IPv4 addresses with custom TTL values
 
 **Secondary Issue IDENTIFIED**: Packet tracking is not integrated and would require additional architectural work to fully enable ICMP correlation.
 
 **Debug Logging ADDED**: Extensive logging throughout the stack makes it easy to verify the fix and troubleshoot any remaining issues.
 
-The traceroute function will now send packets with correct TTL values, triggering ICMP Time Exceeded responses from intermediate routers. However, correlating these ICMP responses back to the original packets requires additional integration work.
+The traceroute function now sends packets with correct TTL values from both IPv4 and IPv6 sockets, triggering ICMP Time Exceeded responses from intermediate routers. The "Address family not supported" error that was preventing packets from being sent is now resolved. However, correlating these ICMP responses back to the original packets requires additional integration work.
