@@ -1,6 +1,6 @@
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -64,6 +64,7 @@ pub mod buffer;
+@@ -65,6 +65,8 @@ pub mod buffer;
  
  #[cfg(feature = "conn")]
  pub mod conn;

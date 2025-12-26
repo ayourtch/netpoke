@@ -1,21 +1,22 @@
 --- a/src/conn/conn_udp.rs
 +++ b/src/conn/conn_udp.rs
-@@ -1,4 +1,13 @@
+@@ -1,7 +1,15 @@
  use tokio::net::UdpSocket;
 +use std::os::unix::io::AsRawFd;
-+
-+use super::*;
-+
+ 
+ use super::*;
+ 
 +// UDP socket options support (added for wifi-verify)
 +#[cfg(target_os = "linux")]
 +use libc::{
 +    c_void, iovec, msghdr, sendmsg, cmsghdr, IPPROTO_IP, IPPROTO_IPV6,
 +    IP_TTL, IP_TOS, IPV6_HOPLIMIT, IPV6_TCLASS,
 +};
- 
++
  #[async_trait]
  impl Conn for UdpSocket {
-@@ -26,6 +35,13 @@ impl Conn for UdpSocket {
+     async fn connect(&self, addr: SocketAddr) -> Result<()> {
+@@ -21,6 +29,15 @@
      }
  
      async fn send_to(&self, buf: &[u8], target: SocketAddr) -> Result<usize> {
@@ -27,10 +28,11 @@
 +            }
 +        }
 +        
-         // Default: regular send_to
++        // Default: regular send_to
          Ok(self.send_to(buf, target).await?)
      }
-@@ -45,3 +61,195 @@ impl Conn for UdpSocket {
+ 
+@@ -40,3 +57,200 @@
          self
      }
  }
