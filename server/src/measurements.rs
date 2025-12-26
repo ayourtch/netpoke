@@ -328,6 +328,122 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
     *session.metrics.write().await = metrics;
 }
 
+pub async fn start_traceroute_sender(
+    session: Arc<ClientSession>,
+) {
+    let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
+    let mut current_ttl: u8 = 1;
+    const MAX_TTL: u8 = 30;
+
+    loop {
+        interval.tick().await;
+
+        // Check if control channel is ready
+        let channels = session.data_channels.read().await;
+        let control_channel = match &channels.control {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        // Get probe channel to send traceroute probes
+        let channels = session.data_channels.read().await;
+        let probe_channel = match &channels.probe {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        // Create probe packet with specific TTL for traceroute
+        let sent_at_ms = current_time_ms();
+        let sent_at_instant = std::time::Instant::now();
+        let seq = {
+            let mut state = session.measurement_state.write().await;
+            let seq = state.probe_seq;
+            state.probe_seq += 1;
+            seq
+        };
+
+        let send_options = common::SendOptions {
+            ttl: Some(current_ttl),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000, // Track for 5 seconds to catch ICMP responses
+        };
+
+        let probe = ProbePacket {
+            seq,
+            timestamp_ms: sent_at_ms,
+            direction: Direction::ServerToClient,
+            send_options: Some(send_options),
+        };
+
+        // Send probe with TTL
+        if let Ok(json) = serde_json::to_vec(&probe) {
+            // Set send options for the UDP layer (Linux-specific)
+            #[cfg(target_os = "linux")]
+            {
+                use webrtc_util::{UdpSendOptions, set_send_options};
+                set_send_options(Some(UdpSendOptions {
+                    ttl: Some(current_ttl),
+                    tos: None,
+                    df_bit: Some(true),
+                }));
+            }
+
+            if let Err(e) = probe_channel.send(&json.into()).await {
+                tracing::error!("Failed to send traceroute probe: {}", e);
+                
+                #[cfg(target_os = "linux")]
+                {
+                    use webrtc_util::set_send_options;
+                    set_send_options(None);
+                }
+                continue;
+            }
+
+            #[cfg(target_os = "linux")]
+            {
+                use webrtc_util::set_send_options;
+                set_send_options(None);
+            }
+
+            tracing::debug!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
+
+            // Wait a bit for potential ICMP response
+            tokio::time::sleep(Duration::from_millis(200)).await;
+
+            // For now, send a simple message to the client about the hop
+            // In a production system, we would correlate ICMP responses here
+            let hop_message = common::TraceHopMessage {
+                hop: current_ttl,
+                ip_address: None, // Will be filled when we correlate ICMP responses
+                rtt_ms: 0.0, // Will be calculated from ICMP responses
+                message: format!("Probing hop {} (seq: {})", current_ttl, seq),
+            };
+
+            if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
+                if let Err(e) = control_channel.send(&msg_json.into()).await {
+                    tracing::error!("Failed to send hop message to client: {}", e);
+                }
+            }
+        }
+
+        // Increment TTL for next probe
+        current_ttl += 1;
+        if current_ttl > MAX_TTL {
+            current_ttl = 1; // Reset to start over
+        }
+    }
+}
+
 fn current_time_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

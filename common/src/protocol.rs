@@ -81,6 +81,22 @@ pub struct DashboardMessage {
     pub clients: Vec<ClientInfo>,
 }
 
+/// Message sent from server to client to report traceroute hop information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceHopMessage {
+    /// Hop number (TTL value)
+    pub hop: u8,
+    
+    /// IP address of the hop (if available from ICMP)
+    pub ip_address: Option<String>,
+    
+    /// Round-trip time to this hop in milliseconds
+    pub rtt_ms: f64,
+    
+    /// Human-readable message about this hop
+    pub message: String,
+}
+
 /// Event generated when an ICMP error matches a tracked packet
 #[derive(Debug, Clone)]
 pub struct TrackedPacketEvent {

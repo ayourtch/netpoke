@@ -37,7 +37,14 @@ pub async fn setup_data_channel_handlers(
                         measurements::start_bulk_sender(session_clone).await;
                     });
                 },
-                "control" => chans.control = Some(dc.clone()),
+                "control" => {
+                    chans.control = Some(dc.clone());
+                    // Start traceroute sender
+                    let session_clone = session.clone();
+                    tokio::spawn(async move {
+                        measurements::start_traceroute_sender(session_clone).await;
+                    });
+                },
                 _ => tracing::warn!("Unknown data channel: {}", label),
             }
             drop(chans);

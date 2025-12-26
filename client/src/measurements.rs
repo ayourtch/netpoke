@@ -267,6 +267,56 @@ pub fn setup_control_channel(channel: RtcDataChannel) {
 
     channel.set_onopen(Some(onopen.as_ref().unchecked_ref()));
     onopen.forget();
+
+    // Handle incoming messages from server (e.g., traceroute hop information)
+    let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
+        let array = Uint8Array::new(&ev.data());
+        let data = array.to_vec();
+        let text = String::from_utf8_lossy(&data);
+
+        // Try to parse as TraceHopMessage
+        if let Ok(hop_msg) = serde_json::from_str::<common::TraceHopMessage>(&text) {
+            // Display the hop message in the UI
+            append_server_message(&format!(
+                "[Hop {}] {} (RTT: {:.2}ms)",
+                hop_msg.hop,
+                hop_msg.message,
+                hop_msg.rtt_ms
+            ));
+        } else {
+            // Display as plain text if not a recognized message type
+            log::debug!("Received control message: {}", text);
+            append_server_message(&format!("Server: {}", text));
+        }
+    }) as Box<dyn FnMut(MessageEvent)>);
+
+    channel.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+    onmessage.forget();
+}
+
+/// Append a message to the server messages text area
+fn append_server_message(message: &str) {
+    use wasm_bindgen::JsCast;
+    use web_sys::{window, HtmlTextAreaElement};
+
+    if let Some(window) = window() {
+        if let Some(document) = window.document() {
+            if let Some(textarea) = document.get_element_by_id("server-messages") {
+                if let Ok(textarea) = textarea.dyn_into::<HtmlTextAreaElement>() {
+                    let current = textarea.value();
+                    let new_value = if current.is_empty() {
+                        message.to_string()
+                    } else {
+                        format!("{}\n{}", current, message)
+                    };
+                    textarea.set_value(&new_value);
+                    
+                    // Auto-scroll to bottom
+                    textarea.set_scroll_top(textarea.scroll_height());
+                }
+            }
+        }
+    }
 }
 
 pub fn current_time_ms() -> u64 {
