@@ -263,6 +263,50 @@ mod tests {
     }
     
     #[tokio::test]
+    async fn test_icmp_matching_without_payload() {
+        let tracker = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        
+        // Track a packet
+        tracker.track_packet(
+            vec![1, 2, 3, 4],
+            vec![0; 50],
+            12345,
+            dest,
+            options,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with no payload (like Time Exceeded)
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            payload_prefix: Vec::new(), // Empty payload
+        };
+        
+        let fake_icmp = vec![0u8; 56]; // Fake ICMP packet
+        
+        tracker.match_icmp_error(fake_icmp, embedded_info).await;
+        
+        // Packet should have been matched and removed
+        assert_eq!(tracker.tracked_count().await, 0);
+        
+        // Should have one event in the queue
+        let events = tracker.drain_events().await;
+        assert_eq!(events.len(), 1);
+    }
+    
+    #[tokio::test]
     async fn test_packet_expiry() {
         let tracker = PacketTracker::new();
         
