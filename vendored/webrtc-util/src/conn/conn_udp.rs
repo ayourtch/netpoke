@@ -97,7 +97,10 @@ pub fn set_send_options(options: Option<UdpSendOptions>) {
 
 /// Get and clear current send options
 fn get_current_send_options() -> Option<UdpSendOptions> {
-    let result = SEND_OPTIONS.with(|opts| opts.borrow_mut().take());
+    // CRITICAL FIX: Use clone() instead of take() to preserve the value
+    // The value should persist until explicitly cleared with set_send_options(None)
+    // Using take() caused the options to disappear after first check
+    let result = SEND_OPTIONS.with(|opts| opts.borrow().clone());
     
     #[cfg(target_os = "linux")]
     if let Some(ref opts) = result {
