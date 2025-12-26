@@ -7,6 +7,9 @@ use async_trait::async_trait;
 use tokio::sync::Mutex;
 use util::{Buffer, Conn};
 
+#[cfg(target_os = "linux")]
+use util::UdpSendOptions;
+
 use crate::mux::mux_func::MatchFunc;
 
 /// Endpoint implements net.Conn. It is used to read muxed packets.
@@ -73,5 +76,28 @@ impl Conn for Endpoint {
 
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
         self
+    }
+    
+    /// Forward send_with_options to the underlying connection
+    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    #[cfg(target_os = "linux")]
+    async fn send_with_options(
+        &self,
+        buf: &[u8],
+        options: &util::UdpSendOptions,
+    ) -> Result<usize> {
+        self.next_conn.send_with_options(buf, options).await
+    }
+    
+    /// Forward send_to_with_options to the underlying connection
+    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    #[cfg(target_os = "linux")]
+    async fn send_to_with_options(
+        &self,
+        buf: &[u8],
+        target: SocketAddr,
+        options: &util::UdpSendOptions,
+    ) -> Result<usize> {
+        self.next_conn.send_to_with_options(buf, target, options).await
     }
 }

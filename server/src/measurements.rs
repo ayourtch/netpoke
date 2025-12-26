@@ -370,6 +370,23 @@ pub async fn start_traceroute_sender(
             let mut state = session.measurement_state.write().await;
             let seq = state.probe_seq;
             state.probe_seq += 1;
+            
+            // Track the probe so we can match it when/if it's echoed back
+            state.sent_probes.push_back(crate::state::SentProbe {
+                seq,
+                sent_at_ms,
+            });
+            
+            // Keep only last 60 seconds of sent probes
+            let cutoff = sent_at_ms - 60_000;
+            while let Some(p) = state.sent_probes.front() {
+                if p.sent_at_ms < cutoff {
+                    state.sent_probes.pop_front();
+                } else {
+                    break;
+                }
+            }
+            
             seq
         };
 
