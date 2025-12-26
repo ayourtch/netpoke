@@ -347,4 +347,68 @@ mod tests {
         
         println!("✓ IPv6 socket correctly identified with family: {}", family);
     }
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_send_with_ttl_ipv4_socket() {
+        // Create an IPv4 socket
+        let socket = UdpSocket::bind("0.0.0.0:0").await.unwrap();
+        
+        // Set send options with low TTL
+        let options = UdpSendOptions {
+            ttl: Some(1),
+            tos: None,
+            df_bit: Some(true),
+        };
+        
+        set_send_options(Some(options));
+        
+        // Try to send a packet to a public DNS server (won't actually reach it with TTL=1)
+        let dest: SocketAddr = "8.8.8.8:53".parse().unwrap();
+        let result = socket.send_to(b"test", dest).await;
+        
+        // Should either succeed or fail with PermissionDenied (not "Address family not supported")
+        match result {
+            Ok(_) => println!("✓ IPv4 socket successfully sent packet with TTL=1"),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                println!("✓ IPv4 socket received expected PermissionDenied (needs CAP_NET_RAW)")
+            }
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+        
+        set_send_options(None);
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_send_with_ttl_ipv6_socket() {
+        // Create an IPv6 socket (dual-stack)
+        let socket = UdpSocket::bind("[::]:0").await.unwrap();
+        
+        // Set send options with low TTL
+        let options = UdpSendOptions {
+            ttl: Some(1),
+            tos: None,
+            df_bit: Some(true),
+        };
+        
+        set_send_options(Some(options));
+        
+        // Try to send to IPv4 address via dual-stack socket
+        // This is the scenario that was failing before the fix with
+        // "Address family not supported by protocol" error
+        let dest: SocketAddr = "8.8.8.8:53".parse().unwrap();
+        let result = socket.send_to(b"test", dest).await;
+        
+        // Should either succeed or fail with PermissionDenied (not "Address family not supported")
+        match result {
+            Ok(_) => println!("✓ IPv6 socket successfully sent packet to IPv4 address with TTL=1"),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                println!("✓ IPv6 socket received expected PermissionDenied (needs CAP_NET_RAW)")
+            }
+            Err(e) => panic!("Unexpected error (expected success or PermissionDenied, not Address family error): {:?}", e),
+        }
+        
+        set_send_options(None);
+    }
 }
