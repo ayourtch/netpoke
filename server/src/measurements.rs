@@ -408,11 +408,10 @@ pub async fn start_traceroute_sender(
                 current_ttl, seq, json.len());
             let send_result = probe_channel.send(&json.into()).await;
 
-            // Clear send options after sending
-            #[cfg(target_os = "linux")]
-            {
-                webrtc_util::set_send_options(None);
-            }
+            // NOTE: We do NOT clear send options here because the actual UDP send happens
+            // asynchronously in the WebRTC stack. The options need to persist until the
+            // UDP socket's send_to is called. Since we set new options before each send,
+            // there's no need to explicitly clear them.
 
             if let Err(e) = send_result {
                 tracing::error!("Failed to send traceroute probe: {}", e);
