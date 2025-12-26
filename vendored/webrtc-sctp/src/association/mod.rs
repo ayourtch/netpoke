@@ -509,10 +509,11 @@ impl Association {
                         // Send with UDP options if available (Linux only)
                         #[cfg(target_os = "linux")]
                         let send_result = if let Some(options) = udp_options {
-                            log::debug!("[{name2}] sending packet with UDP options: TTL={:?}, TOS={:?}, DF={:?}", 
+                            log::info!("🔵 SCTP Association: Sending packet with UDP options: TTL={:?}, TOS={:?}, DF={:?}", 
                                 options.ttl, options.tos, options.df_bit);
                             net_conn.send_with_options(raw_bytes, &options).await
                         } else {
+                            log::debug!("[{name2}] Sending packet WITHOUT UDP options (options=None)");
                             net_conn.send(raw_bytes).await
                         };
                         

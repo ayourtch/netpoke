@@ -2050,6 +2050,10 @@ impl AssociationInternal {
             #[cfg(target_os = "linux")]
             if packet_udp_options.is_none() {
                 packet_udp_options = c.udp_send_options;
+                if let Some(ref opts) = packet_udp_options {
+                    log::info!("🔵 Association::bundle: Extracted UDP options from chunk: TTL={:?}, TOS={:?}, DF={:?}",
+                        opts.ttl, opts.tos, opts.df_bit);
+                }
             }
 
             bytes_in_packet += DATA_CHUNK_HEADER_SIZE + c.user_data.len() as u32;

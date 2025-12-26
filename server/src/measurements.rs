@@ -407,7 +407,7 @@ pub async fn start_traceroute_sender(
 
         // Send probe with TTL using the new send_with_options API
         if let Ok(json) = serde_json::to_vec(&probe) {
-            tracing::debug!("Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
+            tracing::info!("🔵 Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
                 current_ttl, seq, json.len());
             
             #[cfg(target_os = "linux")]
@@ -418,6 +418,10 @@ pub async fn start_traceroute_sender(
                     tos: None,
                     df_bit: Some(true),
                 });
+                tracing::info!("🔵 Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}", 
+                    options.as_ref().and_then(|o| o.ttl),
+                    options.as_ref().and_then(|o| o.tos),
+                    options.as_ref().and_then(|o| o.df_bit));
                 probe_channel.send_with_options(&json.into(), options).await
             };
             

@@ -86,6 +86,8 @@ impl Conn for Endpoint {
         buf: &[u8],
         options: &util::UdpSendOptions,
     ) -> Result<usize> {
+        log::info!("🔵 Endpoint::send_with_options: Forwarding to next_conn with TTL={:?}, TOS={:?}, DF={:?}",
+            options.ttl, options.tos, options.df_bit);
         self.next_conn.send_with_options(buf, options).await
     }
     
@@ -98,6 +100,8 @@ impl Conn for Endpoint {
         target: SocketAddr,
         options: &util::UdpSendOptions,
     ) -> Result<usize> {
+        log::info!("🔵 Endpoint::send_to_with_options: Forwarding to next_conn with TTL={:?}, TOS={:?}, DF={:?}, target={}",
+            options.ttl, options.tos, options.df_bit, target);
         self.next_conn.send_to_with_options(buf, target, options).await
     }
 }

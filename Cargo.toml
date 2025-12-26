@@ -9,6 +9,7 @@ webrtc = { path = "vendored/webrtc" }
 webrtc-util = { path = "vendored/webrtc-util" }
 webrtc-data = { path = "vendored/webrtc-data" }
 webrtc-sctp = { path = "vendored/webrtc-sctp" }
+dtls = { path = "vendored/dtls" }
 
 [profile.release]
 debug = true # debug symbols cost nothing
