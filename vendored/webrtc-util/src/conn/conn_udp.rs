@@ -30,11 +30,12 @@ impl Conn for UdpSocket {
 
     async fn send_to(&self, buf: &[u8], target: SocketAddr) -> Result<usize> {
         // Check if we have UDP options to apply (passed via thread-local storage)
+        // NOTE: This is for backward compatibility. New code should use send_to_with_options.
         #[cfg(target_os = "linux")]
         {
             if let Some(options) = get_current_send_options() {
-                println!("DEBUG: Found send options, calling send_to_with_options with TTL={:?}", options.ttl);
-                return send_to_with_options(self, buf, target, &options).await;
+                println!("DEBUG: Found send options from thread-local, calling send_to_with_options_impl with TTL={:?}", options.ttl);
+                return send_to_with_options_impl(self, buf, target, &options).await;
             }
         }
         
@@ -56,6 +57,17 @@ impl Conn for UdpSocket {
 
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync) {
         self
+    }
+    
+    #[cfg(target_os = "linux")]
+    async fn send_to_with_options(
+        &self,
+        buf: &[u8],
+        target: SocketAddr,
+        options: &UdpSendOptions,
+    ) -> Result<usize> {
+        println!("DEBUG: UdpSocket::send_to_with_options called with TTL={:?}, target={}", options.ttl, target);
+        send_to_with_options_impl(self, buf, target, options).await
     }
 }
 
@@ -109,7 +121,7 @@ fn get_current_send_options() -> Option<UdpSendOptions> {
 }
 
 #[cfg(target_os = "linux")]
-async fn send_to_with_options(
+async fn send_to_with_options_impl(
     socket: &UdpSocket,
     buf: &[u8],
     target: SocketAddr,

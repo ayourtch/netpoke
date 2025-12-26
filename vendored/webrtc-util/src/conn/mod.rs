@@ -38,6 +38,19 @@ pub trait Conn {
     fn remote_addr(&self) -> Option<SocketAddr>;
     async fn close(&self) -> Result<()>;
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync);
+    
+    /// Send data with UDP socket options (TTL, TOS, DF bit)
+    /// Default implementation falls back to regular send_to
+    #[cfg(target_os = "linux")]
+    async fn send_to_with_options(
+        &self,
+        buf: &[u8],
+        target: SocketAddr,
+        _options: &UdpSendOptions,
+    ) -> Result<usize> {
+        // Default implementation ignores options and uses regular send_to
+        self.send_to(buf, target).await
+    }
 }
 
 /// A Listener is a generic network listener for connection-oriented protocols.
