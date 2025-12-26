@@ -134,6 +134,26 @@ async fn send_to_with_options(
 }
 
 #[cfg(target_os = "linux")]
+fn get_socket_family(fd: std::os::unix::io::RawFd) -> Result<libc::sa_family_t> {
+    unsafe {
+        let mut addr: libc::sockaddr_storage = std::mem::zeroed();
+        let mut addr_len: libc::socklen_t = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+        
+        let result = libc::getsockname(
+            fd,
+            &mut addr as *mut libc::sockaddr_storage as *mut libc::sockaddr,
+            &mut addr_len,
+        );
+        
+        if result < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        
+        Ok(addr.ss_family)
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn sendmsg_with_options(
     fd: std::os::unix::io::RawFd,
     buf: &[u8],
@@ -144,6 +164,14 @@ fn sendmsg_with_options(
         fd, buf.len(), dest, options.ttl);
     
     unsafe {
+        // Determine the socket's address family (not the destination's)
+        // This is crucial: an IPv6 socket can send to IPv4 addresses via IPv4-mapped IPv6,
+        // but must use IPv6 control messages (IPPROTO_IPV6) not IPv4 ones (IPPROTO_IP)
+        let socket_family = get_socket_family(fd)?;
+        let is_ipv6_socket = socket_family == libc::AF_INET6 as libc::sa_family_t;
+        
+        println!("DEBUG: Socket family: {}, is_ipv6_socket: {}", socket_family, is_ipv6_socket);
+        
         // Prepare the data buffer
         let mut iov = iovec {
             iov_base: buf.as_ptr() as *mut c_void,
@@ -190,81 +218,80 @@ fn sendmsg_with_options(
         msg.msg_control = cmsg_buf.as_mut_ptr() as *mut c_void;
         msg.msg_controllen = cmsg_buf.len();
         
-        // Add control messages based on socket family
-        match dest {
-            SocketAddr::V4(_) => {
-                // Add IPv4 TTL control message
-                if let Some(ttl) = options.ttl {
-                    println!("DEBUG: Adding IPv4 TTL control message: {}", ttl);
-                    let cmsg = libc::CMSG_FIRSTHDR(&msg);
-                    if !cmsg.is_null() {
-                        (*cmsg).cmsg_level = IPPROTO_IP;
-                        (*cmsg).cmsg_type = IP_TTL;
-                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
-                        
-                        let data_ptr = libc::CMSG_DATA(cmsg);
-                        *(data_ptr as *mut u8) = ttl;
-                        
-                        cmsg_len = (*cmsg).cmsg_len;
-                    }
-                }
-                
-                // Add IPv4 TOS control message
-                if let Some(tos) = options.tos {
-                    let cmsg = if cmsg_len > 0 {
-                        let first = libc::CMSG_FIRSTHDR(&msg);
-                        libc::CMSG_NXTHDR(&msg, first)
-                    } else {
-                        libc::CMSG_FIRSTHDR(&msg)
-                    };
+        // Add control messages based on SOCKET family (not destination family)
+        // An IPv6 socket must use IPv6 control messages even when sending to IPv4 addresses
+        if is_ipv6_socket {
+            // IPv6 socket: use IPPROTO_IPV6 control messages
+            if let Some(ttl) = options.ttl {
+                println!("DEBUG: Adding IPv6 hop limit control message: {}", ttl);
+                let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                if !cmsg.is_null() {
+                    (*cmsg).cmsg_level = IPPROTO_IPV6;
+                    (*cmsg).cmsg_type = IPV6_HOPLIMIT;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
                     
-                    if !cmsg.is_null() {
-                        (*cmsg).cmsg_level = IPPROTO_IP;
-                        (*cmsg).cmsg_type = IP_TOS;
-                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
-                        
-                        let data_ptr = libc::CMSG_DATA(cmsg);
-                        *(data_ptr as *mut u8) = tos;
-                        
-                        cmsg_len += (*cmsg).cmsg_len;
-                    }
+                    let data_ptr = libc::CMSG_DATA(cmsg);
+                    *(data_ptr as *mut i32) = ttl as i32;
+                    
+                    cmsg_len = (*cmsg).cmsg_len;
                 }
             }
-            SocketAddr::V6(_) => {
-                // Add IPv6 Hop Limit control message
-                if let Some(ttl) = options.ttl {
-                    let cmsg = libc::CMSG_FIRSTHDR(&msg);
-                    if !cmsg.is_null() {
-                        (*cmsg).cmsg_level = IPPROTO_IPV6;
-                        (*cmsg).cmsg_type = IPV6_HOPLIMIT;
-                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
-                        
-                        let data_ptr = libc::CMSG_DATA(cmsg);
-                        *(data_ptr as *mut i32) = ttl as i32;
-                        
-                        cmsg_len = (*cmsg).cmsg_len;
-                    }
-                }
+            
+            if let Some(tos) = options.tos {
+                println!("DEBUG: Adding IPv6 traffic class control message: {}", tos);
+                let cmsg = if cmsg_len > 0 {
+                    let first = libc::CMSG_FIRSTHDR(&msg);
+                    libc::CMSG_NXTHDR(&msg, first)
+                } else {
+                    libc::CMSG_FIRSTHDR(&msg)
+                };
                 
-                // Add IPv6 Traffic Class control message
-                if let Some(tos) = options.tos {
-                    let cmsg = if cmsg_len > 0 {
-                        let first = libc::CMSG_FIRSTHDR(&msg);
-                        libc::CMSG_NXTHDR(&msg, first)
-                    } else {
-                        libc::CMSG_FIRSTHDR(&msg)
-                    };
+                if !cmsg.is_null() {
+                    (*cmsg).cmsg_level = IPPROTO_IPV6;
+                    (*cmsg).cmsg_type = IPV6_TCLASS;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
                     
-                    if !cmsg.is_null() {
-                        (*cmsg).cmsg_level = IPPROTO_IPV6;
-                        (*cmsg).cmsg_type = IPV6_TCLASS;
-                        (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
-                        
-                        let data_ptr = libc::CMSG_DATA(cmsg);
-                        *(data_ptr as *mut i32) = tos as i32;
-                        
-                        cmsg_len += (*cmsg).cmsg_len;
-                    }
+                    let data_ptr = libc::CMSG_DATA(cmsg);
+                    *(data_ptr as *mut i32) = tos as i32;
+                    
+                    cmsg_len += (*cmsg).cmsg_len;
+                }
+            }
+        } else {
+            // IPv4 socket: use IPPROTO_IP control messages
+            if let Some(ttl) = options.ttl {
+                println!("DEBUG: Adding IPv4 TTL control message: {}", ttl);
+                let cmsg = libc::CMSG_FIRSTHDR(&msg);
+                if !cmsg.is_null() {
+                    (*cmsg).cmsg_level = IPPROTO_IP;
+                    (*cmsg).cmsg_type = IP_TTL;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
+                    
+                    let data_ptr = libc::CMSG_DATA(cmsg);
+                    *(data_ptr as *mut u8) = ttl;
+                    
+                    cmsg_len = (*cmsg).cmsg_len;
+                }
+            }
+            
+            if let Some(tos) = options.tos {
+                println!("DEBUG: Adding IPv4 TOS control message: {}", tos);
+                let cmsg = if cmsg_len > 0 {
+                    let first = libc::CMSG_FIRSTHDR(&msg);
+                    libc::CMSG_NXTHDR(&msg, first)
+                } else {
+                    libc::CMSG_FIRSTHDR(&msg)
+                };
+                
+                if !cmsg.is_null() {
+                    (*cmsg).cmsg_level = IPPROTO_IP;
+                    (*cmsg).cmsg_type = IP_TOS;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<u8>() as u32) as usize;
+                    
+                    let data_ptr = libc::CMSG_DATA(cmsg);
+                    *(data_ptr as *mut u8) = tos;
+                    
+                    cmsg_len += (*cmsg).cmsg_len;
                 }
             }
         }
