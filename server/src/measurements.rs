@@ -582,4 +582,43 @@ mod tests {
         assert!(t2 > t1);
         assert!(t2 - t1 >= 10);
     }
+
+    #[tokio::test]
+    async fn test_testprobe_sequence_separate_from_probe() {
+        use crate::state::{ClientSession, DataChannels, MeasurementState};
+        use std::sync::Arc;
+        use tokio::sync::RwLock;
+
+        // Create a mock session
+        let state = Arc::new(RwLock::new(MeasurementState::new()));
+        
+        // Verify initial state
+        {
+            let s = state.read().await;
+            assert_eq!(s.probe_seq, 0);
+            assert_eq!(s.testprobe_seq, 0);
+        }
+
+        // Simulate sending probes
+        {
+            let mut s = state.write().await;
+            s.probe_seq += 1;
+            s.probe_seq += 1;
+        }
+
+        // Simulate sending testprobes
+        {
+            let mut s = state.write().await;
+            s.testprobe_seq += 1;
+            s.testprobe_seq += 1;
+            s.testprobe_seq += 1;
+        }
+
+        // Verify they maintain separate sequence spaces
+        {
+            let s = state.read().await;
+            assert_eq!(s.probe_seq, 2);
+            assert_eq!(s.testprobe_seq, 3);
+        }
+    }
 }

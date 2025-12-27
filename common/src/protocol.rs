@@ -182,4 +182,27 @@ mod tests {
         assert_eq!(deserialized.clients[0].id, "client-1");
         assert_eq!(deserialized.clients[0].current_seq, 42);
     }
+
+    #[test]
+    fn test_testprobe_packet_serialization() {
+        let packet = TestProbePacket {
+            seq: 123,
+            timestamp_ms: 9876543210,
+            direction: Direction::ServerToClient,
+            send_options: Some(SendOptions {
+                ttl: Some(5),
+                df_bit: Some(true),
+                tos: None,
+                flow_label: None,
+                track_for_ms: 5000,
+            }),
+        };
+
+        let json = serde_json::to_string(&packet).unwrap();
+        let deserialized: TestProbePacket = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(packet, deserialized);
+        assert_eq!(deserialized.seq, 123);
+        assert_eq!(deserialized.send_options.as_ref().unwrap().ttl, Some(5));
+    }
 }
