@@ -224,20 +224,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Register cleanup callback for ICMP error-based session cleanup
     {
         let clients = app_state.clients.clone();
-        let cleanup_callback = Arc::new(move |dest_ip: std::net::IpAddr| {
+        let cleanup_callback = Arc::new(move |dest_addr: std::net::SocketAddr| {
             let clients = clients.clone();
             tokio::spawn(async move {
                 let clients_guard = clients.read().await;
                 
-                // Find all sessions with this peer IP
-                let mut sessions_to_cleanup = Vec::new();
+                // Find the specific session with this peer socket address (IP + port)
+                let mut session_to_cleanup = None;
                 for (id, session) in clients_guard.iter() {
                     let peer_addr = session.peer_address.lock().await;
-                    if let Some((addr_str, _port)) = &*peer_addr {
+                    if let Some((addr_str, port)) = &*peer_addr {
                         match addr_str.parse::<std::net::IpAddr>() {
                             Ok(peer_ip) => {
-                                if peer_ip == dest_ip {
-                                    sessions_to_cleanup.push(id.clone());
+                                let peer_socket_addr = std::net::SocketAddr::new(peer_ip, *port);
+                                if peer_socket_addr == dest_addr {
+                                    session_to_cleanup = Some(id.clone());
+                                    break;
                                 }
                             }
                             Err(e) => {
@@ -251,29 +253,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 drop(clients_guard);
                 
-                // Cleanup sessions
-                if !sessions_to_cleanup.is_empty() {
+                // Cleanup the specific session
+                if let Some(session_id) = session_to_cleanup {
                     tracing::warn!(
-                        "Cleaning up {} session(s) with peer IP {} due to ICMP errors: {:?}",
-                        sessions_to_cleanup.len(),
-                        dest_ip,
-                        sessions_to_cleanup
+                        "Cleaning up session {} with peer address {} due to ICMP errors",
+                        session_id,
+                        dest_addr
                     );
                     
                     let mut clients_write = clients.write().await;
-                    for session_id in &sessions_to_cleanup {
-                        if let Some(session) = clients_write.get(session_id) {
-                            // Close the WebRTC peer connection
-                            if let Err(e) = session.peer_connection.close().await {
-                                tracing::warn!("Error closing peer connection for {}: {}", session_id, e);
-                            } else {
-                                tracing::info!("Closed peer connection for {} due to ICMP errors", session_id);
-                            }
+                    if let Some(session) = clients_write.get(&session_id) {
+                        // Close the WebRTC peer connection
+                        if let Err(e) = session.peer_connection.close().await {
+                            tracing::warn!("Error closing peer connection for {}: {}", session_id, e);
+                        } else {
+                            tracing::info!("Closed peer connection for {} due to ICMP errors", session_id);
                         }
-                        clients_write.remove(session_id);
                     }
+                    clients_write.remove(&session_id);
                 } else {
-                    tracing::debug!("No sessions found for peer IP {}", dest_ip);
+                    tracing::debug!("No session found for peer address {}", dest_addr);
                 }
             });
         });

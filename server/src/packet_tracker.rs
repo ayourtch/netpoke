@@ -63,7 +63,7 @@ pub struct TrackedPacket {
     pub src_port: u16,
 }
 
-/// Tracking information for unmatched ICMP errors per destination
+/// Tracking information for unmatched ICMP errors per destination socket address
 #[derive(Debug, Clone)]
 struct UnmatchedIcmpErrors {
     /// Number of consecutive unmatched errors
@@ -73,7 +73,8 @@ struct UnmatchedIcmpErrors {
 }
 
 /// Callback type for session cleanup triggered by ICMP errors
-pub type CleanupCallback = Arc<dyn Fn(IpAddr) + Send + Sync>;
+/// Passes the full destination socket address (IP + port) for precise session matching
+pub type CleanupCallback = Arc<dyn Fn(SocketAddr) + Send + Sync>;
 
 /// Manages tracked packets and provides lookup for ICMP correlation
 pub struct PacketTracker {
@@ -86,8 +87,8 @@ pub struct PacketTracker {
     /// Receiver for packet tracking data from UDP layer
     tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
     
-    /// Tracking unmatched ICMP errors per destination IP
-    unmatched_errors: Arc<RwLock<HashMap<IpAddr, UnmatchedIcmpErrors>>>,
+    /// Tracking unmatched ICMP errors per destination socket address (IP + port)
+    unmatched_errors: Arc<RwLock<HashMap<SocketAddr, UnmatchedIcmpErrors>>>,
     
     /// Callback to trigger session cleanup
     cleanup_callback: Arc<RwLock<Option<CleanupCallback>>>,
@@ -223,10 +224,9 @@ impl PacketTracker {
             println!("DEBUG: MATCH FOUND! dest={}, udp_length={}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
             
-            // Reset unmatched error count for this destination since we matched
-            let dest_ip = embedded_udp_info.dest_addr.ip();
+            // Reset unmatched error count for this destination socket address since we matched
             let mut errors = self.unmatched_errors.write().await;
-            errors.remove(&dest_ip);
+            errors.remove(&embedded_udp_info.dest_addr);
             
             let event = TrackedPacketEvent {
                 icmp_packet,
@@ -330,7 +330,7 @@ impl PacketTracker {
     }
     
     /// Clean up old unmatched error records (older than 30 seconds)
-    async fn cleanup_old_errors(unmatched_errors: &Arc<RwLock<HashMap<IpAddr, UnmatchedIcmpErrors>>>) {
+    async fn cleanup_old_errors(unmatched_errors: &Arc<RwLock<HashMap<SocketAddr, UnmatchedIcmpErrors>>>) {
         let now = Instant::now();
         let mut errors = unmatched_errors.write().await;
         
@@ -347,11 +347,10 @@ impl PacketTracker {
     
     /// Handle an unmatched ICMP error by tracking it and potentially triggering cleanup
     async fn handle_unmatched_icmp_error(&self, dest_addr: SocketAddr) {
-        let dest_ip = dest_addr.ip();
         let now = Instant::now();
         
         let mut errors = self.unmatched_errors.write().await;
-        let error_info = errors.entry(dest_ip).or_insert(UnmatchedIcmpErrors {
+        let error_info = errors.entry(dest_addr).or_insert(UnmatchedIcmpErrors {
             count: 0,
             last_error_at: now,
         });
@@ -364,7 +363,7 @@ impl PacketTracker {
         
         tracing::warn!(
             "Unmatched ICMP error for dest={} (count: {}/{})",
-            dest_ip,
+            dest_addr,
             count,
             self.error_threshold
         );
@@ -373,19 +372,19 @@ impl PacketTracker {
         if count >= self.error_threshold {
             tracing::warn!(
                 "ICMP error threshold reached for dest={}, triggering session cleanup",
-                dest_ip
+                dest_addr
             );
             
             // Reset counter after triggering cleanup
             let mut errors = self.unmatched_errors.write().await;
-            errors.remove(&dest_ip);
+            errors.remove(&dest_addr);
             
             // Invoke cleanup callback
             let callback = self.cleanup_callback.read().await;
             if let Some(ref cb) = *callback {
-                cb(dest_ip);
+                cb(dest_addr);
             } else {
-                tracing::warn!("No cleanup callback registered, cannot cleanup session for {}", dest_ip);
+                tracing::warn!("No cleanup callback registered, cannot cleanup session for {}", dest_addr);
             }
         }
     }
@@ -571,16 +570,16 @@ mod tests {
         
         // Setup a callback to track if cleanup was triggered
         let cleanup_triggered = Arc::new(tokio::sync::RwLock::new(false));
-        let cleanup_ip = Arc::new(tokio::sync::RwLock::new(None::<IpAddr>));
+        let cleanup_addr = Arc::new(tokio::sync::RwLock::new(None::<SocketAddr>));
         
         let cleanup_triggered_clone = cleanup_triggered.clone();
-        let cleanup_ip_clone = cleanup_ip.clone();
-        let callback = Arc::new(move |dest_ip: IpAddr| {
+        let cleanup_addr_clone = cleanup_addr.clone();
+        let callback = Arc::new(move |dest_addr: SocketAddr| {
             let triggered = cleanup_triggered_clone.clone();
-            let ip = cleanup_ip_clone.clone();
+            let addr = cleanup_addr_clone.clone();
             tokio::spawn(async move {
                 *triggered.write().await = true;
-                *ip.write().await = Some(dest_ip);
+                *addr.write().await = Some(dest_addr);
             });
         });
         
@@ -606,7 +605,7 @@ mod tests {
         
         // Cleanup should have been triggered
         assert!(*cleanup_triggered.read().await, "Cleanup should have been triggered");
-        assert_eq!(*cleanup_ip.read().await, Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert_eq!(*cleanup_addr.read().await, Some(dest));
         
         // After cleanup is triggered, the error counter should be reset
         // Send another unmatched error and it should not trigger cleanup immediately
@@ -634,7 +633,7 @@ mod tests {
         
         let cleanup_triggered = Arc::new(tokio::sync::RwLock::new(false));
         let cleanup_triggered_clone = cleanup_triggered.clone();
-        let callback = Arc::new(move |_dest_ip: IpAddr| {
+        let callback = Arc::new(move |_dest_addr: SocketAddr| {
             let triggered = cleanup_triggered_clone.clone();
             tokio::spawn(async move {
                 *triggered.write().await = true;
