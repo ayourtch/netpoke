@@ -31,16 +31,19 @@ pub async fn start_probe_sender(
         state.probe_seq += 1;
 
         // Track sent probe for S2C delay calculation
-        state.sent_probes.push_back(crate::state::SentProbe {
+        let sent_probe = crate::state::SentProbe {
             seq,
             sent_at_ms,
-        });
+        };
+        state.sent_probes.push_back(sent_probe.clone());
+        state.sent_probes_map.insert(seq, sent_probe);
 
         // Keep only last 60 seconds of sent probes
         let cutoff = sent_at_ms - 60_000;
         while let Some(p) = state.sent_probes.front() {
             if p.sent_at_ms < cutoff {
-                state.sent_probes.pop_front();
+                let old_probe = state.sent_probes.pop_front().unwrap();
+                state.sent_probes_map.remove(&old_probe.seq);
             } else {
                 break;
             }
@@ -129,8 +132,9 @@ pub async fn handle_probe_packet(
             // We need to find the original sent probe to get the original sent time
             tracing::debug!("Received echoed S2C probe seq {} from client {}", probe.seq, session.id);
 
-            if let Some(sent_probe) = state.sent_probes.iter().find(|p| p.seq == probe.seq) {
-                let sent_at_ms = sent_probe.sent_at_ms;  // Clone to avoid borrow issue
+            // Use HashMap for O(1) lookup instead of linear search
+            if let Some(sent_probe) = state.sent_probes_map.get(&probe.seq) {
+                let sent_at_ms = sent_probe.sent_at_ms;
                 state.echoed_probes.push_back(crate::state::EchoedProbe {
                     seq: probe.seq,
                     sent_at_ms,
@@ -387,16 +391,19 @@ pub async fn start_traceroute_sender(
             state.testprobe_seq += 1;
             
             // Track the test probe so we can match it when/if it's echoed back
-            state.sent_testprobes.push_back(crate::state::SentProbe {
+            let sent_testprobe = crate::state::SentProbe {
                 seq,
                 sent_at_ms,
-            });
+            };
+            state.sent_testprobes.push_back(sent_testprobe.clone());
+            state.sent_testprobes_map.insert(seq, sent_testprobe);
             
             // Keep only last 60 seconds of sent test probes
             let cutoff = sent_at_ms - 60_000;
             while let Some(p) = state.sent_testprobes.front() {
                 if p.sent_at_ms < cutoff {
-                    state.sent_testprobes.pop_front();
+                    let old_probe = state.sent_testprobes.pop_front().unwrap();
+                    state.sent_testprobes_map.remove(&old_probe.seq);
                 } else {
                     break;
                 }
@@ -544,7 +551,8 @@ pub async fn handle_testprobe_packet(
             // This is an echoed test probe - client received our test probe and echoed it back
             tracing::debug!("Received echoed S2C test probe test_seq {} from client {}", testprobe.test_seq, session.id);
 
-            if let Some(sent_testprobe) = state.sent_testprobes.iter().find(|p| p.seq == testprobe.test_seq) {
+            // Use HashMap for O(1) lookup instead of linear search
+            if let Some(sent_testprobe) = state.sent_testprobes_map.get(&testprobe.test_seq) {
                 let sent_at_ms = sent_testprobe.sent_at_ms;
                 state.echoed_testprobes.push_back(crate::state::EchoedProbe {
                     seq: testprobe.test_seq,

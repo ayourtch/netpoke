@@ -49,8 +49,10 @@ pub struct MeasurementState {
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
     pub sent_bulk_packets: VecDeque<SentBulk>,
     pub sent_probes: VecDeque<SentProbe>,  // Track sent S2C probes
+    pub sent_probes_map: HashMap<u64, SentProbe>,  // Fast lookup by seq for sent probes
     pub echoed_probes: VecDeque<EchoedProbe>,  // Track echoed S2C probes
     pub sent_testprobes: VecDeque<SentProbe>,  // Track sent test probes for traceroute
+    pub sent_testprobes_map: HashMap<u64, SentProbe>,  // Fast lookup by seq for test probes
     pub echoed_testprobes: VecDeque<EchoedProbe>,  // Track echoed test probes
     pub last_received_seq: Option<u64>,
 }
@@ -120,8 +122,10 @@ impl MeasurementState {
             received_bulk_bytes: VecDeque::new(),
             sent_bulk_packets: VecDeque::new(),
             sent_probes: VecDeque::new(),
+            sent_probes_map: HashMap::new(),
             echoed_probes: VecDeque::new(),
             sent_testprobes: VecDeque::new(),
+            sent_testprobes_map: HashMap::new(),
             echoed_testprobes: VecDeque::new(),
             last_received_seq: None,
         }
