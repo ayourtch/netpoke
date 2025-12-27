@@ -451,18 +451,54 @@ pub async fn start_traceroute_sender(
             // Wait a bit for potential ICMP response
             tokio::time::sleep(Duration::from_millis(200)).await;
 
-            // For now, send a simple message to the client about the hop
-            // In a production system, we would correlate ICMP responses here
-            let hop_message = common::TraceHopMessage {
-                hop: current_ttl,
-                ip_address: None, // Will be filled when we correlate ICMP responses
-                rtt_ms: 0.0, // Will be calculated from ICMP responses
-                message: format!("Probing hop {} (seq: {})", current_ttl, seq),
-            };
+            // Check for ICMP events from the packet tracker
+            let events = session.packet_tracker.drain_events().await;
+            
+            if !events.is_empty() {
+                tracing::info!("Processing {} ICMP events for traceroute", events.len());
+                
+                for event in events {
+                    // Extract TTL from send options to determine hop number
+                    let hop = event.send_options.ttl.unwrap_or(current_ttl);
+                    
+                    // Calculate RTT in milliseconds
+                    let rtt = event.icmp_received_at.duration_since(event.sent_at);
+                    let rtt_ms = rtt.as_secs_f64() * 1000.0;
+                    
+                    // Create hop message with actual ICMP data
+                    let hop_message = common::TraceHopMessage {
+                        hop,
+                        ip_address: event.router_ip.clone(),
+                        rtt_ms,
+                        message: if let Some(ref ip) = event.router_ip {
+                            format!("Hop {} via {} ({:.2}ms)", hop, ip, rtt_ms)
+                        } else {
+                            format!("Hop {} received ({:.2}ms)", hop, rtt_ms)
+                        },
+                    };
 
-            if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
-                if let Err(e) = control_channel.send(&msg_json.into()).await {
-                    tracing::error!("Failed to send hop message to client: {}", e);
+                    tracing::info!("✅ Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
+                        hop, event.router_ip, rtt_ms);
+
+                    if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
+                        if let Err(e) = control_channel.send(&msg_json.into()).await {
+                            tracing::error!("Failed to send hop message to client: {}", e);
+                        }
+                    }
+                }
+            } else {
+                // No ICMP response received yet - send placeholder message
+                let hop_message = common::TraceHopMessage {
+                    hop: current_ttl,
+                    ip_address: None,
+                    rtt_ms: 0.0,
+                    message: format!("Probing hop {} (seq: {})", current_ttl, seq),
+                };
+
+                if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
+                    if let Err(e) = control_channel.send(&msg_json.into()).await {
+                        tracing::error!("Failed to send hop message to client: {}", e);
+                    }
                 }
             }
         }

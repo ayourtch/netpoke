@@ -25,6 +25,7 @@ pub struct TrackedEventInfo {
     pub icmp_received_at_ms: u64,
     pub rtt_ms: u64,
     pub send_options: common::SendOptions,
+    pub router_ip: Option<String>,
     
     /// Base64 encoded packets for inspection
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,6 +57,7 @@ pub async fn get_tracked_events(
                 icmp_received_at_ms: icmp_duration.as_millis() as u64,
                 rtt_ms: rtt.as_millis() as u64,
                 send_options: event.send_options,
+                router_ip: event.router_ip,
                 icmp_packet_b64: Some(general_purpose::STANDARD.encode(&event.icmp_packet)),
                 udp_packet_b64: Some(general_purpose::STANDARD.encode(&event.udp_packet)),
                 cleartext_b64: Some(general_purpose::STANDARD.encode(&event.cleartext)),

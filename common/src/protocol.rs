@@ -117,6 +117,9 @@ pub struct TrackedPacketEvent {
     
     /// Send options that were used
     pub send_options: SendOptions,
+    
+    /// IP address of the router that sent the ICMP error
+    pub router_ip: Option<String>,
 }
 
 #[cfg(test)]

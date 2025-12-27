@@ -163,6 +163,7 @@ impl PacketTracker {
         &self,
         icmp_packet: Vec<u8>,
         embedded_udp_info: EmbeddedUdpInfo,
+        router_ip: Option<String>,
     ) {
         println!("DEBUG: match_icmp_error called: src_port={}, dest={}, udp_length={}", 
             embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
@@ -189,6 +190,7 @@ impl PacketTracker {
                 sent_at: tracked.sent_at,
                 icmp_received_at: Instant::now(),
                 send_options: tracked.send_options,
+                router_ip,
             };
             
             let mut queue = self.event_queue.write().await;
@@ -365,7 +367,7 @@ mod tests {
         
         let fake_icmp = vec![0u8; 56]; // Fake ICMP packet
         
-        tracker.match_icmp_error(fake_icmp, embedded_info).await;
+        tracker.match_icmp_error(fake_icmp, embedded_info, Some("192.168.1.254".to_string())).await;
         
         // Packet should have been matched and removed
         assert_eq!(tracker.tracked_count().await, 0);
@@ -411,7 +413,7 @@ mod tests {
         
         let fake_icmp = vec![0u8; 56];
         
-        tracker.match_icmp_error(fake_icmp, embedded_info).await;
+        tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
         
         // Packet should NOT have been matched (different UDP length)
         assert_eq!(tracker.tracked_count().await, 1);

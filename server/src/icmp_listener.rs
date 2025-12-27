@@ -64,11 +64,12 @@ async fn icmp_listener_task(packet_tracker: Arc<PacketTracker>) -> std::io::Resu
             Ok((size, addr)) => {
                 println!("DEBUG: Received ICMP packet: size={}, from={}", size, addr);
                 let icmp_packet = buf[..size].to_vec();
+                let router_ip = Some(addr.ip().to_string());
                 
                 // Parse ICMP packet
                 if let Some(embedded_info) = parse_icmp_error(&icmp_packet) {
                     println!("DEBUG: Parsed ICMP error successfully, matching against tracked packets");
-                    packet_tracker.match_icmp_error(icmp_packet, embedded_info).await;
+                    packet_tracker.match_icmp_error(icmp_packet, embedded_info, router_ip).await;
                 } else {
                     println!("DEBUG: ICMP packet is not an error or failed to parse");
                 }
