@@ -342,11 +342,17 @@ pub async fn start_traceroute_sender(
     tracing::info!("Starting traceroute sender for session {}", session.id);
     
     let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
-    let mut current_ttl: u8 = 1;
     const MAX_TTL: u8 = 30;
 
     loop {
         interval.tick().await;
+        
+        // Get current TTL from state
+        let current_ttl = {
+            let state = session.measurement_state.read().await;
+            state.current_ttl
+        };
+        
         tracing::debug!("Traceroute tick for session {}, TTL {}", session.id, current_ttl);
 
         // Check if control channel is ready
@@ -424,7 +430,7 @@ pub async fn start_traceroute_sender(
                 json.resize(target_size, b' '); // Pad with spaces
             }
             
-            tracing::info!("🔵 Sending traceroute test probe via testprobe channel: TTL={}, seq={}, json_len={}", 
+            tracing::debug!("Sending traceroute test probe via testprobe channel: TTL={}, seq={}, json_len={}", 
                 current_ttl, seq, json.len());
             
             #[cfg(target_os = "linux")]
@@ -435,7 +441,7 @@ pub async fn start_traceroute_sender(
                     tos: None,
                     df_bit: Some(true),
                 });
-                tracing::info!("🔵 Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}", 
+                tracing::debug!("Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}", 
                     options.as_ref().and_then(|o| o.ttl),
                     options.as_ref().and_then(|o| o.tos),
                     options.as_ref().and_then(|o| o.df_bit));
@@ -450,7 +456,7 @@ pub async fn start_traceroute_sender(
                 continue;
             }
 
-            tracing::info!("Sent traceroute test probe with TTL {} (seq {})", current_ttl, seq);
+            tracing::debug!("Sent traceroute test probe with TTL {} (seq {})", current_ttl, seq);
             
             // Note: Packet tracking now happens automatically at the UDP layer
             // The vendored webrtc-util code will call wifi_verify_track_udp_packet()
@@ -463,7 +469,7 @@ pub async fn start_traceroute_sender(
             let events = session.packet_tracker.drain_events().await;
             
             if !events.is_empty() {
-                tracing::info!("Processing {} ICMP events for traceroute", events.len());
+                tracing::debug!("Processing {} ICMP events for traceroute", events.len());
                 
                 for event in events {
                     // Extract TTL from send options to determine hop number
@@ -482,7 +488,7 @@ pub async fn start_traceroute_sender(
                         message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
                     };
 
-                    tracing::info!("✅ Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
+                    tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
                         hop, event.router_ip, rtt_ms);
 
                     if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
@@ -508,10 +514,11 @@ pub async fn start_traceroute_sender(
             }
         }
 
-        // Increment TTL for next probe
-        current_ttl += 1;
-        if current_ttl > MAX_TTL {
-            current_ttl = 1; // Reset to start over
+        // Increment TTL for next probe in state
+        let mut state = session.measurement_state.write().await;
+        state.current_ttl += 1;
+        if state.current_ttl > MAX_TTL {
+            state.current_ttl = 1; // Reset to start over
         }
     }
 }
@@ -535,7 +542,7 @@ pub async fn handle_testprobe_packet(
         // Check if this is an echoed S2C test probe
         if testprobe.direction == Direction::ServerToClient {
             // This is an echoed test probe - client received our test probe and echoed it back
-            tracing::info!("Received echoed S2C test probe seq {} from client {}", testprobe.seq, session.id);
+            tracing::debug!("Received echoed S2C test probe seq {} from client {}", testprobe.seq, session.id);
 
             if let Some(sent_testprobe) = state.sent_testprobes.iter().find(|p| p.seq == testprobe.seq) {
                 let sent_at_ms = sent_testprobe.sent_at_ms;
@@ -544,7 +551,7 @@ pub async fn handle_testprobe_packet(
                     sent_at_ms,
                     echoed_at_ms: testprobe.timestamp_ms,
                 });
-                tracing::info!("Matched echoed test probe seq {}, delay: {}ms",
+                tracing::debug!("Matched echoed test probe seq {}, delay: {}ms",
                     testprobe.seq, testprobe.timestamp_ms.saturating_sub(sent_at_ms));
 
                 // Keep only last 60 seconds of echoed test probes
@@ -557,10 +564,11 @@ pub async fn handle_testprobe_packet(
                     }
                 }
 
-                // Reset testprobe sequence number since we now know the packet reached the client
-                // This means there's no need to traceroute further
-                tracing::info!("🎯 Test probe reached client! Resetting testprobe sequence number for session {}", session.id);
+                // Reset testprobe sequence number and TTL since we now know the packet reached the client
+                // This means there's no need to traceroute further - we've found the full path
+                tracing::info!("🎯 Test probe reached client! Resetting testprobe sequence and TTL for session {}", session.id);
                 state.testprobe_seq = 0;
+                state.current_ttl = 1;
             } else {
                 tracing::warn!("Received echoed test probe seq {} but couldn't find matching sent test probe", testprobe.seq);
             }

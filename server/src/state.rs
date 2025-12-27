@@ -40,6 +40,7 @@ pub struct DataChannels {
 pub struct MeasurementState {
     pub probe_seq: u64,
     pub testprobe_seq: u64,  // Separate sequence space for traceroute test probes
+    pub current_ttl: u8,  // Current TTL for traceroute
     pub bulk_bytes_sent: u64,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
@@ -110,6 +111,7 @@ impl MeasurementState {
         Self {
             probe_seq: 0,
             testprobe_seq: 0,
+            current_ttl: 1,  // Start at TTL 1
             bulk_bytes_sent: 0,
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),

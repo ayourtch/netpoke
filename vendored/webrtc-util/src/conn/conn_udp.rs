@@ -54,11 +54,11 @@ impl Conn for UdpSocket {
         buf: &[u8],
         options: &UdpSendOptions,
     ) -> Result<usize> {
-        log::info!("🔵 UdpSocket::send_with_options called with TTL={:?}, TOS={:?}, DF={:?}", 
+        log::debug!("UdpSocket::send_with_options called with TTL={:?}, TOS={:?}, DF={:?}", 
             options.ttl, options.tos, options.df_bit);
         // For connected sockets, we need to get the remote address
         if let Some(remote_addr) = self.peer_addr().ok() {
-            log::info!("🔵 UdpSocket: Forwarding to send_to_with_options_impl for addr={}", remote_addr);
+            log::debug!("UdpSocket: Forwarding to send_to_with_options_impl for addr={}", remote_addr);
             send_to_with_options_impl(self, buf, remote_addr, options).await
         } else {
             // If not connected, fall back to regular send
@@ -74,7 +74,7 @@ impl Conn for UdpSocket {
         target: SocketAddr,
         options: &UdpSendOptions,
     ) -> Result<usize> {
-        log::info!("🔵 UdpSocket::send_to_with_options called with TTL={:?}, TOS={:?}, DF={:?}, target={}", 
+        log::debug!("UdpSocket::send_to_with_options called with TTL={:?}, TOS={:?}, DF={:?}, target={}", 
             options.ttl, options.tos, options.df_bit, target);
         send_to_with_options_impl(self, buf, target, options).await
     }
@@ -101,7 +101,7 @@ async fn send_to_with_options_impl(
 ) -> Result<usize> {
     use tokio::task;
     
-    log::info!("🔵 send_to_with_options_impl: buf_len={}, TTL={:?}, target={}", 
+    log::debug!("send_to_with_options_impl: buf_len={}, TTL={:?}, target={}", 
         buf.len(), options.ttl, target);
     
     let fd = socket.as_raw_fd();
@@ -113,7 +113,7 @@ async fn send_to_with_options_impl(
         sendmsg_with_options(fd, &buf, target, &options)
     }).await.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))??;
     
-    log::info!("✅ send_to_with_options_impl: Successfully sent {} bytes", result);
+    log::debug!("send_to_with_options_impl: Successfully sent {} bytes", result);
     
     Ok(result)
 }
@@ -157,7 +157,7 @@ fn sendmsg_with_options(
     dest: SocketAddr,
     options: &UdpSendOptions,
 ) -> Result<usize> {
-    log::info!("🔵 sendmsg_with_options: fd={}, buf_len={}, dest={}, TTL={:?}, TOS={:?}, DF={:?}", 
+    log::debug!("sendmsg_with_options: fd={}, buf_len={}, dest={}, TTL={:?}, TOS={:?}, DF={:?}", 
         fd, buf.len(), dest, options.ttl, options.tos, options.df_bit);
     
     unsafe {
@@ -167,7 +167,7 @@ fn sendmsg_with_options(
         let socket_family = get_socket_family(fd)?;
         let is_ipv6_socket = socket_family == libc::AF_INET6 as libc::sa_family_t;
         
-        log::info!("🔵 sendmsg_with_options: Socket family={}, is_ipv6={}", socket_family, is_ipv6_socket);
+        log::debug!("sendmsg_with_options: Socket family={}, is_ipv6={}", socket_family, is_ipv6_socket);
         
         // Prepare the data buffer
         let mut iov = iovec {
@@ -225,7 +225,7 @@ fn sendmsg_with_options(
         if is_ipv6_socket {
             // IPv6 socket: use IPPROTO_IPV6 control messages
             if let Some(ttl) = options.ttl {
-                log::info!("🔵 sendmsg: Adding IPv6 hop limit control message: TTL={}", ttl);
+                log::debug!("sendmsg: Adding IPv6 hop limit control message: TTL={}", ttl);
                 let cmsg = libc::CMSG_FIRSTHDR(&msg);
                 if !cmsg.is_null() {
                     (*cmsg).cmsg_level = IPPROTO_IPV6;
@@ -240,7 +240,7 @@ fn sendmsg_with_options(
             }
             
             if let Some(tos) = options.tos {
-                log::info!("🔵 sendmsg: Adding IPv6 traffic class control message: TOS={}", tos);
+                log::debug!("sendmsg: Adding IPv6 traffic class control message: TOS={}", tos);
                 let cmsg = if cmsg_len > 0 {
                     let first = libc::CMSG_FIRSTHDR(&msg);
                     libc::CMSG_NXTHDR(&msg, first)
@@ -262,7 +262,7 @@ fn sendmsg_with_options(
         } else {
             // IPv4 socket: use IPPROTO_IP control messages
             if let Some(ttl) = options.ttl {
-                log::info!("🔵 sendmsg: Adding IPv4 TTL control message: TTL={}", ttl);
+                log::debug!("sendmsg: Adding IPv4 TTL control message: TTL={}", ttl);
                 let cmsg = libc::CMSG_FIRSTHDR(&msg);
                 if !cmsg.is_null() {
                     (*cmsg).cmsg_level = IPPROTO_IP;
@@ -275,12 +275,12 @@ fn sendmsg_with_options(
                     *(data_ptr as *mut i32) = ttl as i32;
                     
                     cmsg_len = (*cmsg).cmsg_len;
-                    log::info!("✅ sendmsg: Set IPv4 TTL={} in control message, cmsg_len={}", ttl, cmsg_len);
+                    log::debug!("sendmsg: Set IPv4 TTL={} in control message, cmsg_len={}", ttl, cmsg_len);
                 }
             }
             
             if let Some(tos) = options.tos {
-                log::info!("🔵 sendmsg: Adding IPv4 TOS control message: TOS={}", tos);
+                log::debug!("sendmsg: Adding IPv4 TOS control message: TOS={}", tos);
                 let cmsg = if cmsg_len > 0 {
                     let first = libc::CMSG_FIRSTHDR(&msg);
                     libc::CMSG_NXTHDR(&msg, first)
@@ -306,7 +306,7 @@ fn sendmsg_with_options(
         // Update control message length
         msg.msg_controllen = cmsg_len;
         
-        log::info!("🔵 sendmsg: Calling sendmsg with msg_controllen={}", cmsg_len);
+        log::debug!("sendmsg: Calling sendmsg with msg_controllen={}", cmsg_len);
         
         // Send the message
         let result = sendmsg(fd, &msg, 0);
@@ -317,7 +317,7 @@ fn sendmsg_with_options(
             return Err(err.into());
         }
         
-        log::info!("✅ sendmsg SUCCEEDED: sent {} bytes", result);
+        log::debug!("sendmsg SUCCEEDED: sent {} bytes", result);
         
         // Track this packet for ICMP/ICMPv6 correlation if TTL/Hop Limit is set
         // Call the extern function from wifi-verify-server
@@ -349,7 +349,7 @@ fn sendmsg_with_options(
                     let dest_ip = u32::from_be_bytes(addr_v4.ip().octets());
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    log::info!("🔵 Calling wifi_verify_track_udp_packet (IPv4): dest={}:{}, udp_length={}, ttl={}",
+                    log::debug!("Calling wifi_verify_track_udp_packet (IPv4): dest={}:{}, udp_length={}, ttl={}",
                         addr_v4.ip(), addr_v4.port(), udp_length, ttl_value);
                     
                     unsafe {
@@ -368,7 +368,7 @@ fn sendmsg_with_options(
                     let dest_ip = addr_v6.ip().octets();
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    log::info!("🔵 Calling wifi_verify_track_udp_packet_v6 (IPv6): dest=[{}]:{}, udp_length={}, hop_limit={}",
+                    log::debug!("Calling wifi_verify_track_udp_packet_v6 (IPv6): dest=[{}]:{}, udp_length={}, hop_limit={}",
                         addr_v6.ip(), addr_v6.port(), udp_length, ttl_value);
                     
                     unsafe {

@@ -342,7 +342,7 @@ pub fn setup_testprobe_channel(channel: RtcDataChannel) {
         if let Ok(mut testprobe) = serde_json::from_str::<common::TestProbePacket>(&text) {
             let now_ms = current_time_ms();
             
-            log::info!("Received test probe seq {} from server, echoing back", testprobe.seq);
+            log::debug!("Received test probe seq {} from server, echoing back", testprobe.seq);
             
             // Echo test probe back to server with received timestamp
             testprobe.timestamp_ms = now_ms;
