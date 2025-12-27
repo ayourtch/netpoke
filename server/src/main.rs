@@ -221,6 +221,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize packet tracker and ICMP listener
     let app_state = state::AppState::new();
     
+    // Register cleanup callback for ICMP error-based session cleanup
+    {
+        let clients = app_state.clients.clone();
+        let cleanup_callback = Arc::new(move |dest_ip: std::net::IpAddr| {
+            let clients = clients.clone();
+            tokio::spawn(async move {
+                let clients_guard = clients.read().await;
+                
+                // Find all sessions with this peer IP
+                let mut sessions_to_cleanup = Vec::new();
+                for (id, session) in clients_guard.iter() {
+                    let peer_addr = session.peer_address.lock().await;
+                    if let Some((addr_str, _port)) = &*peer_addr {
+                        if let Ok(peer_ip) = addr_str.parse::<std::net::IpAddr>() {
+                            if peer_ip == dest_ip {
+                                sessions_to_cleanup.push(id.clone());
+                            }
+                        }
+                    }
+                }
+                drop(clients_guard);
+                
+                // Cleanup sessions
+                if !sessions_to_cleanup.is_empty() {
+                    tracing::warn!(
+                        "Cleaning up {} session(s) with peer IP {} due to ICMP errors: {:?}",
+                        sessions_to_cleanup.len(),
+                        dest_ip,
+                        sessions_to_cleanup
+                    );
+                    
+                    let mut clients_write = clients.write().await;
+                    for session_id in &sessions_to_cleanup {
+                        if let Some(session) = clients_write.get(session_id) {
+                            // Close the WebRTC peer connection
+                            if let Err(e) = session.peer_connection.close().await {
+                                tracing::warn!("Error closing peer connection for {}: {}", session_id, e);
+                            } else {
+                                tracing::info!("Closed peer connection for {} due to ICMP errors", session_id);
+                            }
+                        }
+                        clients_write.remove(session_id);
+                    }
+                } else {
+                    tracing::debug!("No sessions found for peer IP {}", dest_ip);
+                }
+            });
+        });
+        
+        app_state.packet_tracker.set_cleanup_callback(cleanup_callback).await;
+        tracing::info!("ICMP-based session cleanup callback registered");
+    }
+    
     // Initialize the global tracking callback for UDP-to-ICMP communication
     let tracking_sender = app_state.tracking_sender.clone();
     tracking_channel::init_tracking_callback(move |dest_addr, udp_length, ttl, cleartext, sent_at| {

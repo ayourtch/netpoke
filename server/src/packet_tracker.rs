@@ -5,7 +5,7 @@
 /// based on the track_for_ms value.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{RwLock, mpsc};
@@ -63,6 +63,18 @@ pub struct TrackedPacket {
     pub src_port: u16,
 }
 
+/// Tracking information for unmatched ICMP errors per destination
+#[derive(Debug, Clone)]
+struct UnmatchedIcmpErrors {
+    /// Number of consecutive unmatched errors
+    count: u32,
+    /// Last time an error was received
+    last_error_at: Instant,
+}
+
+/// Callback type for session cleanup triggered by ICMP errors
+pub type CleanupCallback = Arc<dyn Fn(IpAddr) + Send + Sync>;
+
 /// Manages tracked packets and provides lookup for ICMP correlation
 pub struct PacketTracker {
     /// Maps packet key to tracked packet info
@@ -73,6 +85,15 @@ pub struct PacketTracker {
     
     /// Receiver for packet tracking data from UDP layer
     tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
+    
+    /// Tracking unmatched ICMP errors per destination IP
+    unmatched_errors: Arc<RwLock<HashMap<IpAddr, UnmatchedIcmpErrors>>>,
+    
+    /// Callback to trigger session cleanup
+    cleanup_callback: Arc<RwLock<Option<CleanupCallback>>>,
+    
+    /// Threshold for consecutive unmatched ICMP errors before triggering cleanup
+    error_threshold: u32,
 }
 
 impl PacketTracker {
@@ -83,15 +104,20 @@ impl PacketTracker {
             tracked_packets: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
             tracking_rx: Arc::new(tokio::sync::Mutex::new(rx)),
+            unmatched_errors: Arc::new(RwLock::new(HashMap::new())),
+            cleanup_callback: Arc::new(RwLock::new(None)),
+            error_threshold: 5, // Default threshold: 5 consecutive errors
         };
         
         // Start cleanup task
         let tracked_packets = tracker.tracked_packets.clone();
+        let unmatched_errors = tracker.unmatched_errors.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
                 Self::cleanup_expired(&tracked_packets).await;
+                Self::cleanup_old_errors(&unmatched_errors).await;
             }
         });
         
@@ -103,6 +129,18 @@ impl PacketTracker {
         });
         
         (tracker, tx)
+    }
+    
+    /// Set the callback for session cleanup triggered by ICMP errors
+    pub async fn set_cleanup_callback(&self, callback: CleanupCallback) {
+        let mut cb = self.cleanup_callback.write().await;
+        *cb = Some(callback);
+    }
+    
+    /// Set the threshold for consecutive unmatched ICMP errors
+    pub fn with_error_threshold(mut self, threshold: u32) -> Self {
+        self.error_threshold = threshold;
+        self
     }
     
     /// Track a packet for ICMP correlation
@@ -178,10 +216,17 @@ impl PacketTracker {
         };
         
         let matched = packets.remove(&key);
+        drop(packets); // Release lock early
         
         if let Some(tracked) = matched {
             println!("DEBUG: MATCH FOUND! dest={}, udp_length={}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+            
+            // Reset unmatched error count for this destination since we matched
+            let dest_ip = embedded_udp_info.dest_addr.ip();
+            let mut errors = self.unmatched_errors.write().await;
+            errors.remove(&dest_ip);
+            drop(errors);
             
             let event = TrackedPacketEvent {
                 icmp_packet,
@@ -206,6 +251,9 @@ impl PacketTracker {
         } else {
             println!("DEBUG: NO MATCH FOUND for dest={}, udp_length={}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+            
+            // Track unmatched ICMP error
+            self.handle_unmatched_icmp_error(embedded_udp_info.dest_addr).await;
         }
     }
     
@@ -278,6 +326,68 @@ impl PacketTracker {
         
         if removed > 0 {
             tracing::debug!("Cleaned up {} expired tracked packets", removed);
+        }
+    }
+    
+    /// Clean up old unmatched error records (older than 30 seconds)
+    async fn cleanup_old_errors(unmatched_errors: &Arc<RwLock<HashMap<IpAddr, UnmatchedIcmpErrors>>>) {
+        let now = Instant::now();
+        let mut errors = unmatched_errors.write().await;
+        
+        let before_count = errors.len();
+        errors.retain(|_, error_info| {
+            now.duration_since(error_info.last_error_at) < std::time::Duration::from_secs(30)
+        });
+        let removed = before_count - errors.len();
+        
+        if removed > 0 {
+            tracing::debug!("Cleaned up {} old unmatched ICMP error records", removed);
+        }
+    }
+    
+    /// Handle an unmatched ICMP error by tracking it and potentially triggering cleanup
+    async fn handle_unmatched_icmp_error(&self, dest_addr: SocketAddr) {
+        let dest_ip = dest_addr.ip();
+        let now = Instant::now();
+        
+        let mut errors = self.unmatched_errors.write().await;
+        let error_info = errors.entry(dest_ip).or_insert(UnmatchedIcmpErrors {
+            count: 0,
+            last_error_at: now,
+        });
+        
+        error_info.count += 1;
+        error_info.last_error_at = now;
+        
+        let count = error_info.count;
+        drop(errors);
+        
+        tracing::warn!(
+            "Unmatched ICMP error for dest={} (count: {}/{})",
+            dest_ip,
+            count,
+            self.error_threshold
+        );
+        
+        // If threshold is reached, trigger cleanup
+        if count >= self.error_threshold {
+            tracing::warn!(
+                "ICMP error threshold reached for dest={}, triggering session cleanup",
+                dest_ip
+            );
+            
+            // Reset counter after triggering cleanup
+            let mut errors = self.unmatched_errors.write().await;
+            errors.remove(&dest_ip);
+            drop(errors);
+            
+            // Invoke cleanup callback
+            let callback = self.cleanup_callback.read().await;
+            if let Some(ref cb) = *callback {
+                cb(dest_ip);
+            } else {
+                tracing::warn!("No cleanup callback registered, cannot cleanup session for {}", dest_ip);
+            }
         }
     }
 }
@@ -454,5 +564,148 @@ mod tests {
         
         // Should be cleaned up
         assert_eq!(tracker.tracked_count().await, 0);
+    }
+    
+    #[tokio::test]
+    async fn test_unmatched_icmp_error_cleanup() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        // Setup a callback to track if cleanup was triggered
+        let cleanup_triggered = Arc::new(tokio::sync::RwLock::new(false));
+        let cleanup_ip = Arc::new(tokio::sync::RwLock::new(None::<IpAddr>));
+        
+        let cleanup_triggered_clone = cleanup_triggered.clone();
+        let cleanup_ip_clone = cleanup_ip.clone();
+        let callback = Arc::new(move |dest_ip: IpAddr| {
+            let triggered = cleanup_triggered_clone.clone();
+            let ip = cleanup_ip_clone.clone();
+            tokio::spawn(async move {
+                *triggered.write().await = true;
+                *ip.write().await = Some(dest_ip);
+            });
+        });
+        
+        tracker.set_cleanup_callback(callback).await;
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        
+        // Simulate 5 consecutive unmatched ICMP errors (threshold is 5)
+        for i in 0..5 {
+            let embedded_info = EmbeddedUdpInfo {
+                src_port: 12345,
+                dest_addr: dest,
+                udp_length: 100 + i, // Different UDP lengths so no packet is tracked
+                payload_prefix: Vec::new(),
+            };
+            
+            let fake_icmp = vec![0u8; 56];
+            tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        }
+        
+        // Give the callback time to execute
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Cleanup should have been triggered
+        assert!(*cleanup_triggered.read().await, "Cleanup should have been triggered");
+        assert_eq!(*cleanup_ip.read().await, Some(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        
+        // After cleanup is triggered, the error counter should be reset
+        // Send another unmatched error and it should not trigger cleanup immediately
+        *cleanup_triggered.write().await = false;
+        
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 200,
+            payload_prefix: Vec::new(),
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Should not trigger cleanup again (counter was reset)
+        assert!(!*cleanup_triggered.read().await, "Cleanup should not trigger for a single error after reset");
+    }
+    
+    #[tokio::test]
+    async fn test_matched_icmp_resets_error_count() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let cleanup_triggered = Arc::new(tokio::sync::RwLock::new(false));
+        let cleanup_triggered_clone = cleanup_triggered.clone();
+        let callback = Arc::new(move |_dest_ip: IpAddr| {
+            let triggered = cleanup_triggered_clone.clone();
+            tokio::spawn(async move {
+                *triggered.write().await = true;
+            });
+        });
+        
+        tracker.set_cleanup_callback(callback).await;
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        // Send 3 unmatched errors
+        for i in 0..3 {
+            let embedded_info = EmbeddedUdpInfo {
+                src_port: 12345,
+                dest_addr: dest,
+                udp_length: 100 + i,
+                payload_prefix: Vec::new(),
+            };
+            
+            let fake_icmp = vec![0u8; 56];
+            tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        }
+        
+        // Track a packet and send a matching ICMP error
+        tracker.track_packet(
+            vec![1, 2, 3, 4],
+            vec![0; 50],
+            12345,
+            dest,
+            200,
+            options.clone(),
+        ).await;
+        
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 200,
+            payload_prefix: Vec::new(),
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        
+        // Should have matched and reset the error count
+        assert_eq!(tracker.tracked_count().await, 0);
+        assert_eq!(tracker.drain_events().await.len(), 1);
+        
+        // Now send 4 more unmatched errors (total would be 7 if not reset, but should be 4)
+        for i in 0..4 {
+            let embedded_info = EmbeddedUdpInfo {
+                src_port: 12345,
+                dest_addr: dest,
+                udp_length: 300 + i,
+                payload_prefix: Vec::new(),
+            };
+            
+            let fake_icmp = vec![0u8; 56];
+            tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        }
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Should not have triggered cleanup (only 4 consecutive errors after reset)
+        assert!(!*cleanup_triggered.read().await);
     }
 }
