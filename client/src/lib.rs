@@ -86,24 +86,32 @@ pub async fn start_measurement() -> Result<(), JsValue> {
     let ipv6_connection = webrtc::WebRtcConnection::new_with_ip_version("ipv6", parent_id).await?;
     log::info!("IPv6 connected with client_id: {}", ipv6_connection.client_id);
 
-    // Start UI update loop
-    let state_ipv4 = ipv4_connection.state.clone();
-    let state_ipv6 = ipv6_connection.state.clone();
+    // Start latency-sensitive metric calculation loop (priority worker)
+    // This runs frequently and must be fast to minimize jitter
+    let state_ipv4_calc = ipv4_connection.state.clone();
+    let state_ipv6_calc = ipv6_connection.state.clone();
 
     gloo_timers::callback::Interval::new(100, move || {
-        // Calculate metrics for both connections
+        // Calculate metrics for both connections - latency-sensitive work only
         {
-            let mut state_ref = state_ipv4.borrow_mut();
+            let mut state_ref = state_ipv4_calc.borrow_mut();
             state_ref.calculate_metrics();
         }
         {
-            let mut state_ref = state_ipv6.borrow_mut();
+            let mut state_ref = state_ipv6_calc.borrow_mut();
             state_ref.calculate_metrics();
         }
+    }).forget();
 
-        // Update UI with both sets of metrics
-        let state_ipv4_ref = state_ipv4.borrow();
-        let state_ipv6_ref = state_ipv6.borrow();
+    // Start UI update loop (separate from latency-sensitive work)
+    // This runs less frequently to avoid causing jitter in measurements
+    let state_ipv4_ui = ipv4_connection.state.clone();
+    let state_ipv6_ui = ipv6_connection.state.clone();
+
+    gloo_timers::callback::Interval::new(500, move || {
+        // Update UI with both sets of metrics - UX code that can tolerate delays
+        let state_ipv4_ref = state_ipv4_ui.borrow();
+        let state_ipv6_ref = state_ipv6_ui.borrow();
 
         let dbg_message = format!("{:?}", &state_ipv4_ref);
         update_ui_dual(&dbg_message, &state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
