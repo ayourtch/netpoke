@@ -9,6 +9,9 @@ use crate::webrtc_manager;
 use crate::data_channels;
 use std::sync::Arc;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+use webrtc::stats::StatsReportType;
+use webrtc::ice::candidate::CandidatePairState;
 
 /// Determine if an ICE candidate is IPv4 or IPv6 by parsing the candidate string
 /// Returns Some("ipv4"), Some("ipv6"), or None if unable to determine
@@ -219,13 +222,9 @@ pub async fn signaling_start(
 
     // Set up connection state change handler to populate peer address
     let session_for_state = session.clone();
-    peer.on_peer_connection_state_change(Box::new(move |state: webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState| {
+    peer.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
         let session = session_for_state.clone();
         Box::pin(async move {
-            use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-            use webrtc::stats::StatsReportType;
-            use webrtc::ice::candidate::CandidatePairState;
-            
             tracing::info!("Peer connection state changed to {:?} for session {}", state, session.id);
             
             // When connection becomes Connected, fetch stats to get peer address
@@ -254,7 +253,6 @@ pub async fn signaling_start(
                                         // Store the peer address
                                         let mut stored_peer = session.peer_address.lock().await;
                                         *stored_peer = Some((peer_ip.clone(), peer_port));
-                                        drop(stored_peer);
                                         
                                         tracing::info!("Stored peer address for session {}: {}:{}", 
                                             session.id, peer_ip, peer_port);
