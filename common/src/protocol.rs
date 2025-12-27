@@ -40,7 +40,7 @@ pub struct ProbePacket {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TestProbePacket {
-    pub seq: u64,
+    pub test_seq: u64,
     pub timestamp_ms: u64,
     pub direction: Direction,
     
@@ -186,7 +186,7 @@ mod tests {
     #[test]
     fn test_testprobe_packet_serialization() {
         let packet = TestProbePacket {
-            seq: 123,
+            test_seq: 123,
             timestamp_ms: 9876543210,
             direction: Direction::ServerToClient,
             send_options: Some(SendOptions {
@@ -202,7 +202,43 @@ mod tests {
         let deserialized: TestProbePacket = serde_json::from_str(&json).unwrap();
 
         assert_eq!(packet, deserialized);
-        assert_eq!(deserialized.seq, 123);
+        assert_eq!(deserialized.test_seq, 123);
         assert_eq!(deserialized.send_options.as_ref().unwrap().ttl, Some(5));
+    }
+
+    #[test]
+    fn test_probe_and_testprobe_have_different_json() {
+        let probe = ProbePacket {
+            seq: 42,
+            timestamp_ms: 1000,
+            direction: Direction::ServerToClient,
+            send_options: None,
+        };
+        
+        let testprobe = TestProbePacket {
+            test_seq: 42,
+            timestamp_ms: 1000,
+            direction: Direction::ServerToClient,
+            send_options: None,
+        };
+        
+        let probe_json = serde_json::to_string(&probe).unwrap();
+        let testprobe_json = serde_json::to_string(&testprobe).unwrap();
+        
+        // Verify they serialize to different JSON
+        assert_ne!(probe_json, testprobe_json, 
+            "ProbePacket and TestProbePacket should serialize to different JSON structures");
+        
+        // Verify probe has "seq" field
+        assert!(probe_json.contains("\"seq\":"), 
+            "ProbePacket JSON should contain 'seq' field");
+        
+        // Verify testprobe has "test_seq" field
+        assert!(testprobe_json.contains("\"test_seq\":"), 
+            "TestProbePacket JSON should contain 'test_seq' field");
+        
+        // Verify testprobe JSON does NOT have "seq" field (it has "test_seq" instead)
+        assert!(!testprobe_json.contains("\"seq\":"), 
+            "TestProbePacket JSON should NOT contain 'seq' field, only 'test_seq'");
     }
 }

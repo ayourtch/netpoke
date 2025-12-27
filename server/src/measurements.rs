@@ -414,7 +414,7 @@ pub async fn start_traceroute_sender(
         };
 
         let testprobe = common::TestProbePacket {
-            seq,
+            test_seq: seq,
             timestamp_ms: sent_at_ms,
             direction: Direction::ServerToClient,
             send_options: Some(send_options),
@@ -542,17 +542,17 @@ pub async fn handle_testprobe_packet(
         // Check if this is an echoed S2C test probe
         if testprobe.direction == Direction::ServerToClient {
             // This is an echoed test probe - client received our test probe and echoed it back
-            tracing::debug!("Received echoed S2C test probe seq {} from client {}", testprobe.seq, session.id);
+            tracing::debug!("Received echoed S2C test probe test_seq {} from client {}", testprobe.test_seq, session.id);
 
-            if let Some(sent_testprobe) = state.sent_testprobes.iter().find(|p| p.seq == testprobe.seq) {
+            if let Some(sent_testprobe) = state.sent_testprobes.iter().find(|p| p.seq == testprobe.test_seq) {
                 let sent_at_ms = sent_testprobe.sent_at_ms;
                 state.echoed_testprobes.push_back(crate::state::EchoedProbe {
-                    seq: testprobe.seq,
+                    seq: testprobe.test_seq,
                     sent_at_ms,
                     echoed_at_ms: testprobe.timestamp_ms,
                 });
-                tracing::debug!("Matched echoed test probe seq {}, delay: {}ms",
-                    testprobe.seq, testprobe.timestamp_ms.saturating_sub(sent_at_ms));
+                tracing::debug!("Matched echoed test probe test_seq {}, delay: {}ms",
+                    testprobe.test_seq, testprobe.timestamp_ms.saturating_sub(sent_at_ms));
 
                 // Keep only last 60 seconds of echoed test probes
                 let cutoff = now_ms - 60_000;
@@ -571,7 +571,7 @@ pub async fn handle_testprobe_packet(
                 tracing::info!("🎯 Test probe reached client! Resetting TTL for session {}", session.id);
                 state.current_ttl = 1;
             } else {
-                tracing::warn!("Received echoed test probe seq {} but couldn't find matching sent test probe", testprobe.seq);
+                tracing::warn!("Received echoed test probe test_seq {} but couldn't find matching sent test probe", testprobe.test_seq);
             }
         }
 
