@@ -229,10 +229,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tokio::spawn(async move {
                 let clients_guard = clients.read().await;
                 
+                tracing::debug!("ICMP error callback invoked for dest_addr: {}, total sessions: {}", 
+                    dest_addr, clients_guard.len());
+                
                 // Find the specific session with this peer socket address (IP + port)
                 let mut target_session = None;
                 for (id, session) in clients_guard.iter() {
                     let peer_addr = session.peer_address.lock().await;
+                    tracing::debug!("Checking session {}: peer_address = {:?}", id, *peer_addr);
                     if let Some((addr_str, port)) = &*peer_addr {
                         match addr_str.parse::<std::net::IpAddr>() {
                             Ok(peer_ip) => {

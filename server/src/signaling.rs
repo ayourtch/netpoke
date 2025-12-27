@@ -217,6 +217,60 @@ pub async fn signaling_start(
         Box::pin(async {})
     }));
 
+    // Set up connection state change handler to populate peer address
+    let session_for_state = session.clone();
+    peer.on_peer_connection_state_change(Box::new(move |state: webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState| {
+        let session = session_for_state.clone();
+        Box::pin(async move {
+            use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+            use webrtc::stats::StatsReportType;
+            use webrtc::ice::candidate::CandidatePairState;
+            
+            tracing::info!("Peer connection state changed to {:?} for session {}", state, session.id);
+            
+            // When connection becomes Connected, fetch stats to get peer address
+            if state == RTCPeerConnectionState::Connected {
+                tracing::info!("Connection established for session {}, fetching peer address from stats", session.id);
+                
+                // Get stats to find the peer address
+                let stats_report = session.peer_connection.get_stats().await;
+                
+                // Find the selected candidate pair
+                for stat in stats_report.reports.values() {
+                    if let StatsReportType::CandidatePair(pair) = stat {
+                        // Look for succeeded or nominated in-progress pairs
+                        if pair.state == CandidatePairState::Succeeded ||
+                           (pair.state == CandidatePairState::InProgress && pair.nominated) {
+                            // Find the remote candidate by ID to get the IP address
+                            for candidate_stat in stats_report.reports.values() {
+                                if let StatsReportType::RemoteCandidate(candidate) = candidate_stat {
+                                    if candidate.id == pair.remote_candidate_id {
+                                        let peer_ip = candidate.ip.clone();
+                                        let peer_port = candidate.port;
+                                        
+                                        tracing::info!("Found peer address for session {}: {}:{}", 
+                                            session.id, peer_ip, peer_port);
+                                        
+                                        // Store the peer address
+                                        let mut stored_peer = session.peer_address.lock().await;
+                                        *stored_peer = Some((peer_ip.clone(), peer_port));
+                                        drop(stored_peer);
+                                        
+                                        tracing::info!("Stored peer address for session {}: {}:{}", 
+                                            session.id, peer_ip, peer_port);
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                tracing::warn!("Could not find peer address in stats for session {}", session.id);
+            }
+        })
+    }));
+
     // Handle offer and create answer
     let answer_sdp = webrtc_manager::handle_offer(&peer, req.sdp)
         .await
