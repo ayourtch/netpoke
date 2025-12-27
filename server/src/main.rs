@@ -221,16 +221,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize packet tracker and ICMP listener
     let app_state = state::AppState::new();
     
-    // Register cleanup callback for ICMP error-based session cleanup
+    // Register ICMP error callback for session-based error tracking and cleanup
     {
         let clients = app_state.clients.clone();
-        let cleanup_callback = Arc::new(move |dest_addr: std::net::SocketAddr| {
+        let icmp_error_callback = Arc::new(move |dest_addr: std::net::SocketAddr| {
             let clients = clients.clone();
             tokio::spawn(async move {
                 let clients_guard = clients.read().await;
                 
                 // Find the specific session with this peer socket address (IP + port)
-                let mut session_to_cleanup = None;
+                let mut target_session = None;
                 for (id, session) in clients_guard.iter() {
                     let peer_addr = session.peer_address.lock().await;
                     if let Some((addr_str, port)) = &*peer_addr {
@@ -238,7 +238,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Ok(peer_ip) => {
                                 let peer_socket_addr = std::net::SocketAddr::new(peer_ip, *port);
                                 if peer_socket_addr == dest_addr {
-                                    session_to_cleanup = Some(id.clone());
+                                    target_session = Some((id.clone(), session.clone()));
                                     break;
                                 }
                             }
@@ -253,32 +253,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 drop(clients_guard);
                 
-                // Cleanup the specific session
-                if let Some(session_id) = session_to_cleanup {
+                // Handle the ICMP error for the found session
+                if let Some((session_id, session)) = target_session {
+                    let now = std::time::Instant::now();
+                    let mut error_count = session.icmp_error_count.lock().await;
+                    let mut last_error = session.last_icmp_error.lock().await;
+                    
+                    // Time-based logic: increment if < 1 second since last error, reset to 1 if > 1 second
+                    let count = if let Some(last_time) = *last_error {
+                        if now.duration_since(last_time) < std::time::Duration::from_secs(1) {
+                            *error_count += 1;
+                            *error_count
+                        } else {
+                            *error_count = 1;
+                            1
+                        }
+                    } else {
+                        *error_count = 1;
+                        1
+                    };
+                    
+                    *last_error = Some(now);
+                    drop(error_count);
+                    drop(last_error);
+                    
                     tracing::warn!(
-                        "Cleaning up session {} with peer address {} due to ICMP errors",
-                        session_id,
-                        dest_addr
+                        "Unmatched ICMP error for session {} at address {} (count: {}/5)",
+                        session_id, dest_addr, count
                     );
                     
-                    let mut clients_write = clients.write().await;
-                    if let Some(session) = clients_write.get(&session_id) {
-                        // Close the WebRTC peer connection
-                        if let Err(e) = session.peer_connection.close().await {
-                            tracing::warn!("Error closing peer connection for {}: {}", session_id, e);
-                        } else {
-                            tracing::info!("Closed peer connection for {} due to ICMP errors", session_id);
+                    // Cleanup if threshold reached
+                    if count >= 5 {
+                        tracing::warn!(
+                            "ICMP error threshold reached for session {} at address {}, triggering cleanup",
+                            session_id, dest_addr
+                        );
+                        
+                        let mut clients_write = clients.write().await;
+                        if let Some(session) = clients_write.get(&session_id) {
+                            // Close the WebRTC peer connection
+                            if let Err(e) = session.peer_connection.close().await {
+                                tracing::warn!("Error closing peer connection for {}: {}", session_id, e);
+                            } else {
+                                tracing::info!("Closed peer connection for {} due to ICMP errors", session_id);
+                            }
                         }
+                        clients_write.remove(&session_id);
                     }
-                    clients_write.remove(&session_id);
                 } else {
-                    tracing::debug!("No session found for peer address {}", dest_addr);
+                    tracing::debug!("No session found for peer address {} (ICMP error dropped)", dest_addr);
                 }
             });
         });
         
-        app_state.packet_tracker.set_cleanup_callback(cleanup_callback).await;
-        tracing::info!("ICMP-based session cleanup callback registered");
+        app_state.packet_tracker.set_icmp_error_callback(icmp_error_callback).await;
+        tracing::info!("ICMP error callback registered for session-based cleanup");
     }
     
     // Initialize the global tracking callback for UDP-to-ICMP communication

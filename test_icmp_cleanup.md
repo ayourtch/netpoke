@@ -9,9 +9,14 @@ When a client abruptly disconnects (e.g., browser closed, network interrupted), 
 ## How It Works
 
 1. **ICMP Error Detection**: Both IPv4 (ICMP) and IPv6 (ICMPv6) error listeners are running
-2. **Error Tracking**: Unmatched ICMP errors are tracked per destination socket address (IP + port)
-3. **Threshold Trigger**: After 5 consecutive unmatched errors to the same socket address, cleanup is triggered
-4. **Session Cleanup**: The specific session with that peer socket address is closed and removed
+2. **Error Callback**: Unmatched ICMP errors are passed to a callback that has access to session state
+3. **Session-based Tracking**: Error count is stored in the `ClientSession` itself (no separate state)
+4. **Time-based Logic**: 
+   - Counter increments if time since last error < 1 second
+   - Counter resets to 1 if time since last error > 1 second
+5. **Threshold Trigger**: After 5 consecutive errors (within 1-second windows), cleanup is triggered
+6. **Session Cleanup**: The specific session with that peer socket address is closed and removed
+7. **Session Not Found**: If no session matches, the error is logged and dropped
 
 ## Testing Procedure
 
@@ -56,19 +61,19 @@ When a client abruptly disconnects (e.g., browser closed, network interrupted), 
 
    **After the fix**: You should see:
    ```
-   WARN: Unmatched ICMP error for dest=<IP:port> (count: 1/5)
-   WARN: Unmatched ICMP error for dest=<IP:port> (count: 2/5)
-   WARN: Unmatched ICMP error for dest=<IP:port> (count: 3/5)
-   WARN: Unmatched ICMP error for dest=<IP:port> (count: 4/5)
-   WARN: Unmatched ICMP error for dest=<IP:port> (count: 5/5)
-   WARN: ICMP error threshold reached for dest=<IP:port>, triggering session cleanup
-   WARN: Cleaning up session <session_id> with peer address <IP:port> due to ICMP errors
+   WARN: Unmatched ICMP error for session <session_id> at address <IP:port> (count: 1/5)
+   WARN: Unmatched ICMP error for session <session_id> at address <IP:port> (count: 2/5)
+   WARN: Unmatched ICMP error for session <session_id> at address <IP:port> (count: 3/5)
+   WARN: Unmatched ICMP error for session <session_id> at address <IP:port> (count: 4/5)
+   WARN: Unmatched ICMP error for session <session_id> at address <IP:port> (count: 5/5)
+   WARN: ICMP error threshold reached for session <session_id> at address <IP:port>, triggering cleanup
    INFO: Closed peer connection for <session_id> due to ICMP errors
    ```
 
 6. **Verify cleanup**:
    - Check the dashboard - the disconnected client should be removed
    - No more ICMP error messages for that socket address should appear
+   - If no session is found for an ICMP error, you'll see: `DEBUG: No session found for peer address <IP:port> (ICMP error dropped)`
 
 ## Expected Behavior
 
@@ -108,7 +113,9 @@ error_threshold: 5, // Change this value
 ## Notes
 
 - The feature works for both IPv4 and IPv6
-- Error records older than 30 seconds are automatically cleaned up
-- Successful packet matches reset the error counter for that socket address
+- Error count is stored in the session state itself (no separate tracking structure)
+- Time-based logic: errors within 1 second increment count, errors > 1 second apart reset count to 1
+- Successful packet matches do not affect error counting (handled at session level)
 - Each session is cleaned up individually based on its specific socket address (IP + port)
 - Multiple sessions from the same IP address (e.g., multiple browser tabs) are handled independently
+- Errors for non-existent sessions are logged and dropped (no orphan state accumulation)

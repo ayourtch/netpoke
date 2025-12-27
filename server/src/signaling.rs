@@ -144,6 +144,8 @@ pub async fn signaling_start(
         ice_candidates: ice_candidates.clone(),
         peer_address: peer_address.clone(),
         packet_tracker: state.packet_tracker.clone(), // Share global packet tracker
+        icmp_error_count: Arc::new(tokio::sync::Mutex::new(0)),
+        last_icmp_error: Arc::new(tokio::sync::Mutex::new(None)),
     });
 
     // Set up data channel handlers

@@ -28,6 +28,9 @@ pub struct ClientSession {
     pub ice_candidates: Arc<Mutex<VecDeque<String>>>,
     pub peer_address: Arc<Mutex<Option<(String, u16)>>>, // (address, port)
     pub packet_tracker: Arc<PacketTracker>, // For ICMP correlation
+    // ICMP error tracking for session cleanup
+    pub icmp_error_count: Arc<Mutex<u32>>,
+    pub last_icmp_error: Arc<Mutex<Option<Instant>>>,
 }
 
 pub struct DataChannels {
