@@ -130,18 +130,18 @@ impl PacketTracker {
         send_options: SendOptions,
     ) {
         if send_options.track_for_ms == 0 {
-            println!("DEBUG: track_packet called but track_for_ms is 0, not tracking");
+            tracing::debug!("track_packet called but track_for_ms is 0, not tracking");
             return;
         }
         
-        println!("DEBUG: track_packet called: src_port={}, dest={}, udp_length={}, track_for_ms={}, ttl={:?}", 
+        tracing::debug!("track_packet called: src_port={}, dest={}, udp_length={}, track_for_ms={}, ttl={:?}", 
             src_port, dest_addr, udp_length, send_options.track_for_ms, send_options.ttl);
         
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
         
         // Create key from destination address and UDP length
-        println!("DEBUG: Creating tracking key with dest_addr={}, udp_length={}", dest_addr, udp_length);
+        tracing::debug!("Creating tracking key with dest_addr={}, udp_length={}", dest_addr, udp_length);
         
         let key = UdpPacketKey {
             dest_addr,
@@ -162,7 +162,7 @@ impl PacketTracker {
         packets.insert(key, tracked);
         
         let count = packets.len();
-        println!("DEBUG: Packet tracked successfully, total tracked packets: {}", count);
+        tracing::debug!("Packet tracked successfully, total tracked packets: {}", count);
         
         tracing::debug!(
             "Tracking packet: src_port={}, dest={}, expires_in={}ms",
@@ -179,11 +179,11 @@ impl PacketTracker {
         embedded_udp_info: EmbeddedUdpInfo,
         router_ip: Option<String>,
     ) {
-        println!("DEBUG: match_icmp_error called: src_port={}, dest={}, udp_length={}", 
+        tracing::debug!("match_icmp_error called: src_port={}, dest={}, udp_length={}", 
             embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
         
         let mut packets = self.tracked_packets.write().await;
-        println!("DEBUG: Current tracked packets count: {}", packets.len());
+        tracing::debug!("Current tracked packets count: {}", packets.len());
         
         // Match based on destination address and UDP length
         let key = UdpPacketKey {
@@ -196,7 +196,7 @@ impl PacketTracker {
         drop(packets);
         
         if let Some(tracked) = matched {
-            println!("DEBUG: MATCH FOUND! dest={}, udp_length={}", 
+            tracing::debug!("MATCH FOUND! dest={}, udp_length={}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
             
             let event = TrackedPacketEvent {
@@ -212,7 +212,7 @@ impl PacketTracker {
             let mut queue = self.event_queue.write().await;
             queue.push(event);
             
-            println!("DEBUG: Event added to queue, queue size: {}", queue.len());
+            tracing::debug!("Event added to queue, queue size: {}", queue.len());
             
             tracing::info!(
                 "ICMP error matched to tracked packet: dest={}, udp_length={}",
@@ -220,7 +220,7 @@ impl PacketTracker {
                 embedded_udp_info.udp_length
             );
         } else {
-            println!("DEBUG: NO MATCH FOUND for dest={}, udp_length={}", 
+            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
             
             // Pass unmatched ICMP error to callback for session state to handle
@@ -254,7 +254,7 @@ impl PacketTracker {
                 continue;
             }
             
-            println!("DEBUG: Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}", 
+            tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}", 
                 info.dest_addr, info.udp_length, info.send_options.ttl);
             
             let expires_at = info.sent_at + std::time::Duration::from_millis(info.send_options.track_for_ms as u64);
@@ -278,7 +278,7 @@ impl PacketTracker {
             packets.insert(key, tracked);
             
             let count = packets.len();
-            println!("DEBUG: Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
+            tracing::debug!("Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
             
             tracing::debug!(
                 "Tracked packet from UDP layer: dest={}, udp_length={}, ttl={:?}",
