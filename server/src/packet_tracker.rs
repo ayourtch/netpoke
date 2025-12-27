@@ -216,7 +216,8 @@ impl PacketTracker {
         };
         
         let matched = packets.remove(&key);
-        drop(packets); // Release lock early
+        // Release lock early to avoid holding it during callback
+        drop(packets);
         
         if let Some(tracked) = matched {
             println!("DEBUG: MATCH FOUND! dest={}, udp_length={}", 
@@ -226,7 +227,6 @@ impl PacketTracker {
             let dest_ip = embedded_udp_info.dest_addr.ip();
             let mut errors = self.unmatched_errors.write().await;
             errors.remove(&dest_ip);
-            drop(errors);
             
             let event = TrackedPacketEvent {
                 icmp_packet,
@@ -379,7 +379,6 @@ impl PacketTracker {
             // Reset counter after triggering cleanup
             let mut errors = self.unmatched_errors.write().await;
             errors.remove(&dest_ip);
-            drop(errors);
             
             // Invoke cleanup callback
             let callback = self.cleanup_callback.read().await;
@@ -590,7 +589,7 @@ mod tests {
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
         
         // Simulate 5 consecutive unmatched ICMP errors (threshold is 5)
-        for i in 0..5 {
+        for i in 0..5u16 {
             let embedded_info = EmbeddedUdpInfo {
                 src_port: 12345,
                 dest_addr: dest,
@@ -654,7 +653,7 @@ mod tests {
         };
         
         // Send 3 unmatched errors
-        for i in 0..3 {
+        for i in 0..3u16 {
             let embedded_info = EmbeddedUdpInfo {
                 src_port: 12345,
                 dest_addr: dest,
@@ -691,7 +690,7 @@ mod tests {
         assert_eq!(tracker.drain_events().await.len(), 1);
         
         // Now send 4 more unmatched errors (total would be 7 if not reset, but should be 4)
-        for i in 0..4 {
+        for i in 0..4u16 {
             let embedded_info = EmbeddedUdpInfo {
                 src_port: 12345,
                 dest_addr: dest,

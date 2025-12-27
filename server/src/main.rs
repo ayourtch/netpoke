@@ -234,9 +234,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for (id, session) in clients_guard.iter() {
                     let peer_addr = session.peer_address.lock().await;
                     if let Some((addr_str, _port)) = &*peer_addr {
-                        if let Ok(peer_ip) = addr_str.parse::<std::net::IpAddr>() {
-                            if peer_ip == dest_ip {
-                                sessions_to_cleanup.push(id.clone());
+                        match addr_str.parse::<std::net::IpAddr>() {
+                            Ok(peer_ip) => {
+                                if peer_ip == dest_ip {
+                                    sessions_to_cleanup.push(id.clone());
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Failed to parse peer IP address '{}' for session {}: {}",
+                                    addr_str, id, e
+                                );
                             }
                         }
                     }
