@@ -113,7 +113,7 @@ pub async fn start_measurement() -> Result<(), JsValue> {
         let state_ipv4_ref = state_ipv4_ui.borrow();
         let state_ipv6_ref = state_ipv6_ui.borrow();
 
-        update_ui_dual("", &state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
+        update_ui_dual(&state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
     }).forget();
 
     // Keep connections alive
@@ -130,7 +130,7 @@ pub fn stop_measurement() {
     release_wake_lock();
 }
 
-fn update_ui_dual(dbg_message: &str, ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
+fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
     let window = match window() {
         Some(w) => w,
         None => return,
