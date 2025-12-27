@@ -39,7 +39,7 @@ pub fn track_udp_packet(
     }
 }
 
-/// C-compatible FFI function for tracking UDP packets
+/// C-compatible FFI function for tracking IPv4 UDP packets
 /// This can be called from the vendored webrtc-util code
 #[no_mangle]
 pub extern "C" fn wifi_verify_track_udp_packet(
@@ -68,6 +68,47 @@ pub extern "C" fn wifi_verify_track_udp_packet(
         dest_addr,
         udp_length,
         Some(ttl),
+        cleartext,
+        Instant::now(),
+    );
+}
+
+/// C-compatible FFI function for tracking IPv6 UDP packets
+/// This can be called from the vendored webrtc-util code
+#[no_mangle]
+pub extern "C" fn wifi_verify_track_udp_packet_v6(
+    dest_ip_v6_ptr: *const u8,  // Pointer to 16-byte IPv6 address in network byte order
+    dest_port: u16,             // Port in host byte order
+    udp_length: u16,            // UDP packet length
+    hop_limit: u8,              // IPv6 Hop Limit (equivalent to IPv4 TTL)
+    buf_ptr: *const u8,         // Pointer to buffer data
+    buf_len: usize,             // Buffer length
+) {
+    if dest_ip_v6_ptr.is_null() || buf_ptr.is_null() || buf_len == 0 {
+        return;
+    }
+    
+    // Safety: We trust the caller to provide valid pointers
+    let dest_ip_bytes = unsafe {
+        let slice = std::slice::from_raw_parts(dest_ip_v6_ptr, 16);
+        let mut arr = [0u8; 16];
+        arr.copy_from_slice(slice);
+        arr
+    };
+    
+    let cleartext = unsafe {
+        std::slice::from_raw_parts(buf_ptr, buf_len).to_vec()
+    };
+    
+    let dest_addr = SocketAddr::from((
+        std::net::Ipv6Addr::from(dest_ip_bytes),
+        dest_port,
+    ));
+    
+    track_udp_packet(
+        dest_addr,
+        udp_length,
+        Some(hop_limit),
         cleartext,
         Instant::now(),
     );
