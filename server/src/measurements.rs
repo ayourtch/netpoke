@@ -328,6 +328,14 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
     *session.metrics.write().await = metrics;
 }
 
+fn format_traceroute_message(hop: u8, router_ip: &Option<String>, rtt_ms: f64) -> String {
+    if let Some(ip) = router_ip {
+        format!("Hop {} via {} ({:.2}ms)", hop, ip, rtt_ms)
+    } else {
+        format!("Hop {} received ({:.2}ms)", hop, rtt_ms)
+    }
+}
+
 pub async fn start_traceroute_sender(
     session: Arc<ClientSession>,
 ) {
@@ -459,7 +467,8 @@ pub async fn start_traceroute_sender(
                 
                 for event in events {
                     // Extract TTL from send options to determine hop number
-                    let hop = event.send_options.ttl.unwrap_or(current_ttl);
+                    // TTL should always be set in send_options for traceroute packets
+                    let hop = event.send_options.ttl.expect("TTL should be set for traceroute packets");
                     
                     // Calculate RTT in milliseconds
                     let rtt = event.icmp_received_at.duration_since(event.sent_at);
@@ -470,11 +479,7 @@ pub async fn start_traceroute_sender(
                         hop,
                         ip_address: event.router_ip.clone(),
                         rtt_ms,
-                        message: if let Some(ref ip) = event.router_ip {
-                            format!("Hop {} via {} ({:.2}ms)", hop, ip, rtt_ms)
-                        } else {
-                            format!("Hop {} received ({:.2}ms)", hop, rtt_ms)
-                        },
+                        message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
                     };
 
                     tracing::info!("✅ Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
