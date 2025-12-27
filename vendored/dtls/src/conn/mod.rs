@@ -55,6 +55,10 @@ pub static INVALID_KEYING_LABELS: &[&str] = &[
     "key expansion",
 ];
 
+#[cfg(target_os = "linux")]
+type PacketSendRequest = (Vec<Packet>, Option<mpsc::Sender<Result<()>>>, Option<UdpSendOptions>);
+
+#[cfg(not(target_os = "linux"))]
 type PacketSendRequest = (Vec<Packet>, Option<mpsc::Sender<Result<()>>>);
 
 struct ConnReaderContext {
@@ -157,17 +161,18 @@ impl Conn for DTLSConn {
         self
     }
     
-    /// Forward send_with_options to the underlying connection
+    /// Send data with UDP options through the DTLS encryption layer
     /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// This ensures the data is encrypted before being sent with custom UDP options
     #[cfg(target_os = "linux")]
     async fn send_with_options(
         &self,
         buf: &[u8],
         options: &UdpSendOptions,
     ) -> UtilResult<usize> {
-        log::info!("🔵 DTLSConn::send_with_options: Forwarding to underlying conn with TTL={:?}, TOS={:?}, DF={:?}",
+        log::info!("🔵 DTLSConn::send_with_options: Sending encrypted data with TTL={:?}, TOS={:?}, DF={:?}",
             options.ttl, options.tos, options.df_bit);
-        self.conn.send_with_options(buf, options).await
+        self.write_with_options(buf, options, None).await.map_err(util::Error::from_std)
     }
     
     /// Forward send_to_with_options to the underlying connection
@@ -362,6 +367,9 @@ impl DTLSConn {
             loop {
                 let rx = packet_rx.recv().await;
                 if let Some(r) = rx {
+                    #[cfg(target_os = "linux")]
+                    let (pkt, result_tx, udp_options) = r;
+                    #[cfg(not(target_os = "linux"))]
                     let (pkt, result_tx) = r;
 
                     let result = DTLSConn::handle_outgoing_packets(
@@ -372,6 +380,8 @@ impl DTLSConn {
                         &sequence_number,
                         &cipher_suite1,
                         maximum_transmission_unit,
+                        #[cfg(target_os = "linux")]
+                        udp_options,
                     )
                     .await;
 
@@ -528,6 +538,45 @@ impl DTLSConn {
         Ok(p.len())
     }
 
+    // Write writes len(p) bytes from p to the DTLS connection with UDP socket options
+    // Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit) while maintaining encryption
+    #[cfg(target_os = "linux")]
+    pub async fn write_with_options(&self, p: &[u8], options: &UdpSendOptions, duration: Option<Duration>) -> Result<usize> {
+        if self.is_connection_closed() {
+            return Err(Error::ErrConnClosed);
+        }
+
+        if !self.is_handshake_completed_successfully() {
+            return Err(Error::ErrHandshakeInProgress);
+        }
+
+        let pkts = vec![Packet {
+            record: RecordLayer::new(
+                PROTOCOL_VERSION1_2,
+                self.get_local_epoch(),
+                Content::ApplicationData(ApplicationData { data: p.to_vec() }),
+            ),
+            should_encrypt: true,
+            reset_local_sequence_number: false,
+        }];
+
+        if let Some(d) = duration {
+            let timer = tokio::time::sleep(d);
+            tokio::pin!(timer);
+
+            tokio::select! {
+                result = self.write_packets_with_options(pkts, Some(options.clone())) => {
+                    result?;
+                }
+                _ = timer.as_mut() => return Err(Error::ErrDeadlineExceeded),
+            }
+        } else {
+            self.write_packets_with_options(pkts, Some(options.clone())).await?;
+        }
+
+        Ok(p.len())
+    }
+
     // Close closes the connection.
     pub async fn close(&self) -> Result<()> {
         if self
@@ -578,9 +627,27 @@ impl DTLSConn {
     }
 
     pub(crate) async fn write_packets(&self, pkts: Vec<Packet>) -> Result<()> {
+        #[cfg(target_os = "linux")]
+        {
+            self.write_packets_with_options(pkts, None).await
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let (tx, mut rx) = mpsc::channel(1);
+            self.packet_tx.send((pkts, Some(tx))).await?;
+            if let Some(result) = rx.recv().await {
+                result
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn write_packets_with_options(&self, pkts: Vec<Packet>, options: Option<UdpSendOptions>) -> Result<()> {
         let (tx, mut rx) = mpsc::channel(1);
 
-        self.packet_tx.send((pkts, Some(tx))).await?;
+        self.packet_tx.send((pkts, Some(tx), options)).await?;
 
         if let Some(result) = rx.recv().await {
             result
@@ -597,6 +664,8 @@ impl DTLSConn {
         local_sequence_number: &Arc<Mutex<Vec<u64>>>,
         cipher_suite: &Arc<Mutex<Option<Box<dyn CipherSuite + Send + Sync>>>>,
         maximum_transmission_unit: usize,
+        #[cfg(target_os = "linux")]
+        udp_options: Option<UdpSendOptions>,
     ) -> Result<()> {
         let mut raw_packets = vec![];
         for p in &mut pkts {
@@ -650,7 +719,20 @@ impl DTLSConn {
                 compact_raw_packets(&raw_packets, maximum_transmission_unit);
 
             for compacted_raw_packets in &compacted_raw_packets {
-                next_conn.send(compacted_raw_packets).await?;
+                #[cfg(target_os = "linux")]
+                {
+                    if let Some(ref opts) = udp_options {
+                        log::info!("🔵 DTLSConn::handle_outgoing_packets: Sending encrypted packet with TTL={:?}, TOS={:?}, DF={:?}",
+                            opts.ttl, opts.tos, opts.df_bit);
+                        next_conn.send_with_options(compacted_raw_packets, opts).await?;
+                    } else {
+                        next_conn.send(compacted_raw_packets).await?;
+                    }
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    next_conn.send(compacted_raw_packets).await?;
+                }
             }
         }
 
@@ -842,6 +924,8 @@ impl DTLSConn {
                             reset_local_sequence_number: false,
                         }],
                         None,
+                        #[cfg(target_os = "linux")]
+                        None,
                     ))
                     .await;
 
@@ -926,6 +1010,8 @@ impl DTLSConn {
                             should_encrypt: handshake_completed_successfully.load(Ordering::SeqCst),
                             reset_local_sequence_number: false,
                         }],
+                        None,
+                        #[cfg(target_os = "linux")]
                         None,
                     ))
                     .await;
