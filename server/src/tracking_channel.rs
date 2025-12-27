@@ -43,7 +43,7 @@ pub fn track_udp_packet(
 /// This can be called from the vendored webrtc-util code
 #[no_mangle]
 pub extern "C" fn wifi_verify_track_udp_packet(
-    dest_ip_v4: u32,      // IPv4 address in network byte order
+    dest_ip_v4: u32,      // IPv4 address as u32 in network byte order (e.g., from u32::from_be_bytes)
     dest_port: u16,       // Port in host byte order
     udp_length: u16,      // UDP packet length
     ttl: u8,              // TTL value
@@ -60,7 +60,7 @@ pub extern "C" fn wifi_verify_track_udp_packet(
     };
     
     let dest_addr = SocketAddr::from((
-        std::net::Ipv4Addr::from(u32::from_be(dest_ip_v4)),
+        std::net::Ipv4Addr::from(dest_ip_v4),
         dest_port,
     ));
     
