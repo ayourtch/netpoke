@@ -7,6 +7,12 @@ use std::sync::Arc;
 use crate::packet_tracker::{PacketTracker, EmbeddedUdpInfo};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr};
 
+// Constants for packet parsing
+const IPV6_HEADER_SIZE: usize = 40;
+const UDP_HEADER_SIZE: usize = 8;
+const ICMPV6_HEADER_SIZE: usize = 8;
+const MIN_ICMPV6_PACKET_SIZE: usize = ICMPV6_HEADER_SIZE + IPV6_HEADER_SIZE + UDP_HEADER_SIZE; // 56 bytes
+
 /// Start the ICMP listener in the background
 pub fn start_icmp_listener(packet_tracker: Arc<PacketTracker>) {
     #[cfg(target_os = "linux")]
@@ -280,9 +286,8 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     // 4-7: Rest of ICMPv6 header (varies by type)
     // 8+: Original IPv6 packet that caused the error
     
-    if packet.len() < 56 {
-        // Need at least: ICMPv6(8) + embedded IPv6(40) + embedded UDP(8)
-        println!("DEBUG: ICMPv6 packet too small: {} < 56", packet.len());
+    if packet.len() < MIN_ICMPV6_PACKET_SIZE {
+        println!("DEBUG: ICMPv6 packet too small: {} < {}", packet.len(), MIN_ICMPV6_PACKET_SIZE);
         return None;
     }
     
@@ -300,9 +305,9 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     }
     
     // Extract embedded IPv6 packet (starts at offset 8 in ICMPv6 packet)
-    let embedded_ip_start = 8;
+    let embedded_ip_start = ICMPV6_HEADER_SIZE;
     
-    if packet.len() < embedded_ip_start + 40 {
+    if packet.len() < embedded_ip_start + IPV6_HEADER_SIZE {
         println!("DEBUG: Not enough data for embedded IPv6 header");
         return None;
     }
@@ -328,21 +333,15 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     }
     
     // Extract destination IPv6 address from embedded packet (bytes 24-39 of IPv6 header)
-    let dest_ip = Ipv6Addr::new(
-        u16::from_be_bytes([packet[embedded_ip_start + 24], packet[embedded_ip_start + 25]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 26], packet[embedded_ip_start + 27]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 28], packet[embedded_ip_start + 29]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 30], packet[embedded_ip_start + 31]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 32], packet[embedded_ip_start + 33]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 34], packet[embedded_ip_start + 35]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 36], packet[embedded_ip_start + 37]]),
-        u16::from_be_bytes([packet[embedded_ip_start + 38], packet[embedded_ip_start + 39]]),
-    );
+    let dest_ip_bytes: [u8; 16] = packet[embedded_ip_start + 24..embedded_ip_start + 40]
+        .try_into()
+        .ok()?;
+    let dest_ip = Ipv6Addr::from(dest_ip_bytes);
     
-    // Parse embedded UDP header (starts after 40-byte IPv6 header)
-    let embedded_udp_start = embedded_ip_start + 40;
+    // Parse embedded UDP header (starts after IPv6 header)
+    let embedded_udp_start = embedded_ip_start + IPV6_HEADER_SIZE;
     
-    if packet.len() < embedded_udp_start + 8 {
+    if packet.len() < embedded_udp_start + UDP_HEADER_SIZE {
         println!("DEBUG: Not enough data for embedded UDP header");
         return None;
     }
@@ -364,7 +363,7 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     ]);
     
     // Extract first 8 bytes of UDP payload (for matching)
-    let payload_start = embedded_udp_start + 8;
+    let payload_start = embedded_udp_start + UDP_HEADER_SIZE;
     let payload_end = std::cmp::min(payload_start + 8, packet.len());
     let payload_prefix = packet[payload_start..payload_end].to_vec();
     
