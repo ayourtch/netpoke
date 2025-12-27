@@ -105,6 +105,13 @@ impl WebRtcConnection {
         let control_channel = peer.create_data_channel_with_data_channel_dict("control", &control_init);
         measurements::setup_control_channel(control_channel);
 
+        // Create testprobe channel (unreliable, unordered) for traceroute test probes
+        let testprobe_init = RtcDataChannelInit::new();
+        testprobe_init.set_ordered(false);
+        testprobe_init.set_max_retransmits(0);
+        let testprobe_channel = peer.create_data_channel_with_data_channel_dict("testprobe", &testprobe_init);
+        measurements::setup_testprobe_channel(testprobe_channel);
+
         log::info!("Creating offer");
 
         let offer = wasm_bindgen_futures::JsFuture::from(peer.create_offer()).await?;

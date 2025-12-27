@@ -45,6 +45,10 @@ pub async fn setup_data_channel_handlers(
                         measurements::start_traceroute_sender(session_clone).await;
                     });
                 },
+                "testprobe" => {
+                    chans.testprobe = Some(dc.clone());
+                    tracing::info!("TestProbe channel registered for client {}", session.id);
+                },
                 _ => tracing::warn!("Unknown data channel: {}", label),
             }
             drop(chans);
@@ -71,6 +75,7 @@ async fn handle_message(session: Arc<ClientSession>, channel: &str, msg: DataCha
         "probe" => handle_probe_message(session, msg).await,
         "bulk" => handle_bulk_message(session, msg).await,
         "control" => handle_control_message(session, msg).await,
+        "testprobe" => handle_testprobe_message(session, msg).await,
         _ => {}
     }
 }
@@ -85,4 +90,8 @@ async fn handle_bulk_message(session: Arc<ClientSession>, msg: DataChannelMessag
 
 async fn handle_control_message(session: Arc<ClientSession>, _msg: DataChannelMessage) {
     tracing::trace!("Control message from {}", session.id);
+}
+
+async fn handle_testprobe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
+    measurements::handle_testprobe_packet(session, msg).await;
 }

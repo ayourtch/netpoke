@@ -38,6 +38,17 @@ pub struct ProbePacket {
     pub send_options: Option<SendOptions>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TestProbePacket {
+    pub seq: u64,
+    pub timestamp_ms: u64,
+    pub direction: Direction,
+    
+    /// Optional send options for this packet
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_options: Option<SendOptions>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkPacket {
     pub data: Vec<u8>,

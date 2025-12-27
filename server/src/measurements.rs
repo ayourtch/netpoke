@@ -361,36 +361,36 @@ pub async fn start_traceroute_sender(
         };
         drop(channels);
 
-        // Get probe channel to send traceroute probes
+        // Get testprobe channel to send traceroute test probes
         let channels = session.data_channels.read().await;
-        let probe_channel = match &channels.probe {
+        let testprobe_channel = match &channels.testprobe {
             Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
             _ => {
-                tracing::debug!("Probe channel not ready for session {}, skipping", session.id);
+                tracing::debug!("TestProbe channel not ready for session {}, skipping", session.id);
                 drop(channels);
                 continue;
             }
         };
         drop(channels);
 
-        // Create probe packet with specific TTL for traceroute
+        // Create test probe packet with specific TTL for traceroute
         let sent_at_ms = current_time_ms();
         let seq = {
             let mut state = session.measurement_state.write().await;
-            let seq = state.probe_seq;
-            state.probe_seq += 1;
+            let seq = state.testprobe_seq;
+            state.testprobe_seq += 1;
             
-            // Track the probe so we can match it when/if it's echoed back
-            state.sent_probes.push_back(crate::state::SentProbe {
+            // Track the test probe so we can match it when/if it's echoed back
+            state.sent_testprobes.push_back(crate::state::SentProbe {
                 seq,
                 sent_at_ms,
             });
             
-            // Keep only last 60 seconds of sent probes
+            // Keep only last 60 seconds of sent test probes
             let cutoff = sent_at_ms - 60_000;
-            while let Some(p) = state.sent_probes.front() {
+            while let Some(p) = state.sent_testprobes.front() {
                 if p.sent_at_ms < cutoff {
-                    state.sent_probes.pop_front();
+                    state.sent_testprobes.pop_front();
                 } else {
                     break;
                 }
@@ -407,15 +407,15 @@ pub async fn start_traceroute_sender(
             track_for_ms: 5000, // Track for 5 seconds to catch ICMP responses
         };
 
-        let probe = ProbePacket {
+        let testprobe = common::TestProbePacket {
             seq,
             timestamp_ms: sent_at_ms,
             direction: Direction::ServerToClient,
             send_options: Some(send_options),
         };
 
-        // Send probe with TTL using the new send_with_options API
-        if let Ok(mut json) = serde_json::to_vec(&probe) {
+        // Send test probe with TTL using the new send_with_options API
+        if let Ok(mut json) = serde_json::to_vec(&testprobe) {
             // Pad the JSON to create unique lengths for each TTL
             // This helps with matching ICMP errors based on UDP packet length
             // Base size + (TTL * 10 bytes) to make each hop distinguishable
@@ -424,7 +424,7 @@ pub async fn start_traceroute_sender(
                 json.resize(target_size, b' '); // Pad with spaces
             }
             
-            tracing::info!("🔵 Sending traceroute probe via data channel: TTL={}, seq={}, json_len={}", 
+            tracing::info!("🔵 Sending traceroute test probe via testprobe channel: TTL={}, seq={}, json_len={}", 
                 current_ttl, seq, json.len());
             
             #[cfg(target_os = "linux")]
@@ -439,18 +439,18 @@ pub async fn start_traceroute_sender(
                     options.as_ref().and_then(|o| o.ttl),
                     options.as_ref().and_then(|o| o.tos),
                     options.as_ref().and_then(|o| o.df_bit));
-                probe_channel.send_with_options(&json.into(), options).await
+                testprobe_channel.send_with_options(&json.into(), options).await
             };
             
             #[cfg(not(target_os = "linux"))]
-            let send_result = probe_channel.send(&json.into()).await;
+            let send_result = testprobe_channel.send(&json.into()).await;
 
             if let Err(e) = send_result {
-                tracing::error!("Failed to send traceroute probe: {}", e);
+                tracing::error!("Failed to send traceroute test probe: {}", e);
                 continue;
             }
 
-            tracing::info!("Sent traceroute probe with TTL {} (seq {})", current_ttl, seq);
+            tracing::info!("Sent traceroute test probe with TTL {} (seq {})", current_ttl, seq);
             
             // Note: Packet tracking now happens automatically at the UDP layer
             // The vendored webrtc-util code will call wifi_verify_track_udp_packet()
@@ -521,6 +521,53 @@ fn current_time_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64
+}
+
+pub async fn handle_testprobe_packet(
+    session: Arc<ClientSession>,
+    msg: DataChannelMessage,
+) {
+    if let Ok(testprobe) = serde_json::from_slice::<common::TestProbePacket>(&msg.data) {
+        let now_ms = current_time_ms();
+
+        let mut state = session.measurement_state.write().await;
+
+        // Check if this is an echoed S2C test probe
+        if testprobe.direction == Direction::ServerToClient {
+            // This is an echoed test probe - client received our test probe and echoed it back
+            tracing::info!("Received echoed S2C test probe seq {} from client {}", testprobe.seq, session.id);
+
+            if let Some(sent_testprobe) = state.sent_testprobes.iter().find(|p| p.seq == testprobe.seq) {
+                let sent_at_ms = sent_testprobe.sent_at_ms;
+                state.echoed_testprobes.push_back(crate::state::EchoedProbe {
+                    seq: testprobe.seq,
+                    sent_at_ms,
+                    echoed_at_ms: testprobe.timestamp_ms,
+                });
+                tracing::info!("Matched echoed test probe seq {}, delay: {}ms",
+                    testprobe.seq, testprobe.timestamp_ms.saturating_sub(sent_at_ms));
+
+                // Keep only last 60 seconds of echoed test probes
+                let cutoff = now_ms - 60_000;
+                while let Some(p) = state.echoed_testprobes.front() {
+                    if p.echoed_at_ms < cutoff {
+                        state.echoed_testprobes.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Reset testprobe sequence number since we now know the packet reached the client
+                // This means there's no need to traceroute further
+                tracing::info!("🎯 Test probe reached client! Resetting testprobe sequence number for session {}", session.id);
+                state.testprobe_seq = 0;
+            } else {
+                tracing::warn!("Received echoed test probe seq {} but couldn't find matching sent test probe", testprobe.seq);
+            }
+        }
+
+        drop(state);
+    }
 }
 
 #[cfg(test)]

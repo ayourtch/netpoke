@@ -322,3 +322,38 @@ fn append_server_message(message: &str) {
 pub fn current_time_ms() -> u64 {
     js_sys::Date::now() as u64
 }
+
+pub fn setup_testprobe_channel(channel: RtcDataChannel) {
+    let onopen = Closure::wrap(Box::new(move || {
+        log::info!("TestProbe channel opened");
+    }) as Box<dyn FnMut()>);
+
+    channel.set_onopen(Some(onopen.as_ref().unchecked_ref()));
+    onopen.forget();
+
+    // Handle incoming test probes from server - echo them back
+    let channel_for_echo = channel.clone();
+    let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
+        let array = Uint8Array::new(&ev.data());
+        let data = array.to_vec();
+        let text = String::from_utf8_lossy(&data);
+
+        // Try to parse as TestProbePacket
+        if let Ok(mut testprobe) = serde_json::from_str::<common::TestProbePacket>(&text) {
+            let now_ms = current_time_ms();
+            
+            log::info!("Received test probe seq {} from server, echoing back", testprobe.seq);
+            
+            // Echo test probe back to server with received timestamp
+            testprobe.timestamp_ms = now_ms;
+            if let Ok(json) = serde_json::to_string(&testprobe) {
+                if let Err(e) = channel_for_echo.send_with_str(&json) {
+                    log::error!("Failed to echo test probe back: {:?}", e);
+                }
+            }
+        }
+    }) as Box<dyn FnMut(MessageEvent)>);
+
+    channel.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
+    onmessage.forget();
+}

@@ -34,16 +34,20 @@ pub struct DataChannels {
     pub probe: Option<Arc<RTCDataChannel>>,
     pub bulk: Option<Arc<RTCDataChannel>>,
     pub control: Option<Arc<RTCDataChannel>>,
+    pub testprobe: Option<Arc<RTCDataChannel>>,
 }
 
 pub struct MeasurementState {
     pub probe_seq: u64,
+    pub testprobe_seq: u64,  // Separate sequence space for traceroute test probes
     pub bulk_bytes_sent: u64,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
     pub sent_bulk_packets: VecDeque<SentBulk>,
     pub sent_probes: VecDeque<SentProbe>,  // Track sent S2C probes
     pub echoed_probes: VecDeque<EchoedProbe>,  // Track echoed S2C probes
+    pub sent_testprobes: VecDeque<SentProbe>,  // Track sent test probes for traceroute
+    pub echoed_testprobes: VecDeque<EchoedProbe>,  // Track echoed test probes
     pub last_received_seq: Option<u64>,
 }
 
@@ -96,6 +100,7 @@ impl DataChannels {
             probe: None,
             bulk: None,
             control: None,
+            testprobe: None,
         }
     }
 }
@@ -104,12 +109,15 @@ impl MeasurementState {
     pub fn new() -> Self {
         Self {
             probe_seq: 0,
+            testprobe_seq: 0,
             bulk_bytes_sent: 0,
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
             sent_bulk_packets: VecDeque::new(),
             sent_probes: VecDeque::new(),
             echoed_probes: VecDeque::new(),
+            sent_testprobes: VecDeque::new(),
+            echoed_testprobes: VecDeque::new(),
             last_received_seq: None,
         }
     }
