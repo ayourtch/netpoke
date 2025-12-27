@@ -254,7 +254,7 @@ git diff > ../../patches/webrtc-ice/send-options.patch
 
 - [TRACEROUTE_FIX_SUMMARY.md](TRACEROUTE_FIX_SUMMARY.md) - Overall traceroute implementation
 - [DTLS_FORWARDING_FIX.md](DTLS_FORWARDING_FIX.md) - DTLS layer forwarding
-- [patches/README.md](patches/README.md) - All vendored crate modifications
+- [patches/README.md](../../patches/README.md) - All vendored crate modifications
 
 ## Benefits
 

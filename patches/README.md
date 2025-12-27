@@ -141,10 +141,10 @@ When updating vendored crates:
 ## Documentation
 
 For complete implementation details, usage guide, and testing instructions, see:
-- `ICE_SEND_OPTIONS_FIX.md` - ICE layer implementation and backtrace addition
-- `DTLS_FORWARDING_FIX.md` - DTLS layer forwarding details
-- `TRACEROUTE_FIX_SUMMARY.md` - Overall traceroute implementation
-- `docs/UDP_PACKET_OPTIONS.md` - Complete feature documentation
+- [docs/history/ICE_SEND_OPTIONS_FIX.md](../docs/history/ICE_SEND_OPTIONS_FIX.md) - ICE layer implementation and backtrace addition
+- [docs/history/DTLS_FORWARDING_FIX.md](../docs/history/DTLS_FORWARDING_FIX.md) - DTLS layer forwarding details
+- [docs/history/TRACEROUTE_FIX_SUMMARY.md](../docs/history/TRACEROUTE_FIX_SUMMARY.md) - Overall traceroute implementation
+- [docs/UDP_PACKET_OPTIONS.md](../docs/UDP_PACKET_OPTIONS.md) - Complete feature documentation
 
 ## Platform Support
 

@@ -72,5 +72,5 @@ After applying patches:
 
 ## Related Documentation
 
-- [ICE_SEND_OPTIONS_FIX.md](../../ICE_SEND_OPTIONS_FIX.md) - Complete ICE implementation details
+- [../../docs/history/ICE_SEND_OPTIONS_FIX.md](../../docs/history/ICE_SEND_OPTIONS_FIX.md) - Complete ICE implementation details
 - [../README.md](../README.md) - All vendored crate modifications
