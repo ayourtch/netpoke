@@ -84,14 +84,16 @@ pub extern "C" fn wifi_verify_track_udp_packet_v6(
     buf_ptr: *const u8,         // Pointer to buffer data
     buf_len: usize,             // Buffer length
 ) {
+    const IPV6_ADDR_LEN: usize = 16;
+    
     if dest_ip_v6_ptr.is_null() || buf_ptr.is_null() || buf_len == 0 {
         return;
     }
     
     // Safety: We trust the caller to provide valid pointers
     let dest_ip_bytes = unsafe {
-        let slice = std::slice::from_raw_parts(dest_ip_v6_ptr, 16);
-        let mut arr = [0u8; 16];
+        let slice = std::slice::from_raw_parts(dest_ip_v6_ptr, IPV6_ADDR_LEN);
+        let mut arr = [0u8; IPV6_ADDR_LEN];
         arr.copy_from_slice(slice);
         arr
     };

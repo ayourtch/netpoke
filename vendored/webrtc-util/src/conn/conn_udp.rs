@@ -322,20 +322,30 @@ fn sendmsg_with_options(
         // Track this packet for ICMP/ICMPv6 correlation if TTL/Hop Limit is set
         // Call the extern function from wifi-verify-server
         if let Some(ttl_value) = options.ttl {
+            // Declare extern functions once
+            extern "C" {
+                fn wifi_verify_track_udp_packet(
+                    dest_ip_v4: u32,
+                    dest_port: u16,
+                    udp_length: u16,
+                    ttl: u8,
+                    buf_ptr: *const u8,
+                    buf_len: usize,
+                );
+                
+                fn wifi_verify_track_udp_packet_v6(
+                    dest_ip_v6_ptr: *const u8,
+                    dest_port: u16,
+                    udp_length: u16,
+                    hop_limit: u8,
+                    buf_ptr: *const u8,
+                    buf_len: usize,
+                );
+            }
+            
             match dest {
                 SocketAddr::V4(addr_v4) => {
                     // Track IPv4 packet
-                    extern "C" {
-                        fn wifi_verify_track_udp_packet(
-                            dest_ip_v4: u32,
-                            dest_port: u16,
-                            udp_length: u16,
-                            ttl: u8,
-                            buf_ptr: *const u8,
-                            buf_len: usize,
-                        );
-                    }
-                    
                     let dest_ip = u32::from_be_bytes(addr_v4.ip().octets());
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
@@ -355,17 +365,6 @@ fn sendmsg_with_options(
                 }
                 SocketAddr::V6(addr_v6) => {
                     // Track IPv6 packet
-                    extern "C" {
-                        fn wifi_verify_track_udp_packet_v6(
-                            dest_ip_v6_ptr: *const u8,
-                            dest_port: u16,
-                            udp_length: u16,
-                            hop_limit: u8,
-                            buf_ptr: *const u8,
-                            buf_len: usize,
-                        );
-                    }
-                    
                     let dest_ip = addr_v6.ip().octets();
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
