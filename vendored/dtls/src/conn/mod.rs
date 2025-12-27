@@ -923,9 +923,9 @@ impl DTLSConn {
                             should_encrypt: handshake_completed_successfully.load(Ordering::SeqCst),
                             reset_local_sequence_number: false,
                         }],
-                        None,
+                        None, // result_tx
                         #[cfg(target_os = "linux")]
-                        None,
+                        None, // udp_options - alerts are sent without custom UDP options
                     ))
                     .await;
 
@@ -1010,9 +1010,9 @@ impl DTLSConn {
                             should_encrypt: handshake_completed_successfully.load(Ordering::SeqCst),
                             reset_local_sequence_number: false,
                         }],
-                        None,
+                        None, // result_tx
                         #[cfg(target_os = "linux")]
-                        None,
+                        None, // udp_options - alerts are sent without custom UDP options
                     ))
                     .await;
 
