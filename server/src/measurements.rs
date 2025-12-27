@@ -564,10 +564,11 @@ pub async fn handle_testprobe_packet(
                     }
                 }
 
-                // Reset testprobe sequence number and TTL since we now know the packet reached the client
-                // This means there's no need to traceroute further - we've found the full path
-                tracing::info!("🎯 Test probe reached client! Resetting testprobe sequence and TTL for session {}", session.id);
-                state.testprobe_seq = 0;
+                // Reset TTL to restart the traceroute scan since a probe reached the client
+                // This means we've found the full path and can start over
+                // NOTE: We do NOT reset testprobe_seq to avoid sequence number reuse
+                // while older test probes are still in flight or in the tracking deques
+                tracing::info!("🎯 Test probe reached client! Resetting TTL for session {}", session.id);
                 state.current_ttl = 1;
             } else {
                 tracing::warn!("Received echoed test probe seq {} but couldn't find matching sent test probe", testprobe.seq);
