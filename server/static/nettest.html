@@ -418,6 +418,8 @@
         // Function to add traceroute hop data
         function addTracerouteHop(hopData) {
             // Filter out "Probing hop" messages (placeholder messages)
+            // This is a defensive measure in case old messages are still in flight
+            // or if the server code is reverted temporarily
             if (hopData.message && hopData.message.includes("Probing hop")) {
                 return; // Ignore placeholder messages
             }
