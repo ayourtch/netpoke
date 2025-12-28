@@ -7,8 +7,19 @@ use std::sync::Arc;
 use wifi_verify_auth::AuthService;
 
 /// Middleware to require either regular authentication OR Magic Key survey session
-/// This is specifically for the network test page which can be accessed by both authenticated users
-/// and surveyors with a Magic Key
+/// 
+/// This middleware implements an OR logic where EITHER authentication method grants access:
+/// - Regular authentication (username/password or OAuth) - full access with higher privileges
+/// - Magic Key survey session - limited access for field surveyors
+/// 
+/// When both cookies are present:
+/// - Regular authentication takes precedence and is checked first
+/// - If regular auth is valid, that identity is used
+/// - If regular auth is invalid/expired, Magic Key is checked as fallback
+/// - This ensures privileges from login+password session have precedence over magic key
+/// 
+/// This is specifically for the network test page and signaling API which can be accessed
+/// by both authenticated users and surveyors with a Magic Key
 pub async fn require_auth_or_survey_session(
     State(auth_service): State<Arc<AuthService>>,
     request: Request,
@@ -26,14 +37,20 @@ pub async fn require_auth_or_survey_session(
         .and_then(|cookie| cookie.to_str().ok());
     
     if let Some(cookie_str) = cookie_header {
-        // Check for regular authentication session
+        // Track authentication status for both methods
+        let mut regular_auth_valid = false;
+        let mut magic_key_valid = false;
+        
+        // Check for regular authentication session (takes precedence)
         if let Some(session_id) = extract_session_id(cookie_str, &auth_service.config.session.cookie_name) {
             match auth_service.validate_session(&session_id).await {
                 Ok(session_data) => {
                     // Check if user is in allowed list
                     if auth_service.is_user_allowed(&session_data.handle) {
-                        tracing::debug!("Access granted via regular authentication for user: {}", session_data.handle);
-                        return next.run(request).await;
+                        tracing::debug!("Regular authentication valid for user: {}", session_data.handle);
+                        regular_auth_valid = true;
+                    } else {
+                        tracing::debug!("User {} has valid session but is not in allowed list", session_data.handle);
                     }
                 }
                 Err(e) => {
@@ -42,17 +59,27 @@ pub async fn require_auth_or_survey_session(
             }
         }
         
-        // Check for survey session (Magic Key)
-        if auth_service.config.magic_keys.enabled {
+        // Check for survey session (Magic Key) only if regular auth didn't succeed
+        if !regular_auth_valid && auth_service.config.magic_keys.enabled {
             if let Some(survey_session_id) = extract_session_id(cookie_str, &auth_service.config.magic_keys.survey_cookie_name) {
                 // Validate the survey session format and expiration
                 if validate_survey_session(&survey_session_id, &auth_service.config.magic_keys) {
-                    tracing::debug!("Access granted via survey session: {}", survey_session_id);
-                    return next.run(request).await;
+                    tracing::debug!("Magic Key authentication valid: {}", survey_session_id);
+                    magic_key_valid = true;
                 } else {
                     tracing::debug!("Invalid or expired survey session: {}", survey_session_id);
                 }
             }
+        }
+        
+        // Grant access if EITHER authentication method succeeded (OR logic)
+        // Regular auth takes precedence (checked first)
+        if regular_auth_valid {
+            tracing::debug!("Access granted via regular authentication (precedence)");
+            return next.run(request).await;
+        } else if magic_key_valid {
+            tracing::debug!("Access granted via Magic Key (fallback)");
+            return next.run(request).await;
         }
     }
     
