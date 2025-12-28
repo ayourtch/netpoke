@@ -7,6 +7,7 @@ This directory contains all documentation for the wifi-verify project.
 ### Setup and Configuration
 - **[HTTPS_SETUP.md](HTTPS_SETUP.md)** - Guide for enabling HTTPS support with certificates
 - **[VERIFICATION_GUIDE.md](VERIFICATION_GUIDE.md)** - Quick guide for verifying traceroute functionality works correctly
+- **[GITHUB_ACTIONS.md](GITHUB_ACTIONS.md)** - GitHub Actions workflows for deployment and automation
 
 ### Authentication
 - **[AUTHENTICATION.md](AUTHENTICATION.md)** - Complete authentication setup guide
