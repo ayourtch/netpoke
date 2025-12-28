@@ -359,6 +359,16 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
     log::info!("Stop traceroute messages sent to all connections");
 
+    // Clear metrics before starting Phase 2 measurements
+    log::info!("Clearing metrics before Phase 2...");
+    for conn in &ipv4_connections {
+        conn.state.borrow_mut().clear_metrics();
+    }
+    for conn in &ipv6_connections {
+        conn.state.borrow_mut().clear_metrics();
+    }
+    log::info!("Client-side metrics cleared");
+
     // PHASE 2: Start measurement loops on the same connections
     // Collect states for calculation and UI updates
     let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();

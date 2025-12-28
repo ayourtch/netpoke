@@ -48,6 +48,15 @@ impl MeasurementState {
         }
     }
 
+    pub fn clear_metrics(&mut self) {
+        // Clear accumulated measurement data
+        self.received_probes.clear();
+        self.received_bulk_bytes.clear();
+        // Reset metrics to default values
+        self.metrics = ClientMetrics::default();
+        log::info!("Cleared metrics for conn_id: {}", self.conn_id);
+    }
+
     pub fn calculate_metrics(&mut self) {
         let now_ms = current_time_ms();
 

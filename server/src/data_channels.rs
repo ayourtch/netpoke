@@ -4,6 +4,7 @@ use webrtc::data_channel::data_channel_message::DataChannelMessage;
 use std::sync::Arc;
 use crate::state::ClientSession;
 use crate::measurements;
+use common::ClientMetrics;
 
 // Mode constants for measurement type
 const MODE_TRACEROUTE: &str = "traceroute";
@@ -128,13 +129,30 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
         
         tracing::info!("Received stop traceroute request for session {}", session.id);
         
-        // Set the stop flag
+        // Set the stop flag and clear metrics for measurement phase
         {
             let mut state = session.measurement_state.write().await;
             state.stop_traceroute = true;
+            
+            // Clear measurement data accumulated during traceroute phase
+            state.received_probes.clear();
+            state.received_bulk_bytes.clear();
+            state.sent_bulk_packets.clear();
+            state.sent_probes.clear();
+            state.sent_probes_map.clear();
+            state.echoed_probes.clear();
+            // Note: We don't clear sent_testprobes or testprobe_seq as they're used for traceroute
+            tracing::info!("Cleared server-side metrics for session {}", session.id);
         }
         
-        tracing::info!("Traceroute stop flag set for session {}", session.id);
+        // Also reset the ClientMetrics
+        {
+            let mut metrics = session.metrics.write().await;
+            *metrics = ClientMetrics::default();
+            tracing::info!("Reset ClientMetrics for session {}", session.id);
+        }
+        
+        tracing::info!("Traceroute stop flag set and metrics cleared for session {}", session.id);
         
         // Now start the probe and bulk senders for measurement phase
         tracing::info!("Starting probe and bulk senders for measurement phase (session {})", session.id);
