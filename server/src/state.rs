@@ -21,6 +21,8 @@ pub struct ClientSession {
     pub parent_id: Option<String>,
     pub ip_version: Option<String>,
     pub mode: Option<String>,  // "measurement" or "traceroute"
+    /// Connection ID (UUID) for multi-path ECMP testing
+    pub conn_id: String,
     pub peer_connection: Arc<RTCPeerConnection>,
     pub data_channels: Arc<RwLock<DataChannels>>,
     pub metrics: Arc<RwLock<ClientMetrics>>,

@@ -36,6 +36,11 @@ pub struct ProbePacket {
     /// Optional send options for this packet
     #[serde(skip_serializing_if = "Option::is_none")]
     pub send_options: Option<SendOptions>,
+    
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    /// Defaults to empty string for backwards compatibility
+    #[serde(default)]
+    pub conn_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -47,6 +52,11 @@ pub struct TestProbePacket {
     /// Optional send options for this packet
     #[serde(skip_serializing_if = "Option::is_none")]
     pub send_options: Option<SendOptions>,
+    
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    /// Defaults to empty string for backwards compatibility
+    #[serde(default)]
+    pub conn_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +116,11 @@ pub struct TraceHopMessage {
     
     /// Human-readable message about this hop
     pub message: String,
+    
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    /// Defaults to empty string for backwards compatibility
+    #[serde(default)]
+    pub conn_id: String,
 }
 
 /// Event generated when an ICMP error matches a tracked packet
@@ -144,6 +159,7 @@ mod tests {
             timestamp_ms: 1234567890,
             direction: Direction::ClientToServer,
             send_options: None,
+            conn_id: String::new(),
         };
 
         let json = serde_json::to_string(&packet).unwrap();
@@ -196,6 +212,7 @@ mod tests {
                 flow_label: None,
                 track_for_ms: 5000,
             }),
+            conn_id: String::new(),
         };
 
         let json = serde_json::to_string(&packet).unwrap();
@@ -213,6 +230,7 @@ mod tests {
             timestamp_ms: 1000,
             direction: Direction::ServerToClient,
             send_options: None,
+            conn_id: String::new(),
         };
         
         let testprobe = TestProbePacket {
@@ -220,6 +238,7 @@ mod tests {
             timestamp_ms: 1000,
             direction: Direction::ServerToClient,
             send_options: None,
+            conn_id: String::new(),
         };
         
         let probe_json = serde_json::to_string(&probe).unwrap();

@@ -44,6 +44,16 @@
 </head>
 <body>
     <h1>Network Measurement Client</h1>
+    <div style="margin-bottom: 15px;">
+        <label for="conn-count" style="font-weight: bold; margin-right: 10px;">Connections per Address Family (ECMP):</label>
+        <select id="conn-count" style="padding: 5px; font-size: 14px;">
+            <option value="1" selected>1 connection</option>
+            <option value="2">2 connections</option>
+            <option value="4">4 connections</option>
+            <option value="8">8 connections</option>
+            <option value="16">16 connections</option>
+        </select>
+    </div>
     <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
     <button id="analyze-btn" onclick="analyzePath()">Analyze Path</button>
     <span id="wake-lock-status">Wake Lock: Checking...</span>
@@ -404,7 +414,7 @@
 
                 // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                 const module = await import('/public/pkg/wifi_verify_client.js');
-                const { default: init, start_measurement, analyze_path } = module;
+                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count } = module;
 
                 // Initialize WASM with explicit path and cache-busting
                 // Pass the .wasm file path to init() for Safari compatibility
@@ -412,6 +422,12 @@
                 console.log('WASM module loaded successfully');
                 statusEl.textContent = 'Ready';
                 statusEl.className = '';
+                
+                // Get connection count from dropdown
+                const getConnCount = () => {
+                    const select = document.getElementById('conn-count');
+                    return parseInt(select.value, 10) || 1;
+                };
 
                 window.startMeasurement = async function() {
                     statusEl.textContent = 'Starting...';
@@ -419,10 +435,13 @@
                     btnEl.disabled = true;
                     analyzeBtn.disabled = true;
                     errorEl.textContent = '';
+                    
+                    const connCount = getConnCount();
+                    console.log(`Starting measurement with ${connCount} connections per address family`);
 
                     try {
-                        await start_measurement();
-                        statusEl.textContent = 'Running - measuring network...';
+                        await start_measurement_with_count(connCount);
+                        statusEl.textContent = `Running - measuring network with ${connCount} connection(s)...`;
                         statusEl.className = 'running';
                         
                         // Update wake lock status
@@ -453,10 +472,13 @@
                     if (serverMessagesEl) {
                         serverMessagesEl.value = '';
                     }
+                    
+                    const connCount = getConnCount();
+                    console.log(`Starting path analysis with ${connCount} connections per address family`);
 
                     try {
-                        await analyze_path();
-                        statusEl.textContent = 'Path analysis complete';
+                        await analyze_path_with_count(connCount);
+                        statusEl.textContent = `Path analysis complete (${connCount} connection(s))`;
                         statusEl.className = '';
                         btnEl.disabled = false;
                         analyzeBtn.disabled = false;

@@ -12,6 +12,7 @@ pub struct MeasurementState {
     pub test_count: u64,
     pub test_debug: String,
     pub probe_seq: u64,
+    pub conn_id: String,
     pub metrics: ClientMetrics,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
@@ -32,10 +33,15 @@ pub struct ReceivedBulk {
 
 impl MeasurementState {
     pub fn new() -> Self {
+        Self::with_conn_id(String::new())
+    }
+    
+    pub fn with_conn_id(conn_id: String) -> Self {
         Self {
             test_count: 0,
             test_debug: "".into(),
             probe_seq: 0,
+            conn_id,
             metrics: ClientMetrics::default(),
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
@@ -129,6 +135,7 @@ pub fn setup_probe_channel(
                 timestamp_ms: current_time_ms(),
                 direction: Direction::ClientToServer,
                 send_options: None,  // Client doesn't send options yet
+                conn_id: state.conn_id.clone(),
             };
             state.probe_seq += 1;
 

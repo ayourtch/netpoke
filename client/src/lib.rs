@@ -76,7 +76,15 @@ fn release_wake_lock() {
 
 #[wasm_bindgen]
 pub async fn start_measurement() -> Result<(), JsValue> {
-    log::info!("Starting dual-stack network measurement...");
+    // Default to 1 connection per address family
+    start_measurement_with_count(1).await
+}
+
+/// Start measurement with multiple connections per address family for ECMP testing
+#[wasm_bindgen]
+pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue> {
+    let count = conn_count.clamp(1, 16) as usize;
+    log::info!("Starting dual-stack network measurement with {} connections per address family...", count);
 
     // Request wake lock to prevent device from sleeping
     if let Err(e) = request_wake_lock().await {
@@ -84,48 +92,75 @@ pub async fn start_measurement() -> Result<(), JsValue> {
         // Continue anyway - wake lock is optional
     }
 
-    // Create IPv4 connection (first connection, no parent)
-    let ipv4_connection = webrtc::WebRtcConnection::new_with_ip_version("ipv4", None).await?;
-    let parent_id = Some(ipv4_connection.client_id.clone());
-    log::info!("IPv4 connected with client_id: {}", ipv4_connection.client_id);
+    // Create IPv4 connections
+    let mut ipv4_connections = Vec::with_capacity(count);
+    let mut parent_id: Option<String> = None;
+    
+    for i in 0..count {
+        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
+            "ipv4", 
+            parent_id.clone(), 
+            None, 
+            None  // conn_id will be auto-generated
+        ).await?;
+        
+        if i == 0 {
+            parent_id = Some(conn.client_id.clone());
+        }
+        log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        ipv4_connections.push(conn);
+    }
 
-    // Create IPv6 connection (second connection, with parent from IPv4)
-    let ipv6_connection = webrtc::WebRtcConnection::new_with_ip_version("ipv6", parent_id).await?;
-    log::info!("IPv6 connected with client_id: {}", ipv6_connection.client_id);
+    // Create IPv6 connections (use parent from first IPv4 connection)
+    let mut ipv6_connections = Vec::with_capacity(count);
+    for i in 0..count {
+        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
+            "ipv6", 
+            parent_id.clone(), 
+            None, 
+            None  // conn_id will be auto-generated
+        ).await?;
+        log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        ipv6_connections.push(conn);
+    }
 
-    // Start latency-sensitive metric calculation loop (priority worker)
-    // This runs frequently and must be fast to minimize jitter
-    let state_ipv4_calc = ipv4_connection.state.clone();
-    let state_ipv6_calc = ipv6_connection.state.clone();
+    // Collect states for calculation and UI updates
+    let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();
+    for conn in &ipv4_connections {
+        calc_states.push(conn.state.clone());
+    }
+    for conn in &ipv6_connections {
+        calc_states.push(conn.state.clone());
+    }
 
+    // Start latency-sensitive metric calculation loop
+    let calc_states_for_interval = calc_states.clone();
     gloo_timers::callback::Interval::new(100, move || {
-        // Calculate metrics for both connections - latency-sensitive work only
-        {
-            let mut state_ref = state_ipv4_calc.borrow_mut();
-            state_ref.calculate_metrics();
-        }
-        {
-            let mut state_ref = state_ipv6_calc.borrow_mut();
-            state_ref.calculate_metrics();
+        for state in &calc_states_for_interval {
+            state.borrow_mut().calculate_metrics();
         }
     }).forget();
 
-    // Start UI update loop (separate from latency-sensitive work)
-    // This runs less frequently to avoid causing jitter in measurements
-    let state_ipv4_ui = ipv4_connection.state.clone();
-    let state_ipv6_ui = ipv6_connection.state.clone();
+    // For UI updates, we'll use the first connection of each type for the main display
+    // (The UI would need to be extended to show all connections, but that's a larger change)
+    if !ipv4_connections.is_empty() && !ipv6_connections.is_empty() {
+        let state_ipv4_ui = ipv4_connections[0].state.clone();
+        let state_ipv6_ui = ipv6_connections[0].state.clone();
 
-    gloo_timers::callback::Interval::new(500, move || {
-        // Update UI with both sets of metrics - UX code that can tolerate delays
-        let state_ipv4_ref = state_ipv4_ui.borrow();
-        let state_ipv6_ref = state_ipv6_ui.borrow();
-
-        update_ui_dual(&state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
-    }).forget();
+        gloo_timers::callback::Interval::new(500, move || {
+            let state_ipv4_ref = state_ipv4_ui.borrow();
+            let state_ipv6_ref = state_ipv6_ui.borrow();
+            update_ui_dual(&state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
+        }).forget();
+    }
 
     // Keep connections alive
-    std::mem::forget(ipv4_connection);
-    std::mem::forget(ipv6_connection);
+    for conn in ipv4_connections {
+        std::mem::forget(conn);
+    }
+    for conn in ipv6_connections {
+        std::mem::forget(conn);
+    }
 
     Ok(())
 }
@@ -140,7 +175,15 @@ pub fn stop_measurement() {
 /// Analyze the network path (traceroute) once and then close connections
 #[wasm_bindgen]
 pub async fn analyze_path() -> Result<(), JsValue> {
-    log::info!("Starting path analysis (traceroute)...");
+    // Default to 1 connection per address family
+    analyze_path_with_count(1).await
+}
+
+/// Analyze the network path with multiple connections per address family for ECMP testing
+#[wasm_bindgen]
+pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
+    let count = conn_count.clamp(1, 16) as usize;
+    log::info!("Starting path analysis (traceroute) with {} connections per address family...", count);
 
     // Request wake lock to prevent device from sleeping
     if let Err(e) = request_wake_lock().await {
@@ -148,18 +191,43 @@ pub async fn analyze_path() -> Result<(), JsValue> {
         // Continue anyway - wake lock is optional
     }
 
-    // Create IPv4 connection (first connection, no parent) with traceroute mode
-    let ipv4_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv4", None, Some(MODE_TRACEROUTE.to_string())).await?;
-    let parent_id = Some(ipv4_connection.client_id.clone());
-    log::info!("IPv4 connected with client_id: {}", ipv4_connection.client_id);
+    // Create IPv4 connections with traceroute mode
+    let mut ipv4_connections = Vec::with_capacity(count);
+    let mut parent_id: Option<String> = None;
+    
+    for i in 0..count {
+        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
+            "ipv4", 
+            parent_id.clone(), 
+            Some(MODE_TRACEROUTE.to_string()), 
+            None  // conn_id will be auto-generated
+        ).await?;
+        
+        if i == 0 {
+            parent_id = Some(conn.client_id.clone());
+        }
+        log::info!("IPv4 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        ipv4_connections.push(conn);
+    }
 
-    // Create IPv6 connection (second connection, with parent from IPv4) with traceroute mode
-    let ipv6_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv6", parent_id, Some(MODE_TRACEROUTE.to_string())).await?;
-    log::info!("IPv6 connected with client_id: {}", ipv6_connection.client_id);
+    // Create IPv6 connections with traceroute mode
+    let mut ipv6_connections = Vec::with_capacity(count);
+    for i in 0..count {
+        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
+            "ipv6", 
+            parent_id.clone(), 
+            Some(MODE_TRACEROUTE.to_string()), 
+            None  // conn_id will be auto-generated
+        ).await?;
+        log::info!("IPv6 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        ipv6_connections.push(conn);
+    }
 
-    // Store connections in a way that we can clean them up
-    let ipv4_peer = ipv4_connection.peer.clone();
-    let ipv6_peer = ipv6_connection.peer.clone();
+    // Collect peers for cleanup
+    let peers: Vec<_> = ipv4_connections.iter()
+        .chain(ipv6_connections.iter())
+        .map(|c| c.peer.clone())
+        .collect();
 
     // Wait for path analysis timeout to collect traceroute data
     log::info!("Collecting traceroute data for {} seconds...", PATH_ANALYSIS_TIMEOUT_MS / 1000);
@@ -173,11 +241,12 @@ pub async fn analyze_path() -> Result<(), JsValue> {
     });
     wasm_bindgen_futures::JsFuture::from(promise).await?;
 
-    log::info!("Path analysis complete, closing connections...");
+    log::info!("Path analysis complete, closing {} connections...", peers.len());
 
-    // Close connections
-    ipv4_peer.close();
-    ipv6_peer.close();
+    // Close all connections
+    for peer in peers {
+        peer.close();
+    }
 
     // Release wake lock
     release_wake_lock();

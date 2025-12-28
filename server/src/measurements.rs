@@ -56,6 +56,7 @@ pub async fn start_probe_sender(
             timestamp_ms: sent_at_ms,
             direction: Direction::ServerToClient,
             send_options: None,  // Will be enhanced later to support per-packet options
+            conn_id: session.conn_id.clone(),
         };
 
         if let Ok(json) = serde_json::to_vec(&probe) {
@@ -121,6 +122,15 @@ pub async fn handle_probe_packet(
     msg: DataChannelMessage,
 ) {
     if let Ok(probe) = serde_json::from_slice::<ProbePacket>(&msg.data) {
+        // Validate conn_id - ensure probe belongs to this session
+        if probe.conn_id != session.conn_id {
+            tracing::warn!(
+                "Probe conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                probe.conn_id, session.id, session.conn_id
+            );
+            return;
+        }
+        
         let now_ms = current_time_ms();
 
         let mut state = session.measurement_state.write().await;
@@ -425,6 +435,7 @@ pub async fn start_traceroute_sender(
             timestamp_ms: sent_at_ms,
             direction: Direction::ServerToClient,
             send_options: Some(send_options),
+            conn_id: session.conn_id.clone(),
         };
 
         // Send test probe with TTL using the new send_with_options API
@@ -493,6 +504,7 @@ pub async fn start_traceroute_sender(
                         ip_address: event.router_ip.clone(),
                         rtt_ms,
                         message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
+                        conn_id: session.conn_id.clone(),
                     };
 
                     tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
@@ -511,6 +523,7 @@ pub async fn start_traceroute_sender(
                     ip_address: None,
                     rtt_ms: 0.0,
                     message: format!("Probing hop {} (seq: {})", current_ttl, seq),
+                    conn_id: session.conn_id.clone(),
                 };
 
                 if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
@@ -542,6 +555,15 @@ pub async fn handle_testprobe_packet(
     msg: DataChannelMessage,
 ) {
     if let Ok(testprobe) = serde_json::from_slice::<common::TestProbePacket>(&msg.data) {
+        // Validate conn_id - ensure test probe belongs to this session
+        if testprobe.conn_id != session.conn_id {
+            tracing::warn!(
+                "TestProbe conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                testprobe.conn_id, session.id, session.conn_id
+            );
+            return;
+        }
+        
         let now_ms = current_time_ms();
 
         let mut state = session.measurement_state.write().await;

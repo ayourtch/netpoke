@@ -57,16 +57,45 @@ async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
 pub struct WebRtcConnection {
     pub peer: RtcPeerConnection,
     pub client_id: String,
+    pub conn_id: String,
     pub state: Rc<RefCell<measurements::MeasurementState>>,
 }
 
 impl WebRtcConnection {
     pub async fn new_with_ip_version(ip_version: &str, parent_client_id: Option<String>) -> Result<Self, JsValue> {
-        Self::new_with_ip_version_and_mode(ip_version, parent_client_id, None).await
+        Self::new_with_ip_version_and_mode(ip_version, parent_client_id, None, None).await
     }
 
-    pub async fn new_with_ip_version_and_mode(ip_version: &str, parent_client_id: Option<String>, mode: Option<String>) -> Result<Self, JsValue> {
-        log::info!("Creating RTCPeerConnection for IP version: {}", ip_version);
+    pub async fn new_with_ip_version_and_mode(ip_version: &str, parent_client_id: Option<String>, mode: Option<String>, conn_id: Option<String>) -> Result<Self, JsValue> {
+        // Generate a UUID for this connection if not provided
+        let generated_conn_id = conn_id.unwrap_or_else(|| {
+            // Generate a simple UUID-like ID using random bytes
+            let random_bytes: [u8; 16] = [
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+                (js_sys::Math::random() * 256.0) as u8,
+            ];
+            format!("{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                random_bytes[0], random_bytes[1], random_bytes[2], random_bytes[3],
+                random_bytes[4], random_bytes[5],
+                random_bytes[6], random_bytes[7],
+                random_bytes[8], random_bytes[9],
+                random_bytes[10], random_bytes[11], random_bytes[12], random_bytes[13], random_bytes[14], random_bytes[15])
+        });
+        log::info!("Creating RTCPeerConnection for IP version: {}, conn_id: {}", ip_version, generated_conn_id);
 
         let config = RtcConfiguration::new();
 
@@ -125,10 +154,13 @@ impl WebRtcConnection {
 
         log::info!("Sending offer to server");
 
-        let (client_id, _parent_id_from_server, _ip_version_from_server, answer_sdp) =
-            signaling::send_offer_with_mode(offer_sdp.clone(), parent_client_id.clone(), Some(ip_version.to_string()), mode).await?;
+        let (client_id, _parent_id_from_server, _ip_version_from_server, answer_sdp, server_conn_id) =
+            signaling::send_offer_with_mode(offer_sdp.clone(), parent_client_id.clone(), Some(ip_version.to_string()), mode, Some(generated_conn_id.clone())).await?;
 
-        log::info!("Received answer from server, client_id: {}", client_id);
+        log::info!("Received answer from server, client_id: {}, conn_id: {}", client_id, server_conn_id);
+        
+        // Update state with conn_id from server
+        state.borrow_mut().conn_id = server_conn_id.clone();
 
         // Set up ICE candidate event handler BEFORE setLocalDescription
         // This is critical - ICE gathering starts as soon as we set local description
@@ -278,6 +310,6 @@ impl WebRtcConnection {
 
         log::info!("WebRTC connection established");
 
-        Ok(Self { peer, client_id, state })
+        Ok(Self { peer, client_id, conn_id: server_conn_id, state })
     }
 }
