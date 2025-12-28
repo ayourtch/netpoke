@@ -1,0 +1,14 @@
+[Unit]
+Description=NetPoke WiFi Verification Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netpoke
+ExecStart=/home/netpoke/wifi-verify/target/release/wifi-verify-server
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
