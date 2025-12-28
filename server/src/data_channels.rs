@@ -115,9 +115,10 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
         tracing::info!("Received stop traceroute request for session {}", session.id);
         
         // Set the stop flag
-        let mut state = session.measurement_state.write().await;
-        state.stop_traceroute = true;
-        drop(state);
+        {
+            let mut state = session.measurement_state.write().await;
+            state.stop_traceroute = true;
+        }
         
         tracing::info!("Traceroute stop flag set for session {}", session.id);
     }

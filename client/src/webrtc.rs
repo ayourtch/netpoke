@@ -321,18 +321,22 @@ impl WebRtcConnection {
             conn_id: self.conn_id.clone(),
         };
         
-        if let Ok(json) = serde_json::to_vec(&stop_msg) {
-            let control_channel_opt = self.control_channel.borrow();
-            if let Some(channel) = control_channel_opt.as_ref() {
-                // Convert Vec<u8> to js_sys::Uint8Array and send
-                let array = js_sys::Uint8Array::from(&json[..]);
-                
-                // Send the message using ArrayBuffer
-                channel.send_with_array_buffer(&array.buffer())?;
-                log::info!("Sent stop traceroute message for conn_id: {}", self.conn_id);
-            } else {
-                log::warn!("Control channel not available to send stop traceroute message");
-            }
+        let json = serde_json::to_vec(&stop_msg)
+            .map_err(|e| {
+                log::error!("Failed to serialize stop traceroute message: {}", e);
+                JsValue::from_str(&format!("Serialization error: {}", e))
+            })?;
+        
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            // Convert Vec<u8> to js_sys::Uint8Array and send
+            let array = js_sys::Uint8Array::from(&json[..]);
+            
+            // Send the message using ArrayBuffer
+            channel.send_with_array_buffer(&array.buffer())?;
+            log::info!("Sent stop traceroute message for conn_id: {}", self.conn_id);
+        } else {
+            log::warn!("Control channel not available to send stop traceroute message");
         }
         
         Ok(())
