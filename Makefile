@@ -1,4 +1,4 @@
-.PHONY: all build install-service restart
+.PHONY: all build install-service restart pull update-server
 
 all: build restart
 
