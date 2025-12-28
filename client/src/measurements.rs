@@ -294,6 +294,9 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
                 return;
             }
             
+            // Pass structured data to visualization function
+            update_traceroute_visualization(&hop_msg);
+            
             // Display the hop message in the UI with short conn_id prefix for multi-connection differentiation
             let conn_prefix = if hop_msg.conn_id.len() >= 8 {
                 &hop_msg.conn_id[..8]
@@ -338,6 +341,36 @@ fn append_server_message(message: &str) {
                     // Auto-scroll to bottom
                     textarea.set_scroll_top(textarea.scroll_height());
                 }
+            }
+        }
+    }
+}
+
+/// Update the traceroute visualization with hop data
+fn update_traceroute_visualization(hop_msg: &common::TraceHopMessage) {
+    use wasm_bindgen::JsValue;
+    use web_sys::window;
+    
+    if let Some(window) = window() {
+        // Create a JavaScript object with the hop data
+        let js_obj = js_sys::Object::new();
+        
+        // Set properties
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("hop"), &JsValue::from_f64(hop_msg.hop as f64)).ok();
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("conn_id"), &JsValue::from_str(&hop_msg.conn_id)).ok();
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("rtt_ms"), &JsValue::from_f64(hop_msg.rtt_ms)).ok();
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("message"), &JsValue::from_str(&hop_msg.message)).ok();
+        
+        if let Some(ref ip) = hop_msg.ip_address {
+            js_sys::Reflect::set(&js_obj, &JsValue::from_str("ip_address"), &JsValue::from_str(ip)).ok();
+        } else {
+            js_sys::Reflect::set(&js_obj, &JsValue::from_str("ip_address"), &JsValue::NULL).ok();
+        }
+        
+        // Call the JavaScript function
+        if let Ok(add_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addTracerouteHop")) {
+            if let Ok(add_fn) = add_fn.dyn_into::<js_sys::Function>() {
+                let _ = add_fn.call1(&JsValue::NULL, &js_obj);
             }
         }
     }

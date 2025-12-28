@@ -94,9 +94,17 @@
         <p><em>C2S metrics are measured by the server and visible on the <a href="/static/dashboard.html">dashboard</a>.</em></p>
     </div>
 
+    <div id="traceroute-visualization" style="margin-top: 20px;">
+        <h2>Traceroute Path Visualization</h2>
+        <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</em></p>
+        <div id="traceroute-graph" style="border: 1px solid #ddd; background-color: #fafafa; padding: 20px; min-height: 300px; overflow-x: auto;">
+            <div style="text-align: center; color: #999; padding: 40px;">No traceroute data available. Click "Analyze Path" to start.</div>
+        </div>
+    </div>
+
     <div id="server-messages-container" style="margin-top: 20px;">
-        <h2>Server Messages (Traceroute)</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 5px;"><em>Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</em></p>
+        <h2>Server Messages (Traceroute Log)</h2>
+        <p style="font-size: 12px; color: #666; margin-bottom: 5px;"><em>Raw traceroute messages. Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</em></p>
         <textarea id="server-messages" readonly style="width: 100%; height: 150px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ddd; background-color: #f5f5f5;"></textarea>
     </div>
 
@@ -389,6 +397,154 @@
         // Make addMetricsData globally available
         window.addMetricsData = addMetricsData;
         
+        // Traceroute visualization data structure
+        let tracerouteData = {
+            // Map of connection_id -> array of hop objects
+            // Each hop object: { hop: number, ip_address: string|null, rtt_ms: number, message: string }
+            connections: {}
+        };
+        
+        // Function to add traceroute hop data
+        function addTracerouteHop(hopData) {
+            const connId = hopData.conn_id || 'default';
+            if (!tracerouteData.connections[connId]) {
+                tracerouteData.connections[connId] = [];
+            }
+            
+            // Check if hop already exists (update) or add new
+            const existingHopIndex = tracerouteData.connections[connId].findIndex(h => h.hop === hopData.hop);
+            if (existingHopIndex >= 0 && hopData.ip_address) {
+                // Update existing hop with new data (only if we have an IP address)
+                tracerouteData.connections[connId][existingHopIndex] = hopData;
+            } else if (existingHopIndex < 0) {
+                // Add new hop
+                tracerouteData.connections[connId].push(hopData);
+            }
+            
+            // Re-render the visualization
+            renderTracerouteGraph();
+        }
+        
+        // Function to clear traceroute data
+        function clearTracerouteData() {
+            tracerouteData.connections = {};
+            renderTracerouteGraph();
+        }
+        
+        // Function to render the traceroute graph
+        function renderTracerouteGraph() {
+            const graphContainer = document.getElementById('traceroute-graph');
+            if (!graphContainer) return;
+            
+            const connections = tracerouteData.connections;
+            const connIds = Object.keys(connections);
+            
+            if (connIds.length === 0) {
+                graphContainer.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">No traceroute data available. Click "Analyze Path" to start.</div>';
+                return;
+            }
+            
+            // Find max hop number across all connections
+            let maxHop = 0;
+            connIds.forEach(connId => {
+                connections[connId].forEach(hop => {
+                    if (hop.hop > maxHop) maxHop = hop.hop;
+                });
+            });
+            
+            // Build HTML for the graph
+            let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
+            
+            // For each hop number, create a column
+            for (let hopNum = 1; hopNum <= maxHop; hopNum++) {
+                html += '<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">';
+                html += `<div style="min-width: 60px; font-weight: bold; color: #555;">Hop ${hopNum}:</div>`;
+                html += '<div style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;">';
+                
+                // Find all nodes at this hop across all connections
+                const nodesAtHop = [];
+                connIds.forEach(connId => {
+                    const hop = connections[connId].find(h => h.hop === hopNum);
+                    if (hop) {
+                        nodesAtHop.push({ connId, hop });
+                    }
+                });
+                
+                if (nodesAtHop.length === 0) {
+                    html += '<div style="color: #999; font-style: italic;">No response</div>';
+                } else {
+                    // Group nodes by IP address
+                    const nodesByIp = {};
+                    nodesAtHop.forEach(({ connId, hop }) => {
+                        const ip = hop.ip_address || 'unknown';
+                        if (!nodesByIp[ip]) {
+                            nodesByIp[ip] = [];
+                        }
+                        nodesByIp[ip].push({ connId, hop });
+                    });
+                    
+                    // Render each unique IP as a node
+                    Object.keys(nodesByIp).forEach(ip => {
+                        const nodes = nodesByIp[ip];
+                        const connCount = nodes.length;
+                        const avgRtt = nodes.reduce((sum, n) => sum + n.hop.rtt_ms, 0) / connCount;
+                        
+                        // Create tooltip with all connections that hit this node
+                        const tooltipLines = nodes.map(({ connId, hop }) => {
+                            const shortId = connId.substring(0, 8);
+                            return `[${shortId}] RTT: ${hop.rtt_ms.toFixed(2)}ms`;
+                        });
+                        const tooltip = `Hop ${hopNum}\\n${ip}\\n\\nConnections (${connCount}):${tooltipLines.map(l => '\\n' + l).join('')}`;
+                        
+                        // Node styling - color based on number of connections
+                        const nodeColor = connCount === connIds.length ? '#4CAF50' : '#FF9800';
+                        const borderStyle = connCount === connIds.length ? 'solid' : 'dashed';
+                        
+                        html += `<div style="
+                            position: relative;
+                            background: ${nodeColor};
+                            color: white;
+                            padding: 8px 12px;
+                            border-radius: 6px;
+                            border: 2px ${borderStyle} ${nodeColor};
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            cursor: help;
+                            font-size: 12px;
+                            white-space: nowrap;
+                            transition: transform 0.2s, box-shadow 0.2s;
+                        " title="${tooltip}" onmouseover="this.style.transform='scale(1.1)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.3)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.2)';">
+                            <div style="font-weight: bold;">${ip}</div>
+                            <div style="font-size: 10px; opacity: 0.9;">${avgRtt.toFixed(1)}ms avg</div>
+                            <div style="font-size: 9px; opacity: 0.8;">${connCount}/${connIds.length} conn</div>
+                        </div>`;
+                    });
+                }
+                
+                html += '</div></div>';
+            }
+            
+            html += '</div>';
+            
+            // Add legend
+            html += `<div style="margin-top: 20px; padding: 10px; background: #f9f9f9; border-radius: 4px; font-size: 12px;">
+                <strong>Legend:</strong>
+                <span style="margin-left: 15px;">
+                    <span style="display: inline-block; width: 12px; height: 12px; background: #4CAF50; border: 2px solid #4CAF50; border-radius: 2px; margin-right: 5px;"></span>
+                    All connections pass through (solid border)
+                </span>
+                <span style="margin-left: 15px;">
+                    <span style="display: inline-block; width: 12px; height: 12px; background: #FF9800; border: 2px dashed #FF9800; border-radius: 2px; margin-right: 5px;"></span>
+                    Partial connections (dashed border)
+                </span>
+            </div>`;
+            
+            graphContainer.innerHTML = html;
+        }
+        
+        // Make traceroute functions globally available
+        window.addTracerouteHop = addTracerouteHop;
+        window.clearTracerouteData = clearTracerouteData;
+        
         // Function to generate metrics tables for multiple connections
         function generateMultiConnectionTables(connCount) {
             const container = document.getElementById('metrics-tables-container');
@@ -568,6 +724,11 @@
                     const serverMessagesEl = document.getElementById('server-messages');
                     if (serverMessagesEl) {
                         serverMessagesEl.value = '';
+                    }
+                    
+                    // Clear traceroute visualization
+                    if (window.clearTracerouteData) {
+                        window.clearTracerouteData();
                     }
                     
                     const connCount = getConnCount();
