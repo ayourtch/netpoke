@@ -357,8 +357,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
 
     // Start latency-sensitive metric calculation loop
-    // Note: We use .forget() to let the interval run indefinitely for continuous measurements.
-    // The interval will be automatically cleaned up when the page is unloaded.
+    // Note: We use .forget() to prevent the interval from being dropped, allowing it to run
+    // indefinitely for continuous measurements until the page is closed by the user.
     let calc_states_for_interval = calc_states.clone();
     gloo_timers::callback::Interval::new(100, move || {
         for state in &calc_states_for_interval {
@@ -372,8 +372,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let conn_count_ui = count;
     
     // Start UI update loop that updates all connections
-    // Note: We use .forget() to let the interval run indefinitely for continuous UI updates.
-    // The interval will be automatically cleaned up when the page is unloaded.
+    // Note: We use .forget() to prevent the interval from being dropped, allowing it to run
+    // indefinitely for continuous UI updates until the page is closed by the user.
     gloo_timers::callback::Interval::new(500, move || {
         // Update metrics for each IPv4 connection
         for (i, state) in ipv4_states.iter().enumerate() {
@@ -406,8 +406,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // Keep connections alive for measurements
     // Note: We intentionally use std::mem::forget here to keep connections alive indefinitely.
-    // This is required for long-running network measurements. Connections will be closed
-    // when the page is unloaded or refreshed.
+    // This is required for long-running network measurements. The WebRTC connections will be
+    // cleaned up by the browser when the page is closed or navigated away.
     for conn in ipv4_connections {
         std::mem::forget(conn);
     }
