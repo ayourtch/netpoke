@@ -361,7 +361,7 @@ pub async fn start_traceroute_sender(
         state.traceroute_started_at = Some(std::time::Instant::now());
     }
     
-    let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
+    let mut interval = interval(Duration::from_millis(200)); // Send one hop discovery every 200ms
     const MAX_TTL: u8 = 30;
     const TRACEROUTE_TIMEOUT_SECS: u64 = 45;
 
@@ -542,22 +542,8 @@ pub async fn start_traceroute_sender(
                         }
                     }
                 }
-            } else {
-                // No ICMP response received yet - send placeholder message
-                let hop_message = common::TraceHopMessage {
-                    hop: current_ttl,
-                    ip_address: None,
-                    rtt_ms: 0.0,
-                    message: format!("Probing hop {} (seq: {})", current_ttl, seq),
-                    conn_id: session.conn_id.clone(),
-                };
-
-                if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
-                    if let Err(e) = control_channel.send(&msg_json.into()).await {
-                        tracing::error!("Failed to send hop message to client: {}", e);
-                    }
-                }
             }
+            // Note: We don't send placeholder "Probing hop" messages anymore
         }
 
         // Increment TTL for next probe in state

@@ -417,6 +417,11 @@
         
         // Function to add traceroute hop data
         function addTracerouteHop(hopData) {
+            // Filter out "Probing hop" messages (placeholder messages)
+            if (hopData.message && hopData.message.includes("Probing hop")) {
+                return; // Ignore placeholder messages
+            }
+            
             const connId = hopData.conn_id || 'default';
             const ipAddress = hopData.ip_address;
             
