@@ -92,6 +92,7 @@ pub struct SignalingStartRequest {
     pub sdp: String,
     pub parent_client_id: Option<String>, // For grouping multiple sessions
     pub ip_version: Option<String>,       // "ipv4" or "ipv6"
+    pub mode: Option<String>,             // "measurement" or "traceroute"
 }
 
 #[derive(Debug, Serialize)]
@@ -139,6 +140,7 @@ pub async fn signaling_start(
         id: client_id.clone(),
         parent_id: Some(parent_client_id.clone()),
         ip_version: req.ip_version.clone(),
+        mode: req.mode.clone(),
         peer_connection: peer.clone(),
         data_channels,
         metrics,

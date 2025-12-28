@@ -62,6 +62,10 @@ pub struct WebRtcConnection {
 
 impl WebRtcConnection {
     pub async fn new_with_ip_version(ip_version: &str, parent_client_id: Option<String>) -> Result<Self, JsValue> {
+        Self::new_with_ip_version_and_mode(ip_version, parent_client_id, None).await
+    }
+
+    pub async fn new_with_ip_version_and_mode(ip_version: &str, parent_client_id: Option<String>, mode: Option<String>) -> Result<Self, JsValue> {
         log::info!("Creating RTCPeerConnection for IP version: {}", ip_version);
 
         let config = RtcConfiguration::new();
@@ -122,7 +126,7 @@ impl WebRtcConnection {
         log::info!("Sending offer to server");
 
         let (client_id, _parent_id_from_server, _ip_version_from_server, answer_sdp) =
-            signaling::send_offer(offer_sdp.clone(), parent_client_id.clone(), Some(ip_version.to_string())).await?;
+            signaling::send_offer_with_mode(offer_sdp.clone(), parent_client_id.clone(), Some(ip_version.to_string()), mode).await?;
 
         log::info!("Received answer from server, client_id: {}", client_id);
 

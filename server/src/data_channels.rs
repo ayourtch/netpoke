@@ -39,11 +39,17 @@ pub async fn setup_data_channel_handlers(
                 },
                 "control" => {
                     chans.control = Some(dc.clone());
-                    // Start traceroute sender
-                    let session_clone = session.clone();
-                    tokio::spawn(async move {
-                        measurements::start_traceroute_sender(session_clone).await;
-                    });
+                    // Only start traceroute sender if mode is "traceroute"
+                    let should_start_traceroute = session.mode.as_deref() == Some("traceroute");
+                    if should_start_traceroute {
+                        tracing::info!("Starting traceroute sender for session {} (mode: traceroute)", session.id);
+                        let session_clone = session.clone();
+                        tokio::spawn(async move {
+                            measurements::start_traceroute_sender(session_clone).await;
+                        });
+                    } else {
+                        tracing::info!("Skipping traceroute sender for session {} (mode: {:?})", session.id, session.mode);
+                    }
                 },
                 "testprobe" => {
                     chans.testprobe = Some(dc.clone());

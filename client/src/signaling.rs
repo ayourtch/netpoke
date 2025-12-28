@@ -9,6 +9,7 @@ struct SignalingStartRequest {
     sdp: String,
     parent_client_id: Option<String>,
     ip_version: Option<String>,
+    mode: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -26,12 +27,17 @@ struct IceCandidateRequest {
 }
 
 pub async fn send_offer(offer_sdp: String, parent_client_id: Option<String>, ip_version: Option<String>) -> Result<(String, Option<String>, Option<String>, String), JsValue> {
+    send_offer_with_mode(offer_sdp, parent_client_id, ip_version, None).await
+}
+
+pub async fn send_offer_with_mode(offer_sdp: String, parent_client_id: Option<String>, ip_version: Option<String>, mode: Option<String>) -> Result<(String, Option<String>, Option<String>, String), JsValue> {
     let window = window().ok_or("No window")?;
 
     let req_body = SignalingStartRequest {
         sdp: offer_sdp,
         parent_client_id,
         ip_version,
+        mode,
     };
     let body_str = serde_json::to_string(&req_body)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;

@@ -45,6 +45,7 @@
 <body>
     <h1>Network Measurement Client</h1>
     <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
+    <button id="analyze-btn" onclick="analyzePath()">Analyze Path</button>
     <span id="wake-lock-status">Wake Lock: Checking...</span>
     <div id="status">Loading WASM module...</div>
     <div id="ayxx"></div>
@@ -378,6 +379,7 @@
         const errorEl = document.getElementById('error');
         const statusEl = document.getElementById('status');
         const btnEl = document.getElementById('start-btn');
+        const analyzeBtn = document.getElementById('analyze-btn');
         const wakeLockStatusEl = document.getElementById('wake-lock-status');
 
         // Check if Wake Lock API is supported
@@ -402,7 +404,7 @@
 
                 // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                 const module = await import('/public/pkg/wifi_verify_client.js');
-                const { default: init, start_measurement } = module;
+                const { default: init, start_measurement, analyze_path } = module;
 
                 // Initialize WASM with explicit path and cache-busting
                 // Pass the .wasm file path to init() for Safari compatibility
@@ -415,6 +417,7 @@
                     statusEl.textContent = 'Starting...';
                     statusEl.className = '';
                     btnEl.disabled = true;
+                    analyzeBtn.disabled = true;
                     errorEl.textContent = '';
 
                     try {
@@ -433,7 +436,44 @@
                         statusEl.className = 'error';
                         errorEl.textContent = errMsg;
                         btnEl.disabled = false;
+                        analyzeBtn.disabled = false;
                         console.error('Measurement error:', e);
+                    }
+                };
+
+                window.analyzePath = async function() {
+                    statusEl.textContent = 'Analyzing path...';
+                    statusEl.className = '';
+                    btnEl.disabled = true;
+                    analyzeBtn.disabled = true;
+                    errorEl.textContent = '';
+                    
+                    // Clear the server messages textarea
+                    const serverMessagesEl = document.getElementById('server-messages');
+                    if (serverMessagesEl) {
+                        serverMessagesEl.value = '';
+                    }
+
+                    try {
+                        await analyze_path();
+                        statusEl.textContent = 'Path analysis complete';
+                        statusEl.className = '';
+                        btnEl.disabled = false;
+                        analyzeBtn.disabled = false;
+                        
+                        // Update wake lock status
+                        if ('wakeLock' in navigator) {
+                            wakeLockStatusEl.textContent = '🔓 Wake Lock: Ready';
+                            wakeLockStatusEl.className = '';
+                        }
+                    } catch (e) {
+                        const errMsg = 'Path analysis error: ' + (e.message || e);
+                        statusEl.textContent = 'Error';
+                        statusEl.className = 'error';
+                        errorEl.textContent = errMsg;
+                        btnEl.disabled = false;
+                        analyzeBtn.disabled = false;
+                        console.error('Path analysis error:', e);
                     }
                 };
             } catch (e) {
@@ -445,6 +485,10 @@
                 console.error('Full error:', e.stack);
 
                 window.startMeasurement = function() {
+                    alert('WASM module failed to load. Please refresh the page.');
+                };
+                
+                window.analyzePath = function() {
                     alert('WASM module failed to load. Please refresh the page.');
                 };
             }

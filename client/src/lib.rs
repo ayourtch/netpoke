@@ -130,6 +130,56 @@ pub fn stop_measurement() {
     release_wake_lock();
 }
 
+/// Analyze the network path (traceroute) once and then close connections
+#[wasm_bindgen]
+pub async fn analyze_path() -> Result<(), JsValue> {
+    log::info!("Starting path analysis (traceroute)...");
+
+    // Request wake lock to prevent device from sleeping
+    if let Err(e) = request_wake_lock().await {
+        log::warn!("Failed to acquire wake lock: {:?}", e);
+        // Continue anyway - wake lock is optional
+    }
+
+    // Create IPv4 connection (first connection, no parent) with traceroute mode
+    let ipv4_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv4", None, Some("traceroute".to_string())).await?;
+    let parent_id = Some(ipv4_connection.client_id.clone());
+    log::info!("IPv4 connected with client_id: {}", ipv4_connection.client_id);
+
+    // Create IPv6 connection (second connection, with parent from IPv4) with traceroute mode
+    let ipv6_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv6", parent_id, Some("traceroute".to_string())).await?;
+    log::info!("IPv6 connected with client_id: {}", ipv6_connection.client_id);
+
+    // Store connections in a way that we can clean them up
+    let ipv4_peer = ipv4_connection.peer.clone();
+    let ipv6_peer = ipv6_connection.peer.clone();
+
+    // Wait for 30 seconds to collect traceroute data
+    log::info!("Collecting traceroute data for 30 seconds...");
+    
+    // Use a timer to wait
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let window = web_sys::window().expect("no global window");
+        window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 30000)
+            .expect("failed to set timeout");
+    });
+    wasm_bindgen_futures::JsFuture::from(promise).await?;
+
+    log::info!("Path analysis complete, closing connections...");
+
+    // Close connections
+    ipv4_peer.close();
+    ipv6_peer.close();
+
+    // Release wake lock
+    release_wake_lock();
+
+    log::info!("Path analysis finished");
+
+    Ok(())
+}
+
 fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
     let window = match window() {
         Some(w) => w,
