@@ -59,8 +59,8 @@ pub async fn require_auth_or_survey_session(
             }
         }
         
-        // Check for survey session (Magic Key) only if regular auth didn't succeed
-        if !regular_auth_valid && auth_service.config.magic_keys.enabled {
+        // Check for survey session (Magic Key)
+        if auth_service.config.magic_keys.enabled {
             if let Some(survey_session_id) = extract_session_id(cookie_str, &auth_service.config.magic_keys.survey_cookie_name) {
                 // Validate the survey session format and expiration
                 if validate_survey_session(&survey_session_id, &auth_service.config.magic_keys) {
@@ -73,12 +73,13 @@ pub async fn require_auth_or_survey_session(
         }
         
         // Grant access if EITHER authentication method succeeded (OR logic)
-        // Regular auth takes precedence (checked first)
-        if regular_auth_valid {
-            tracing::debug!("Access granted via regular authentication (precedence)");
-            return next.run(request).await;
-        } else if magic_key_valid {
-            tracing::debug!("Access granted via Magic Key (fallback)");
+        // Regular auth takes precedence (used when both are valid)
+        if regular_auth_valid || magic_key_valid {
+            if regular_auth_valid {
+                tracing::debug!("Access granted via regular authentication (precedence)");
+            } else {
+                tracing::debug!("Access granted via Magic Key (fallback)");
+            }
             return next.run(request).await;
         }
     }
