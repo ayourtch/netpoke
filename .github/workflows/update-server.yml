@@ -6,6 +6,8 @@ on:
 jobs:
   update-server:
     runs-on: ubuntu-latest
+    permissions:
+      contents: none
     
     steps:
       - name: Setup SSH
