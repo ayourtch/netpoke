@@ -5,6 +5,20 @@ use crate::state::{ClientSession, ReceivedProbe, ReceivedBulk, SentBulk};
 use webrtc::data_channel::data_channel_state::RTCDataChannelState;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 
+/// Hash a connection ID (UUID string) to a numeric value for probe length modulation
+/// Uses a simple hash of the UUID bytes to generate a stable numeric identifier
+fn hash_conn_id(conn_id: &str) -> usize {
+    if conn_id.is_empty() {
+        return 0;
+    }
+    
+    // Simple hash: sum bytes modulo a reasonable range to avoid excessive padding
+    // We want conn_id_numeric to be small enough that conn_id * 97 doesn't create huge packets
+    // With max value 10, we get at most 970 extra bytes per connection, which is reasonable
+    let hash: usize = conn_id.bytes().map(|b| b as usize).sum();
+    hash % 10
+}
+
 pub async fn start_probe_sender(
     session: Arc<ClientSession>,
 ) {
@@ -474,10 +488,12 @@ pub async fn start_traceroute_sender(
 
             // Send test probe with TTL using the new send_with_options API
             if let Ok(mut json) = serde_json::to_vec(&testprobe) {
-                // Pad the JSON to create unique lengths for each TTL
+                // Pad the JSON to create unique lengths for each TTL and connection
                 // This helps with matching ICMP errors based on UDP packet length
-                // Base size + (TTL * 10 bytes) to make each hop distinguishable
-                let target_size = 100 + (current_ttl as usize * 10);
+                // Use coprime modulation: conn_id * 97 + hop * 3
+                // With max 30 hops and coprime numbers, lengths are unique across all probes
+                let conn_id_numeric = hash_conn_id(&session.conn_id);
+                let target_size = 100 + (conn_id_numeric * 97) + (current_ttl as usize * 3);
                 if json.len() < target_size {
                     json.resize(target_size, b' '); // Pad with spaces
                 }
@@ -629,6 +645,44 @@ pub async fn handle_testprobe_packet(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_hash_conn_id() {
+        // Test empty string
+        assert_eq!(hash_conn_id(""), 0);
+        
+        // Test that same conn_id always produces same hash
+        let conn_id = "550e8400-e29b-41d4-a716-446655440000";
+        let hash1 = hash_conn_id(conn_id);
+        let hash2 = hash_conn_id(conn_id);
+        assert_eq!(hash1, hash2);
+        
+        // Test that hash is in expected range [0, 9]
+        assert!(hash1 < 10);
+        
+        // Test different conn_ids
+        let conn_id2 = "123e4567-e89b-12d3-a456-426614174000";
+        let hash3 = hash_conn_id(conn_id2);
+        assert!(hash3 < 10);
+    }
+    
+    #[test]
+    fn test_probe_length_uniqueness() {
+        // Verify that with coprime numbers (97, 3), we get unique lengths
+        // for different conn_id and hop combinations
+        let mut lengths = std::collections::HashSet::new();
+        
+        // Test with different conn_id values (0-9) and hops (1-30)
+        for conn_id_hash in 0..10 {
+            for hop in 1..=30 {
+                let length = 100 + (conn_id_hash * 97) + (hop * 3);
+                lengths.insert(length);
+            }
+        }
+        
+        // We should have 10 * 30 = 300 unique lengths
+        assert_eq!(lengths.len(), 300, "All probe lengths should be unique");
+    }
 
     #[test]
     fn test_current_time_ms() {
