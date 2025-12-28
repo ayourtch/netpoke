@@ -267,7 +267,7 @@ pub fn setup_bulk_channel(
     onmessage.forget();
 }
 
-pub fn setup_control_channel(channel: RtcDataChannel) {
+pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<MeasurementState>>) {
     let onopen = Closure::wrap(Box::new(move || {
         log::info!("Control channel opened");
     }) as Box<dyn FnMut()>);
@@ -276,6 +276,7 @@ pub fn setup_control_channel(channel: RtcDataChannel) {
     onopen.forget();
 
     // Handle incoming messages from server (e.g., traceroute hop information)
+    let state_for_handler = state.clone();
     let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
         let array = Uint8Array::new(&ev.data());
         let data = array.to_vec();
@@ -283,6 +284,16 @@ pub fn setup_control_channel(channel: RtcDataChannel) {
 
         // Try to parse as TraceHopMessage
         if let Ok(hop_msg) = serde_json::from_str::<common::TraceHopMessage>(&text) {
+            // Validate conn_id matches this connection
+            let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+            if !expected_conn_id.is_empty() && hop_msg.conn_id != expected_conn_id {
+                log::warn!(
+                    "TraceHopMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
+                    hop_msg.conn_id, expected_conn_id
+                );
+                return;
+            }
+            
             // Display the hop message in the UI
             append_server_message(&format!(
                 "[Hop {}] {} (RTT: {:.2}ms)",
@@ -330,7 +341,7 @@ pub fn current_time_ms() -> u64 {
     js_sys::Date::now() as u64
 }
 
-pub fn setup_testprobe_channel(channel: RtcDataChannel) {
+pub fn setup_testprobe_channel(channel: RtcDataChannel, state: Rc<RefCell<MeasurementState>>) {
     let onopen = Closure::wrap(Box::new(move || {
         log::info!("TestProbe channel opened");
     }) as Box<dyn FnMut()>);
@@ -340,6 +351,7 @@ pub fn setup_testprobe_channel(channel: RtcDataChannel) {
 
     // Handle incoming test probes from server - echo them back
     let channel_for_echo = channel.clone();
+    let state_for_handler = state.clone();
     let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
         let array = Uint8Array::new(&ev.data());
         let data = array.to_vec();
@@ -347,6 +359,16 @@ pub fn setup_testprobe_channel(channel: RtcDataChannel) {
 
         // Try to parse as TestProbePacket
         if let Ok(mut testprobe) = serde_json::from_str::<common::TestProbePacket>(&text) {
+            // Validate conn_id matches this connection
+            let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+            if !expected_conn_id.is_empty() && testprobe.conn_id != expected_conn_id {
+                log::warn!(
+                    "TestProbePacket conn_id mismatch: received '{}' but expected '{}', ignoring",
+                    testprobe.conn_id, expected_conn_id
+                );
+                return;
+            }
+            
             let now_ms = current_time_ms();
             
             log::debug!("Received test probe test_seq {} from server, echoing back", testprobe.test_seq);
