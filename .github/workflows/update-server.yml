@@ -1,0 +1,25 @@
+name: Update Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  update-server:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.BEEHOST_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H beehost.stdio.be >> ~/.ssh/known_hosts
+      
+      - name: Run update-server command
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no netpoke@beehost.stdio.be "/home/netpoke/bin/update-server"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa
