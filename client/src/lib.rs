@@ -8,7 +8,11 @@ use web_sys::{window, Document};
 use std::cell::RefCell;
 
 // Path analysis timeout in milliseconds (30 seconds)
-const PATH_ANALYSIS_TIMEOUT_MS: i32 = 30000;
+const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
+
+// Mode constants for measurement type
+const MODE_TRACEROUTE: &str = "traceroute";
+const MODE_MEASUREMENT: &str = "measurement";
 
 // Global wake lock sentinel (stored as JsValue since WakeLockSentinel might not be exposed)
 thread_local! {
@@ -145,12 +149,12 @@ pub async fn analyze_path() -> Result<(), JsValue> {
     }
 
     // Create IPv4 connection (first connection, no parent) with traceroute mode
-    let ipv4_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv4", None, Some("traceroute".to_string())).await?;
+    let ipv4_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv4", None, Some(MODE_TRACEROUTE.to_string())).await?;
     let parent_id = Some(ipv4_connection.client_id.clone());
     log::info!("IPv4 connected with client_id: {}", ipv4_connection.client_id);
 
     // Create IPv6 connection (second connection, with parent from IPv4) with traceroute mode
-    let ipv6_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv6", parent_id, Some("traceroute".to_string())).await?;
+    let ipv6_connection = webrtc::WebRtcConnection::new_with_ip_version_and_mode("ipv6", parent_id, Some(MODE_TRACEROUTE.to_string())).await?;
     log::info!("IPv6 connected with client_id: {}", ipv6_connection.client_id);
 
     // Store connections in a way that we can clean them up
@@ -164,8 +168,8 @@ pub async fn analyze_path() -> Result<(), JsValue> {
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         let window = web_sys::window().expect("no global window available during path analysis timeout setup");
         window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, PATH_ANALYSIS_TIMEOUT_MS)
-            .expect("failed to set timeout");
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, PATH_ANALYSIS_TIMEOUT_MS as i32)
+            .expect("Failed to set timeout for path analysis");
     });
     wasm_bindgen_futures::JsFuture::from(promise).await?;
 

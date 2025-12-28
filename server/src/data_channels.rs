@@ -5,6 +5,10 @@ use std::sync::Arc;
 use crate::state::ClientSession;
 use crate::measurements;
 
+// Mode constants for measurement type
+const MODE_TRACEROUTE: &str = "traceroute";
+const MODE_MEASUREMENT: &str = "measurement";
+
 pub async fn setup_data_channel_handlers(
     peer: &Arc<RTCPeerConnection>,
     session: Arc<ClientSession>,
@@ -40,9 +44,9 @@ pub async fn setup_data_channel_handlers(
                 "control" => {
                     chans.control = Some(dc.clone());
                     // Only start traceroute sender if mode is "traceroute"
-                    let should_start_traceroute = session.mode.as_deref() == Some("traceroute");
+                    let should_start_traceroute = session.mode.as_deref() == Some(MODE_TRACEROUTE);
                     if should_start_traceroute {
-                        tracing::info!("Starting traceroute sender for session {} (mode: traceroute)", session.id);
+                        tracing::info!("Starting traceroute sender for session {} (mode: {})", session.id, MODE_TRACEROUTE);
                         let session_clone = session.clone();
                         tokio::spawn(async move {
                             measurements::start_traceroute_sender(session_clone).await;
