@@ -48,6 +48,7 @@ pub struct MeasurementState {
     pub testprobe_seq: u64,  // Separate sequence space for traceroute test probes
     pub current_ttl: u8,  // Current TTL for traceroute
     pub stop_traceroute: bool,  // Flag to stop traceroute sender
+    pub traceroute_started_at: Option<Instant>,  // When traceroute started (for timeout)
     pub bulk_bytes_sent: u64,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
@@ -122,6 +123,7 @@ impl MeasurementState {
             testprobe_seq: 0,
             current_ttl: 1,  // Start at TTL 1
             stop_traceroute: false,  // Initialize to false
+            traceroute_started_at: None,  // Not started yet
             bulk_bytes_sent: 0,
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),

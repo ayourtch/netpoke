@@ -96,8 +96,19 @@
     <div id="traceroute-visualization" style="margin-top: 20px;">
         <h2>Traceroute Path Visualization</h2>
         <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</em></p>
-        <div id="traceroute-graph" style="border: 1px solid #ddd; background-color: #fafafa; padding: 20px; min-height: 300px; overflow-x: auto;">
-            <div style="text-align: center; color: #999; padding: 40px;">No traceroute data available. Click "Analyze Path" to start.</div>
+        
+        <div style="margin-bottom: 20px;">
+            <h3 style="color: #2196F3;">IPv4 Path</h3>
+            <div id="traceroute-graph-ipv4" style="border: 1px solid #2196F3; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
+                <div style="text-align: center; color: #999; padding: 40px;">No IPv4 traceroute data available.</div>
+            </div>
+        </div>
+        
+        <div>
+            <h3 style="color: #FF9800;">IPv6 Path</h3>
+            <div id="traceroute-graph-ipv6" style="border: 1px solid #FF9800; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
+                <div style="text-align: center; color: #999; padding: 40px;">No IPv6 traceroute data available.</div>
+            </div>
         </div>
     </div>
 
@@ -398,26 +409,54 @@
         
         // Traceroute visualization data structure
         let tracerouteData = {
-            // Map of connection_id -> array of hop objects
-            // Each hop object: { hop: number, ip_address: string|null, rtt_ms: number, message: string }
-            connections: {}
+            // Map of IP version -> connection_id -> array of hop objects
+            // Each hop object: { hop: number, ip_addresses: Set<string>, rtts: Map<string, number[]>, messages: string[] }
+            ipv4: {},
+            ipv6: {}
         };
         
         // Function to add traceroute hop data
         function addTracerouteHop(hopData) {
             const connId = hopData.conn_id || 'default';
-            if (!tracerouteData.connections[connId]) {
-                tracerouteData.connections[connId] = [];
+            const ipAddress = hopData.ip_address;
+            
+            // Determine IP version from the address
+            let ipVersion = 'ipv4';
+            if (ipAddress && ipAddress.includes(':')) {
+                ipVersion = 'ipv6';
             }
             
-            // Check if hop already exists (update) or add new
-            const existingHopIndex = tracerouteData.connections[connId].findIndex(h => h.hop === hopData.hop);
-            if (existingHopIndex >= 0 && hopData.ip_address) {
-                // Update existing hop with new data (only if we have an IP address)
-                tracerouteData.connections[connId][existingHopIndex] = hopData;
-            } else if (existingHopIndex < 0) {
-                // Add new hop
-                tracerouteData.connections[connId].push(hopData);
+            // Initialize connection if needed
+            if (!tracerouteData[ipVersion][connId]) {
+                tracerouteData[ipVersion][connId] = [];
+            }
+            
+            // Find or create hop entry
+            let hopEntry = tracerouteData[ipVersion][connId].find(h => h.hop === hopData.hop);
+            if (!hopEntry) {
+                hopEntry = {
+                    hop: hopData.hop,
+                    ip_addresses: new Set(),
+                    rtts: new Map(),  // Map of IP -> array of RTT values
+                    messages: []
+                };
+                tracerouteData[ipVersion][connId].push(hopEntry);
+            }
+            
+            // Add IP address if present
+            if (ipAddress) {
+                hopEntry.ip_addresses.add(ipAddress);
+                
+                // Track RTT for this IP
+                if (!hopEntry.rtts.has(ipAddress)) {
+                    hopEntry.rtts.set(ipAddress, []);
+                }
+                hopEntry.rtts.get(ipAddress).push(hopData.rtt_ms);
+            }
+            
+            // Add message if not already present
+            if (hopData.message && !hopEntry.messages.includes(hopData.message)) {
+                hopEntry.messages.push(hopData.message);
             }
             
             // Re-render the visualization
@@ -426,20 +465,27 @@
         
         // Function to clear traceroute data
         function clearTracerouteData() {
-            tracerouteData.connections = {};
+            tracerouteData.ipv4 = {};
+            tracerouteData.ipv6 = {};
             renderTracerouteGraph();
         }
         
         // Function to render the traceroute graph
         function renderTracerouteGraph() {
-            const graphContainer = document.getElementById('traceroute-graph');
+            renderTracerouteGraphForVersion('ipv4');
+            renderTracerouteGraphForVersion('ipv6');
+        }
+        
+        function renderTracerouteGraphForVersion(ipVersion) {
+            const graphContainer = document.getElementById(`traceroute-graph-${ipVersion}`);
             if (!graphContainer) return;
             
-            const connections = tracerouteData.connections;
+            const connections = tracerouteData[ipVersion];
             const connIds = Object.keys(connections);
             
             if (connIds.length === 0) {
-                graphContainer.innerHTML = '<div style="text-align: center; color: #999; padding: 40px;">No traceroute data available. Click "Analyze Path" to start.</div>';
+                const versionLabel = ipVersion.toUpperCase();
+                graphContainer.innerHTML = `<div style="text-align: center; color: #999; padding: 40px;">No ${versionLabel} traceroute data available.</div>`;
                 return;
             }
             
@@ -454,50 +500,71 @@
             // Build HTML for the graph
             let html = '<div style="display: flex; flex-direction: column; gap: 10px;">';
             
-            // For each hop number, create a column
+            // For each hop number, create a row
             for (let hopNum = 1; hopNum <= maxHop; hopNum++) {
                 html += '<div style="display: flex; align-items: center; gap: 10px; padding: 5px 0;">';
                 html += `<div style="min-width: 60px; font-weight: bold; color: #555;">Hop ${hopNum}:</div>`;
                 html += '<div style="display: flex; flex-wrap: wrap; gap: 10px; flex: 1;">';
                 
-                // Find all nodes at this hop across all connections
-                const nodesAtHop = [];
+                // Collect all hop entries at this hop across all connections
+                const hopsAtThisLevel = [];
                 connIds.forEach(connId => {
                     const hop = connections[connId].find(h => h.hop === hopNum);
                     if (hop) {
-                        nodesAtHop.push({ connId, hop });
+                        hopsAtThisLevel.push({ connId, hop });
                     }
                 });
                 
-                if (nodesAtHop.length === 0) {
+                if (hopsAtThisLevel.length === 0) {
                     html += '<div style="color: #999; font-style: italic;">No response</div>';
                 } else {
-                    // Group nodes by IP address
-                    const nodesByIp = {};
-                    nodesAtHop.forEach(({ connId, hop }) => {
-                        const ip = hop.ip_address || 'unknown';
-                        if (!nodesByIp[ip]) {
-                            nodesByIp[ip] = [];
-                        }
-                        nodesByIp[ip].push({ connId, hop });
+                    // Group by unique IP addresses across all connections at this hop
+                    const ipToConnections = new Map();
+                    hopsAtThisLevel.forEach(({ connId, hop }) => {
+                        hop.ip_addresses.forEach(ip => {
+                            if (!ipToConnections.has(ip)) {
+                                ipToConnections.set(ip, []);
+                            }
+                            ipToConnections.get(ip).push({ connId, hop });
+                        });
                     });
                     
+                    // Determine if there are multiple IPs for this hop (highlighting needed)
+                    const hasMultipleIps = ipToConnections.size > 1;
+                    
                     // Render each unique IP as a node
-                    Object.keys(nodesByIp).forEach(ip => {
-                        const nodes = nodesByIp[ip];
-                        const connCount = nodes.length;
-                        const avgRtt = nodes.reduce((sum, n) => sum + n.hop.rtt_ms, 0) / connCount;
+                    ipToConnections.forEach((connsForIp, ip) => {
+                        const connCount = connsForIp.length;
                         
-                        // Create tooltip with all connections that hit this node
-                        const tooltipLines = nodes.map(({ connId, hop }) => {
-                            const shortId = connId.substring(0, 8);
-                            return `[${shortId}] RTT: ${hop.rtt_ms.toFixed(2)}ms`;
+                        // Calculate average RTT for this IP
+                        let allRtts = [];
+                        connsForIp.forEach(({ hop }) => {
+                            if (hop.rtts.has(ip)) {
+                                allRtts = allRtts.concat(hop.rtts.get(ip));
+                            }
                         });
-                        const tooltip = `Hop ${hopNum}\\n${ip}\\n\\nConnections (${connCount}):${tooltipLines.map(l => '\\n' + l).join('')}`;
+                        const avgRtt = allRtts.length > 0 ? allRtts.reduce((a, b) => a + b, 0) / allRtts.length : 0;
                         
-                        // Node styling - color based on number of connections
-                        const nodeColor = connCount === connIds.length ? '#4CAF50' : '#FF9800';
-                        const borderStyle = connCount === connIds.length ? 'solid' : 'dashed';
+                        // Create tooltip with literal newlines
+                        const tooltipLines = [
+                            `Hop ${hopNum}`,
+                            `${ip}`,
+                            ``,
+                            `Connections (${connCount}):`
+                        ];
+                        connsForIp.forEach(({ connId, hop }) => {
+                            const shortId = connId.substring(0, 8);
+                            const rtts = hop.rtts.get(ip) || [];
+                            const avgConnRtt = rtts.length > 0 ? rtts.reduce((a, b) => a + b, 0) / rtts.length : 0;
+                            tooltipLines.push(`[${shortId}] RTT: ${avgConnRtt.toFixed(2)}ms`);
+                        });
+                        const tooltip = tooltipLines.join('\n');
+                        
+                        // Node styling
+                        // Highlight if there are multiple IPs at this hop (ECMP path variation)
+                        const nodeColor = hasMultipleIps ? '#FF5722' : (connCount === connIds.length ? '#4CAF50' : '#FF9800');
+                        const borderStyle = hasMultipleIps ? 'solid' : (connCount === connIds.length ? 'solid' : 'dashed');
+                        const borderWidth = hasMultipleIps ? '3px' : '2px';
                         
                         html += `<div style="
                             position: relative;
@@ -505,7 +572,7 @@
                             color: white;
                             padding: 8px 12px;
                             border-radius: 6px;
-                            border: 2px ${borderStyle} ${nodeColor};
+                            border: ${borderWidth} ${borderStyle} ${nodeColor};
                             box-shadow: 0 2px 4px rgba(0,0,0,0.2);
                             cursor: help;
                             font-size: 12px;
@@ -534,6 +601,10 @@
                 <span style="margin-left: 15px;">
                     <span style="display: inline-block; width: 12px; height: 12px; background: #FF9800; border: 2px dashed #FF9800; border-radius: 2px; margin-right: 5px;"></span>
                     Partial connections (dashed border)
+                </span>
+                <span style="margin-left: 15px;">
+                    <span style="display: inline-block; width: 12px; height: 12px; background: #FF5722; border: 3px solid #FF5722; border-radius: 2px; margin-right: 5px;"></span>
+                    Multiple IPs at this hop (path variation)
                 </span>
             </div>`;
             

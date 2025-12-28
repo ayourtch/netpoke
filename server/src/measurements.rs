@@ -355,20 +355,35 @@ pub async fn start_traceroute_sender(
 ) {
     tracing::info!("Starting traceroute sender for session {}", session.id);
     
+    // Record start time for 45-second safety limit
+    {
+        let mut state = session.measurement_state.write().await;
+        state.traceroute_started_at = Some(std::time::Instant::now());
+    }
+    
     let mut interval = interval(Duration::from_secs(1)); // Send one hop discovery per second
     const MAX_TTL: u8 = 30;
+    const TRACEROUTE_TIMEOUT_SECS: u64 = 45;
 
     loop {
         interval.tick().await;
         
         // Check if we should stop traceroute
-        let should_stop = {
+        let (should_stop, timeout_exceeded) = {
             let state = session.measurement_state.read().await;
-            state.stop_traceroute
+            let timeout = state.traceroute_started_at
+                .map(|start| start.elapsed().as_secs() >= TRACEROUTE_TIMEOUT_SECS)
+                .unwrap_or(false);
+            (state.stop_traceroute, timeout)
         };
         
         if should_stop {
             tracing::info!("Stopping traceroute sender for session {} (stop flag set)", session.id);
+            break;
+        }
+        
+        if timeout_exceeded {
+            tracing::info!("Stopping traceroute sender for session {} (45-second timeout exceeded)", session.id);
             break;
         }
         
