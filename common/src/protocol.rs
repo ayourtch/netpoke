@@ -102,6 +102,59 @@ pub struct DashboardMessage {
     pub clients: Vec<ClientInfo>,
 }
 
+/// Diagnostics information for a single client session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionDiagnostics {
+    pub session_id: String,
+    pub parent_id: Option<String>,
+    pub ip_version: Option<String>,
+    pub mode: Option<String>,
+    pub conn_id: String,
+    pub connected_at_secs: u64,
+    pub connection_state: String,
+    pub ice_connection_state: String,
+    pub ice_gathering_state: String,
+    pub peer_address: Option<String>,
+    pub peer_port: Option<u16>,
+    pub candidate_pairs: Vec<CandidatePairInfo>,
+    pub data_channels: DataChannelStatus,
+    pub icmp_error_count: u32,
+    pub last_icmp_error_secs_ago: Option<u64>,
+}
+
+/// ICE candidate pair information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CandidatePairInfo {
+    pub local_candidate_type: String,
+    pub local_address: String,
+    pub remote_candidate_type: String,
+    pub remote_address: String,
+    pub state: String,
+    pub nominated: bool,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+}
+
+/// Data channel status information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataChannelStatus {
+    pub probe: Option<String>,
+    pub bulk: Option<String>,
+    pub control: Option<String>,
+    pub testprobe: Option<String>,
+}
+
+/// Server diagnostics information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerDiagnostics {
+    pub server_uptime_secs: u64,
+    pub total_sessions: usize,
+    pub connected_sessions: usize,
+    pub disconnected_sessions: usize,
+    pub failed_sessions: usize,
+    pub sessions: Vec<SessionDiagnostics>,
+}
+
 /// Message sent from server to client to report traceroute hop information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceHopMessage {

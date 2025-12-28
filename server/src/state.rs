@@ -14,6 +14,7 @@ pub struct AppState {
     pub clients: Arc<RwLock<HashMap<String, Arc<ClientSession>>>>,
     pub packet_tracker: Arc<PacketTracker>,
     pub tracking_sender: mpsc::UnboundedSender<UdpPacketInfo>,
+    pub server_start_time: Instant,
 }
 
 pub struct ClientSession {
@@ -101,6 +102,7 @@ impl AppState {
             clients: Arc::new(RwLock::new(HashMap::new())),
             packet_tracker: Arc::new(tracker),
             tracking_sender: tx,
+            server_start_time: Instant::now(),
         }
     }
 }

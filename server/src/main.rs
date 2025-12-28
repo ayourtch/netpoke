@@ -44,6 +44,7 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
     let dashboard_routes = Router::new()
         .route("/api/dashboard/ws", get(dashboard::dashboard_ws_handler))
         .route("/api/dashboard/debug", get(dashboard_debug))
+        .route("/api/diagnostics", get(server_diagnostics))
         .route("/api/clients/{id}", delete(cleanup::cleanup_client_handler))
         .route("/api/tracking/events", get(packet_tracking_api::get_tracked_events))
         .route("/api/tracking/stats", get(packet_tracking_api::get_tracked_stats))
@@ -503,5 +504,129 @@ async fn dashboard_debug(State(state): State<AppState>) -> Json<DashboardMessage
 
     Json(DashboardMessage {
         clients: clients_info,
+    })
+}
+
+async fn server_diagnostics(State(state): State<AppState>) -> Json<common::ServerDiagnostics> {
+    use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+    use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
+    use webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState;
+    
+    let server_uptime = state.server_start_time.elapsed().as_secs();
+    let clients_lock = state.clients.read().await;
+    
+    let mut sessions = Vec::new();
+    let mut connected_count = 0;
+    let mut disconnected_count = 0;
+    let mut failed_count = 0;
+    
+    for (_, session) in clients_lock.iter() {
+        let conn_state = session.peer_connection.connection_state();
+        let ice_conn_state = session.peer_connection.ice_connection_state();
+        let ice_gathering_state = session.peer_connection.ice_gathering_state();
+        
+        // Count connection states
+        match conn_state {
+            RTCPeerConnectionState::Connected => connected_count += 1,
+            RTCPeerConnectionState::Disconnected => disconnected_count += 1,
+            RTCPeerConnectionState::Failed => failed_count += 1,
+            _ => {}
+        }
+        
+        // Get peer address
+        let peer_addr = session.peer_address.lock().await;
+        let (peer_address, peer_port) = peer_addr.as_ref()
+            .map(|(addr, port)| (Some(addr.clone()), Some(*port)))
+            .unwrap_or((None, None));
+        drop(peer_addr);
+        
+        // Get candidate pairs from stats
+        let mut candidate_pairs = Vec::new();
+        if conn_state == RTCPeerConnectionState::Connected {
+            let stats_report = session.peer_connection.get_stats().await;
+            
+            for stat in stats_report.reports.values() {
+                if let StatsReportType::CandidatePair(pair) = stat {
+                    // Find local and remote candidate details
+                    let mut local_type = "unknown".to_string();
+                    let mut local_address = "unknown".to_string();
+                    let mut remote_type = "unknown".to_string();
+                    let mut remote_address = "unknown".to_string();
+                    
+                    for candidate_stat in stats_report.reports.values() {
+                        if let StatsReportType::LocalCandidate(candidate) = candidate_stat {
+                            if candidate.id == pair.local_candidate_id {
+                                local_type = format!("{:?}", candidate.candidate_type);
+                                local_address = format!("{}:{}", candidate.ip, candidate.port);
+                            }
+                        }
+                        if let StatsReportType::RemoteCandidate(candidate) = candidate_stat {
+                            if candidate.id == pair.remote_candidate_id {
+                                remote_type = format!("{:?}", candidate.candidate_type);
+                                remote_address = format!("{}:{}", candidate.ip, candidate.port);
+                            }
+                        }
+                    }
+                    
+                    candidate_pairs.push(common::CandidatePairInfo {
+                        local_candidate_type: local_type,
+                        local_address,
+                        remote_candidate_type: remote_type,
+                        remote_address,
+                        state: format!("{:?}", pair.state),
+                        nominated: pair.nominated,
+                        bytes_sent: pair.bytes_sent,
+                        bytes_received: pair.bytes_received,
+                    });
+                }
+            }
+        }
+        
+        // Get data channel status
+        let data_channels = session.data_channels.read().await;
+        let data_channel_status = common::DataChannelStatus {
+            probe: data_channels.probe.as_ref().map(|dc| format!("{:?}", dc.ready_state())),
+            bulk: data_channels.bulk.as_ref().map(|dc| format!("{:?}", dc.ready_state())),
+            control: data_channels.control.as_ref().map(|dc| format!("{:?}", dc.ready_state())),
+            testprobe: data_channels.testprobe.as_ref().map(|dc| format!("{:?}", dc.ready_state())),
+        };
+        drop(data_channels);
+        
+        // Get ICMP error info
+        let icmp_error_count = *session.icmp_error_count.lock().await;
+        let last_icmp_error = session.last_icmp_error.lock().await;
+        let last_icmp_error_secs_ago = last_icmp_error.as_ref()
+            .map(|t| t.elapsed().as_secs());
+        drop(last_icmp_error);
+        
+        sessions.push(common::SessionDiagnostics {
+            session_id: session.id.clone(),
+            parent_id: session.parent_id.clone(),
+            ip_version: session.ip_version.clone(),
+            mode: session.mode.clone(),
+            conn_id: session.conn_id.clone(),
+            connected_at_secs: session.connected_at.elapsed().as_secs(),
+            connection_state: format!("{:?}", conn_state),
+            ice_connection_state: format!("{:?}", ice_conn_state),
+            ice_gathering_state: format!("{:?}", ice_gathering_state),
+            peer_address,
+            peer_port,
+            candidate_pairs,
+            data_channels: data_channel_status,
+            icmp_error_count,
+            last_icmp_error_secs_ago,
+        });
+    }
+    
+    let total_sessions = clients_lock.len();
+    drop(clients_lock);
+    
+    Json(common::ServerDiagnostics {
+        server_uptime_secs: server_uptime,
+        total_sessions,
+        connected_sessions: connected_count,
+        disconnected_sessions: disconnected_count,
+        failed_sessions: failed_count,
+        sessions,
     })
 }
