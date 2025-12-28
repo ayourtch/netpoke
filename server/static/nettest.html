@@ -62,28 +62,31 @@
     <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
     <div id="metrics">
         <h2>Dual-Stack Network Measurement</h2>
-        <div class="dual-stack-container">
-            <div class="stack-column">
-                <h3>IPv4 Connection</h3>
-                <table class="ipv4">
-                    <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
-                    <tr><td>Throughput</td><td id="ipv4-s2c-tp-1">-</td><td id="ipv4-s2c-tp-10">-</td><td id="ipv4-s2c-tp-60">-</td></tr>
-                    <tr><td>Delay (ms)</td><td id="ipv4-s2c-delay-1">-</td><td id="ipv4-s2c-delay-10">-</td><td id="ipv4-s2c-delay-60">-</td></tr>
-                    <tr><td>Jitter (ms)</td><td id="ipv4-s2c-jitter-1">-</td><td id="ipv4-s2c-jitter-10">-</td><td id="ipv4-s2c-jitter-60">-</td></tr>
-                    <tr><td>Loss Rate</td><td id="ipv4-s2c-loss-1">-</td><td id="ipv4-s2c-loss-10">-</td><td id="ipv4-s2c-loss-60">-</td></tr>
-                    <tr><td>Reordering</td><td id="ipv4-s2c-reorder-1">-</td><td id="ipv4-s2c-reorder-10">-</td><td id="ipv4-s2c-reorder-60">-</td></tr>
-                </table>
-            </div>
-            <div class="stack-column">
-                <h3>IPv6 Connection</h3>
-                <table class="ipv6">
-                    <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
-                    <tr><td>Throughput</td><td id="ipv6-s2c-tp-1">-</td><td id="ipv6-s2c-tp-10">-</td><td id="ipv6-s2c-tp-60">-</td></tr>
-                    <tr><td>Delay (ms)</td><td id="ipv6-s2c-delay-1">-</td><td id="ipv6-s2c-delay-10">-</td><td id="ipv6-s2c-delay-60">-</td></tr>
-                    <tr><td>Jitter (ms)</td><td id="ipv6-s2c-jitter-1">-</td><td id="ipv6-s2c-jitter-10">-</td><td id="ipv6-s2c-jitter-60">-</td></tr>
-                    <tr><td>Loss Rate</td><td id="ipv6-s2c-loss-1">-</td><td id="ipv6-s2c-loss-10">-</td><td id="ipv6-s2c-loss-60">-</td></tr>
-                    <tr><td>Reordering</td><td id="ipv6-s2c-reorder-1">-</td><td id="ipv6-s2c-reorder-10">-</td><td id="ipv6-s2c-reorder-60">-</td></tr>
-                </table>
+        <div id="metrics-tables-container">
+            <!-- Dynamic connection tables will be inserted here by JavaScript -->
+            <div class="dual-stack-container" id="default-metrics">
+                <div class="stack-column">
+                    <h3>IPv4 Connection</h3>
+                    <table class="ipv4">
+                        <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+                        <tr><td>Throughput</td><td id="ipv4-s2c-tp-1">-</td><td id="ipv4-s2c-tp-10">-</td><td id="ipv4-s2c-tp-60">-</td></tr>
+                        <tr><td>Delay (ms)</td><td id="ipv4-s2c-delay-1">-</td><td id="ipv4-s2c-delay-10">-</td><td id="ipv4-s2c-delay-60">-</td></tr>
+                        <tr><td>Jitter (ms)</td><td id="ipv4-s2c-jitter-1">-</td><td id="ipv4-s2c-jitter-10">-</td><td id="ipv4-s2c-jitter-60">-</td></tr>
+                        <tr><td>Loss Rate</td><td id="ipv4-s2c-loss-1">-</td><td id="ipv4-s2c-loss-10">-</td><td id="ipv4-s2c-loss-60">-</td></tr>
+                        <tr><td>Reordering</td><td id="ipv4-s2c-reorder-1">-</td><td id="ipv4-s2c-reorder-10">-</td><td id="ipv4-s2c-reorder-60">-</td></tr>
+                    </table>
+                </div>
+                <div class="stack-column">
+                    <h3>IPv6 Connection</h3>
+                    <table class="ipv6">
+                        <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+                        <tr><td>Throughput</td><td id="ipv6-s2c-tp-1">-</td><td id="ipv6-s2c-tp-10">-</td><td id="ipv6-s2c-tp-60">-</td></tr>
+                        <tr><td>Delay (ms)</td><td id="ipv6-s2c-delay-1">-</td><td id="ipv6-s2c-delay-10">-</td><td id="ipv6-s2c-delay-60">-</td></tr>
+                        <tr><td>Jitter (ms)</td><td id="ipv6-s2c-jitter-1">-</td><td id="ipv6-s2c-jitter-10">-</td><td id="ipv6-s2c-jitter-60">-</td></tr>
+                        <tr><td>Loss Rate</td><td id="ipv6-s2c-loss-1">-</td><td id="ipv6-s2c-loss-10">-</td><td id="ipv6-s2c-loss-60">-</td></tr>
+                        <tr><td>Reordering</td><td id="ipv6-s2c-reorder-1">-</td><td id="ipv6-s2c-reorder-10">-</td><td id="ipv6-s2c-reorder-60">-</td></tr>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -93,6 +96,7 @@
 
     <div id="server-messages-container" style="margin-top: 20px;">
         <h2>Server Messages (Traceroute)</h2>
+        <p style="font-size: 12px; color: #666; margin-bottom: 5px;"><em>Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</em></p>
         <textarea id="server-messages" readonly style="width: 100%; height: 150px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ddd; background-color: #f5f5f5;"></textarea>
     </div>
 
@@ -384,6 +388,94 @@
 
         // Make addMetricsData globally available
         window.addMetricsData = addMetricsData;
+        
+        // Function to generate metrics tables for multiple connections
+        function generateMultiConnectionTables(connCount) {
+            const container = document.getElementById('metrics-tables-container');
+            if (!container) return;
+            
+            // If only 1 connection, use the default tables
+            if (connCount <= 1) {
+                document.getElementById('default-metrics').style.display = 'flex';
+                return;
+            }
+            
+            // Hide default metrics and create dynamic tables
+            document.getElementById('default-metrics').style.display = 'none';
+            
+            // Clear any existing dynamic tables
+            const existingDynamic = container.querySelectorAll('.dynamic-metrics');
+            existingDynamic.forEach(el => el.remove());
+            
+            // Create a table for each connection pair (IPv4 + IPv6)
+            for (let i = 0; i < connCount; i++) {
+                const connDiv = document.createElement('div');
+                connDiv.className = 'dual-stack-container dynamic-metrics';
+                connDiv.style.marginBottom = '20px';
+                connDiv.innerHTML = `
+                    <div class="stack-column">
+                        <h3>IPv4 Connection #${i + 1}</h3>
+                        <table class="ipv4">
+                            <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+                            <tr><td>Throughput</td><td id="ipv4-${i}-s2c-tp-1">-</td><td id="ipv4-${i}-s2c-tp-10">-</td><td id="ipv4-${i}-s2c-tp-60">-</td></tr>
+                            <tr><td>Delay (ms)</td><td id="ipv4-${i}-s2c-delay-1">-</td><td id="ipv4-${i}-s2c-delay-10">-</td><td id="ipv4-${i}-s2c-delay-60">-</td></tr>
+                            <tr><td>Jitter (ms)</td><td id="ipv4-${i}-s2c-jitter-1">-</td><td id="ipv4-${i}-s2c-jitter-10">-</td><td id="ipv4-${i}-s2c-jitter-60">-</td></tr>
+                            <tr><td>Loss Rate</td><td id="ipv4-${i}-s2c-loss-1">-</td><td id="ipv4-${i}-s2c-loss-10">-</td><td id="ipv4-${i}-s2c-loss-60">-</td></tr>
+                            <tr><td>Reordering</td><td id="ipv4-${i}-s2c-reorder-1">-</td><td id="ipv4-${i}-s2c-reorder-10">-</td><td id="ipv4-${i}-s2c-reorder-60">-</td></tr>
+                        </table>
+                    </div>
+                    <div class="stack-column">
+                        <h3>IPv6 Connection #${i + 1}</h3>
+                        <table class="ipv6">
+                            <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
+                            <tr><td>Throughput</td><td id="ipv6-${i}-s2c-tp-1">-</td><td id="ipv6-${i}-s2c-tp-10">-</td><td id="ipv6-${i}-s2c-tp-60">-</td></tr>
+                            <tr><td>Delay (ms)</td><td id="ipv6-${i}-s2c-delay-1">-</td><td id="ipv6-${i}-s2c-delay-10">-</td><td id="ipv6-${i}-s2c-delay-60">-</td></tr>
+                            <tr><td>Jitter (ms)</td><td id="ipv6-${i}-s2c-jitter-1">-</td><td id="ipv6-${i}-s2c-jitter-10">-</td><td id="ipv6-${i}-s2c-jitter-60">-</td></tr>
+                            <tr><td>Loss Rate</td><td id="ipv6-${i}-s2c-loss-1">-</td><td id="ipv6-${i}-s2c-loss-10">-</td><td id="ipv6-${i}-s2c-loss-60">-</td></tr>
+                            <tr><td>Reordering</td><td id="ipv6-${i}-s2c-reorder-1">-</td><td id="ipv6-${i}-s2c-reorder-10">-</td><td id="ipv6-${i}-s2c-reorder-60">-</td></tr>
+                        </table>
+                    </div>
+                `;
+                container.appendChild(connDiv);
+            }
+        }
+        
+        // Function to update metrics for a specific connection
+        function updateConnectionMetrics(ipVersion, connIndex, metrics) {
+            const prefix = `${ipVersion}-${connIndex}-s2c`;
+            const setBytesToKB = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = (value / 1024).toFixed(2) + ' KB/s';
+            };
+            const setMs = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = value.toFixed(2);
+            };
+            const setPercent = (id, value) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = value.toFixed(2) + '%';
+            };
+            
+            setBytesToKB(`${prefix}-tp-1`, metrics.s2c_throughput[0]);
+            setBytesToKB(`${prefix}-tp-10`, metrics.s2c_throughput[1]);
+            setBytesToKB(`${prefix}-tp-60`, metrics.s2c_throughput[2]);
+            setMs(`${prefix}-delay-1`, metrics.s2c_delay_avg[0]);
+            setMs(`${prefix}-delay-10`, metrics.s2c_delay_avg[1]);
+            setMs(`${prefix}-delay-60`, metrics.s2c_delay_avg[2]);
+            setMs(`${prefix}-jitter-1`, metrics.s2c_jitter[0]);
+            setMs(`${prefix}-jitter-10`, metrics.s2c_jitter[1]);
+            setMs(`${prefix}-jitter-60`, metrics.s2c_jitter[2]);
+            setPercent(`${prefix}-loss-1`, metrics.s2c_loss_rate[0]);
+            setPercent(`${prefix}-loss-10`, metrics.s2c_loss_rate[1]);
+            setPercent(`${prefix}-loss-60`, metrics.s2c_loss_rate[2]);
+            setPercent(`${prefix}-reorder-1`, metrics.s2c_reorder_rate[0]);
+            setPercent(`${prefix}-reorder-10`, metrics.s2c_reorder_rate[1]);
+            setPercent(`${prefix}-reorder-60`, metrics.s2c_reorder_rate[2]);
+        }
+        
+        // Make functions globally available
+        window.generateMultiConnectionTables = generateMultiConnectionTables;
+        window.updateConnectionMetrics = updateConnectionMetrics;
     </script>
     <script type="module">
         const errorEl = document.getElementById('error');
@@ -438,6 +530,11 @@
                     
                     const connCount = getConnCount();
                     console.log(`Starting measurement with ${connCount} connections per address family`);
+                    
+                    // Generate dynamic tables for multi-connection display
+                    if (window.generateMultiConnectionTables) {
+                        window.generateMultiConnectionTables(connCount);
+                    }
 
                     try {
                         await start_measurement_with_count(connCount);

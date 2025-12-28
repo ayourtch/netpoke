@@ -294,9 +294,15 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
                 return;
             }
             
-            // Display the hop message in the UI
+            // Display the hop message in the UI with short conn_id prefix for multi-connection differentiation
+            let conn_prefix = if hop_msg.conn_id.len() >= 8 {
+                &hop_msg.conn_id[..8]
+            } else {
+                &hop_msg.conn_id
+            };
             append_server_message(&format!(
-                "[Hop {}] {} (RTT: {:.2}ms)",
+                "[{}][Hop {}] {} (RTT: {:.2}ms)",
+                conn_prefix,
                 hop_msg.hop,
                 hop_msg.message,
                 hop_msg.rtt_ms

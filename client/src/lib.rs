@@ -141,18 +141,41 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         }
     }).forget();
 
-    // For UI updates, we'll use the first connection of each type for the main display
-    // (The UI would need to be extended to show all connections, but that's a larger change)
-    if !ipv4_connections.is_empty() && !ipv6_connections.is_empty() {
-        let state_ipv4_ui = ipv4_connections[0].state.clone();
-        let state_ipv6_ui = ipv6_connections[0].state.clone();
-
-        gloo_timers::callback::Interval::new(500, move || {
-            let state_ipv4_ref = state_ipv4_ui.borrow();
-            let state_ipv6_ref = state_ipv6_ui.borrow();
-            update_ui_dual(&state_ipv4_ref.metrics, &state_ipv6_ref.metrics);
-        }).forget();
-    }
+    // Collect all connection states for UI updates
+    let ipv4_states: Vec<_> = ipv4_connections.iter().map(|c| c.state.clone()).collect();
+    let ipv6_states: Vec<_> = ipv6_connections.iter().map(|c| c.state.clone()).collect();
+    let conn_count = count;
+    
+    // Start UI update loop that updates all connections
+    gloo_timers::callback::Interval::new(500, move || {
+        // Update metrics for each IPv4 connection
+        for (i, state) in ipv4_states.iter().enumerate() {
+            let state_ref = state.borrow();
+            if conn_count > 1 {
+                // Multi-connection mode: update connection-specific tables
+                update_ui_connection("ipv4", i, &state_ref.metrics);
+            } else if i == 0 {
+                // Single connection mode: update default tables
+                // (first iteration only, handled below)
+            }
+        }
+        
+        // Update metrics for each IPv6 connection
+        for (i, state) in ipv6_states.iter().enumerate() {
+            let state_ref = state.borrow();
+            if conn_count > 1 {
+                // Multi-connection mode: update connection-specific tables
+                update_ui_connection("ipv6", i, &state_ref.metrics);
+            }
+        }
+        
+        // For single connection or chart updates, use first connection of each type
+        if !ipv4_states.is_empty() && !ipv6_states.is_empty() {
+            let ipv4_metrics = ipv4_states[0].borrow();
+            let ipv6_metrics = ipv6_states[0].borrow();
+            update_ui_dual(&ipv4_metrics.metrics, &ipv6_metrics.metrics);
+        }
+    }).forget();
 
     // Keep connections alive
     for conn in ipv4_connections {
@@ -338,6 +361,49 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
 
     // Update chart with metrics data
     call_add_metrics_data(ipv4_metrics, ipv6_metrics);
+}
+
+/// Update UI for a specific connection index
+fn update_ui_connection(ip_version: &str, conn_index: usize, metrics: &common::ClientMetrics) {
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen::JsCast;
+    
+    let window = match window() {
+        Some(w) => w,
+        None => return,
+    };
+    
+    // Convert metrics to JS object
+    let metrics_obj = js_sys::Object::new();
+    
+    // Helper function to set array property
+    let set_array_prop = |obj: &js_sys::Object, key: &str, values: &[f64]| {
+        let arr = js_sys::Array::new();
+        for &val in values {
+            arr.push(&JsValue::from_f64(val));
+        }
+        let _ = js_sys::Reflect::set(obj, &JsValue::from_str(key), &arr);
+    };
+    
+    set_array_prop(&metrics_obj, "s2c_throughput", &metrics.s2c_throughput);
+    set_array_prop(&metrics_obj, "s2c_delay_avg", &metrics.s2c_delay_avg);
+    set_array_prop(&metrics_obj, "s2c_jitter", &metrics.s2c_jitter);
+    set_array_prop(&metrics_obj, "s2c_loss_rate", &metrics.s2c_loss_rate);
+    set_array_prop(&metrics_obj, "s2c_reorder_rate", &metrics.s2c_reorder_rate);
+    
+    // Call JavaScript function updateConnectionMetrics(ipVersion, connIndex, metrics)
+    if let Ok(update_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("updateConnectionMetrics")) {
+        if let Some(func) = update_fn.dyn_ref::<js_sys::Function>() {
+            if let Err(e) = func.call3(
+                &JsValue::NULL, 
+                &JsValue::from_str(ip_version), 
+                &JsValue::from_f64(conn_index as f64), 
+                &metrics_obj
+            ) {
+                log::warn!("Failed to call updateConnectionMetrics: {:?}", e);
+            }
+        }
+    }
 }
 
 fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
