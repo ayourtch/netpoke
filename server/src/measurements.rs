@@ -361,14 +361,13 @@ pub async fn start_traceroute_sender(
         state.traceroute_started_at = Some(std::time::Instant::now());
     }
     
-    let mut interval = interval(Duration::from_millis(200)); // Send one hop discovery every 200ms
     const MAX_TTL: u8 = 30;
     const TRACEROUTE_TIMEOUT_SECS: u64 = 45;
+    const TTL_SEND_INTERVAL_MS: u64 = 10; // 10ms between TTL probes on same connection
+    const ROUND_INTERVAL_MS: u64 = 200; // 200ms between complete rounds of all TTLs
 
     loop {
-        interval.tick().await;
-        
-        // Check if we should stop traceroute
+        // Check if we should stop traceroute before starting a new round
         let (should_stop, timeout_exceeded) = {
             let state = session.measurement_state.read().await;
             let timeout = state.traceroute_started_at
@@ -387,171 +386,179 @@ pub async fn start_traceroute_sender(
             break;
         }
         
-        // Get current TTL from state
-        let current_ttl = {
-            let state = session.measurement_state.read().await;
-            state.current_ttl
-        };
+        // Send all TTLs (1 to MAX_TTL) in sequence with short intervals
+        tracing::debug!("Starting new traceroute round for session {}, sending TTL 1-{}", session.id, MAX_TTL);
         
-        tracing::debug!("Traceroute tick for session {}, TTL {}", session.id, current_ttl);
-
-        // Check if control channel is ready
-        let channels = session.data_channels.read().await;
-        let control_channel = match &channels.control {
-            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
-            _ => {
-                tracing::debug!("Control channel not ready for session {}, skipping", session.id);
-                drop(channels);
-                continue;
-            }
-        };
-        drop(channels);
-
-        // Get testprobe channel to send traceroute test probes
-        let channels = session.data_channels.read().await;
-        let testprobe_channel = match &channels.testprobe {
-            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
-            _ => {
-                tracing::debug!("TestProbe channel not ready for session {}, skipping", session.id);
-                drop(channels);
-                continue;
-            }
-        };
-        drop(channels);
-
-        // Create test probe packet with specific TTL for traceroute
-        let sent_at_ms = current_time_ms();
-        let seq = {
-            let mut state = session.measurement_state.write().await;
-            let seq = state.testprobe_seq;
-            state.testprobe_seq += 1;
-            
-            // Track the test probe so we can match it when/if it's echoed back
-            let sent_testprobe = crate::state::SentProbe {
-                seq,
-                sent_at_ms,
+        for current_ttl in 1..=MAX_TTL {
+            // Check if we should stop mid-round
+            let should_stop = {
+                let state = session.measurement_state.read().await;
+                state.stop_traceroute
             };
-            state.sent_testprobes.push_back(sent_testprobe.clone());
-            state.sent_testprobes_map.insert(seq, sent_testprobe);
             
-            // Keep only last 60 seconds of sent test probes
-            let cutoff = sent_at_ms - 60_000;
-            while let Some(p) = state.sent_testprobes.front() {
-                if p.sent_at_ms < cutoff {
-                    let old_probe = state.sent_testprobes.pop_front().unwrap();
-                    state.sent_testprobes_map.remove(&old_probe.seq);
-                } else {
-                    break;
+            if should_stop {
+                tracing::info!("Stopping traceroute sender mid-round for session {} (stop flag set)", session.id);
+                return;
+            }
+            
+            tracing::debug!("Traceroute tick for session {}, TTL {}", session.id, current_ttl);
+
+            // Check if control channel is ready
+            let channels = session.data_channels.read().await;
+            let control_channel = match &channels.control {
+                Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+                _ => {
+                    tracing::debug!("Control channel not ready for session {}, skipping", session.id);
+                    drop(channels);
+                    continue;
                 }
-            }
-            
-            seq
-        };
-
-        let send_options = common::SendOptions {
-            ttl: Some(current_ttl),
-            df_bit: Some(true),
-            tos: None,
-            flow_label: None,
-            track_for_ms: 5000, // Track for 5 seconds to catch ICMP responses
-        };
-
-        let testprobe = common::TestProbePacket {
-            test_seq: seq,
-            timestamp_ms: sent_at_ms,
-            direction: Direction::ServerToClient,
-            send_options: Some(send_options),
-            conn_id: session.conn_id.clone(),
-        };
-
-        // Send test probe with TTL using the new send_with_options API
-        if let Ok(mut json) = serde_json::to_vec(&testprobe) {
-            // Pad the JSON to create unique lengths for each TTL
-            // This helps with matching ICMP errors based on UDP packet length
-            // Base size + (TTL * 10 bytes) to make each hop distinguishable
-            let target_size = 100 + (current_ttl as usize * 10);
-            if json.len() < target_size {
-                json.resize(target_size, b' '); // Pad with spaces
-            }
-            
-            tracing::debug!("Sending traceroute test probe via testprobe channel: TTL={}, seq={}, json_len={}", 
-                current_ttl, seq, json.len());
-            
-            #[cfg(target_os = "linux")]
-            let send_result = {
-                use webrtc_util::UdpSendOptions;
-                let options = Some(UdpSendOptions {
-                    ttl: Some(current_ttl),
-                    tos: None,
-                    df_bit: Some(true),
-                });
-                tracing::debug!("Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}", 
-                    options.as_ref().and_then(|o| o.ttl),
-                    options.as_ref().and_then(|o| o.tos),
-                    options.as_ref().and_then(|o| o.df_bit));
-                testprobe_channel.send_with_options(&json.into(), options).await
             };
-            
-            #[cfg(not(target_os = "linux"))]
-            let send_result = testprobe_channel.send(&json.into()).await;
+            drop(channels);
 
-            if let Err(e) = send_result {
-                tracing::error!("Failed to send traceroute test probe: {}", e);
-                continue;
-            }
+            // Get testprobe channel to send traceroute test probes
+            let channels = session.data_channels.read().await;
+            let testprobe_channel = match &channels.testprobe {
+                Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+                _ => {
+                    tracing::debug!("TestProbe channel not ready for session {}, skipping", session.id);
+                    drop(channels);
+                    continue;
+                }
+            };
+            drop(channels);
 
-            tracing::debug!("Sent traceroute test probe with TTL {} (seq {})", current_ttl, seq);
-            
-            // Note: Packet tracking now happens automatically at the UDP layer
-            // The vendored webrtc-util code will call wifi_verify_track_udp_packet()
-            // with exact measurements when the packet is actually sent via sendmsg
-
-            // Wait a bit for potential ICMP response
-            tokio::time::sleep(Duration::from_millis(200)).await;
-
-            // Check for ICMP events from the packet tracker
-            let events = session.packet_tracker.drain_events().await;
-            
-            if !events.is_empty() {
-                tracing::debug!("Processing {} ICMP events for traceroute", events.len());
+            // Create test probe packet with specific TTL for traceroute
+            let sent_at_ms = current_time_ms();
+            let seq = {
+                let mut state = session.measurement_state.write().await;
+                let seq = state.testprobe_seq;
+                state.testprobe_seq += 1;
                 
-                for event in events {
-                    // Extract TTL from send options to determine hop number
-                    // TTL should always be set in send_options for traceroute packets
-                    let hop = event.send_options.ttl.expect("TTL should be set for traceroute packets");
-                    
-                    // Calculate RTT in milliseconds
-                    let rtt = event.icmp_received_at.duration_since(event.sent_at);
-                    let rtt_ms = rtt.as_secs_f64() * 1000.0;
-                    
-                    // Create hop message with actual ICMP data
-                    let hop_message = common::TraceHopMessage {
-                        hop,
-                        ip_address: event.router_ip.clone(),
-                        rtt_ms,
-                        message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
-                        conn_id: session.conn_id.clone(),
-                    };
+                // Track the test probe so we can match it when/if it's echoed back
+                let sent_testprobe = crate::state::SentProbe {
+                    seq,
+                    sent_at_ms,
+                };
+                state.sent_testprobes.push_back(sent_testprobe.clone());
+                state.sent_testprobes_map.insert(seq, sent_testprobe);
+                
+                // Keep only last 60 seconds of sent test probes
+                let cutoff = sent_at_ms - 60_000;
+                while let Some(p) = state.sent_testprobes.front() {
+                    if p.sent_at_ms < cutoff {
+                        let old_probe = state.sent_testprobes.pop_front().unwrap();
+                        state.sent_testprobes_map.remove(&old_probe.seq);
+                    } else {
+                        break;
+                    }
+                }
+                
+                seq
+            };
 
-                    tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
-                        hop, event.router_ip, rtt_ms);
+            let send_options = common::SendOptions {
+                ttl: Some(current_ttl),
+                df_bit: Some(true),
+                tos: None,
+                flow_label: None,
+                track_for_ms: 5000, // Track for 5 seconds to catch ICMP responses
+            };
 
-                    if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
-                        if let Err(e) = control_channel.send(&msg_json.into()).await {
-                            tracing::error!("Failed to send hop message to client: {}", e);
+            let testprobe = common::TestProbePacket {
+                test_seq: seq,
+                timestamp_ms: sent_at_ms,
+                direction: Direction::ServerToClient,
+                send_options: Some(send_options),
+                conn_id: session.conn_id.clone(),
+            };
+
+            // Send test probe with TTL using the new send_with_options API
+            if let Ok(mut json) = serde_json::to_vec(&testprobe) {
+                // Pad the JSON to create unique lengths for each TTL
+                // This helps with matching ICMP errors based on UDP packet length
+                // Base size + (TTL * 10 bytes) to make each hop distinguishable
+                let target_size = 100 + (current_ttl as usize * 10);
+                if json.len() < target_size {
+                    json.resize(target_size, b' '); // Pad with spaces
+                }
+                
+                tracing::debug!("Sending traceroute test probe via testprobe channel: TTL={}, seq={}, json_len={}", 
+                    current_ttl, seq, json.len());
+                
+                #[cfg(target_os = "linux")]
+                let send_result = {
+                    use webrtc_util::UdpSendOptions;
+                    let options = Some(UdpSendOptions {
+                        ttl: Some(current_ttl),
+                        tos: None,
+                        df_bit: Some(true),
+                    });
+                    tracing::debug!("Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}", 
+                        options.as_ref().and_then(|o| o.ttl),
+                        options.as_ref().and_then(|o| o.tos),
+                        options.as_ref().and_then(|o| o.df_bit));
+                    testprobe_channel.send_with_options(&json.into(), options).await
+                };
+                
+                #[cfg(not(target_os = "linux"))]
+                let send_result = testprobe_channel.send(&json.into()).await;
+
+                if let Err(e) = send_result {
+                    tracing::error!("Failed to send traceroute test probe: {}", e);
+                    continue;
+                }
+
+                tracing::debug!("Sent traceroute test probe with TTL {} (seq {})", current_ttl, seq);
+                
+                // Note: Packet tracking now happens automatically at the UDP layer
+                // The vendored webrtc-util code will call wifi_verify_track_udp_packet()
+                // with exact measurements when the packet is actually sent via sendmsg
+
+                // Wait a short interval before sending next TTL probe (10ms for ICMP response)
+                tokio::time::sleep(Duration::from_millis(TTL_SEND_INTERVAL_MS)).await;
+
+                // Check for ICMP events from the packet tracker
+                let events = session.packet_tracker.drain_events().await;
+                
+                if !events.is_empty() {
+                    tracing::debug!("Processing {} ICMP events for traceroute", events.len());
+                    
+                    for event in events {
+                        // Extract TTL from send options to determine hop number
+                        // TTL should always be set in send_options for traceroute packets
+                        let hop = event.send_options.ttl.expect("TTL should be set for traceroute packets");
+                        
+                        // Calculate RTT in milliseconds
+                        let rtt = event.icmp_received_at.duration_since(event.sent_at);
+                        let rtt_ms = rtt.as_secs_f64() * 1000.0;
+                        
+                        // Create hop message with actual ICMP data
+                        let hop_message = common::TraceHopMessage {
+                            hop,
+                            ip_address: event.router_ip.clone(),
+                            rtt_ms,
+                            message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
+                            conn_id: session.conn_id.clone(),
+                        };
+
+                        tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
+                            hop, event.router_ip, rtt_ms);
+
+                        if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
+                            if let Err(e) = control_channel.send(&msg_json.into()).await {
+                                tracing::error!("Failed to send hop message to client: {}", e);
+                            }
                         }
                     }
                 }
+                // Note: We don't send placeholder "Probing hop" messages anymore
             }
-            // Note: We don't send placeholder "Probing hop" messages anymore
+        
         }
-
-        // Increment TTL for next probe in state
-        let mut state = session.measurement_state.write().await;
-        state.current_ttl += 1;
-        if state.current_ttl > MAX_TTL {
-            state.current_ttl = 1; // Reset to start over
-        }
+        // Wait before starting the next round of TTL probes
+        tracing::debug!("Completed traceroute round for session {}, waiting {}ms before next round", 
+            session.id, ROUND_INTERVAL_MS);
+        tokio::time::sleep(Duration::from_millis(ROUND_INTERVAL_MS)).await;
     }
 }
 
@@ -606,12 +613,10 @@ pub async fn handle_testprobe_packet(
                     }
                 }
 
-                // Reset TTL to restart the traceroute scan since a probe reached the client
-                // This means we've found the full path and can start over
+                // Test probe reached the client successfully
                 // NOTE: We do NOT reset testprobe_seq to avoid sequence number reuse
                 // while older test probes are still in flight or in the tracking deques
-                tracing::info!("🎯 Test probe reached client! Resetting TTL for session {}", session.id);
-                state.current_ttl = 1;
+                tracing::info!("🎯 Test probe reached client for session {}", session.id);
             } else {
                 tracing::warn!("Received echoed test probe test_seq {} but couldn't find matching sent test probe", testprobe.test_seq);
             }
