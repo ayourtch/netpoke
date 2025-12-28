@@ -59,6 +59,7 @@ pub struct WebRtcConnection {
     pub client_id: String,
     pub conn_id: String,
     pub state: Rc<RefCell<measurements::MeasurementState>>,
+    pub control_channel: Rc<RefCell<Option<web_sys::RtcDataChannel>>>,
 }
 
 impl WebRtcConnection {
@@ -133,9 +134,10 @@ impl WebRtcConnection {
         let bulk_channel = peer.create_data_channel_with_data_channel_dict("bulk", &bulk_init);
         measurements::setup_bulk_channel(bulk_channel, state.clone());
 
-        // Create control channel (reliable, ordered)
+        // Create control channel (reliable, ordered) and store it for sending stop messages
         let control_init = RtcDataChannelInit::new();
         let control_channel = peer.create_data_channel_with_data_channel_dict("control", &control_init);
+        let control_channel_ref = Rc::new(RefCell::new(Some(control_channel.clone())));
         measurements::setup_control_channel(control_channel, state.clone());
 
         // Create testprobe channel (unreliable, unordered) for traceroute test probes
@@ -310,6 +312,29 @@ impl WebRtcConnection {
 
         log::info!("WebRTC connection established");
 
-        Ok(Self { peer, client_id, conn_id: server_conn_id, state })
+        Ok(Self { peer, client_id, conn_id: server_conn_id, state, control_channel: control_channel_ref })
+    }
+    
+    /// Send a stop traceroute message to the server
+    pub async fn send_stop_traceroute(&self) -> Result<(), JsValue> {
+        let stop_msg = common::StopTracerouteMessage {
+            conn_id: self.conn_id.clone(),
+        };
+        
+        if let Ok(json) = serde_json::to_vec(&stop_msg) {
+            let control_channel_opt = self.control_channel.borrow();
+            if let Some(channel) = control_channel_opt.as_ref() {
+                // Convert Vec<u8> to js_sys::Uint8Array and send
+                let array = js_sys::Uint8Array::from(&json[..]);
+                
+                // Send the message using ArrayBuffer
+                channel.send_with_array_buffer(&array.buffer())?;
+                log::info!("Sent stop traceroute message for conn_id: {}", self.conn_id);
+            } else {
+                log::warn!("Control channel not available to send stop traceroute message");
+            }
+        }
+        
+        Ok(())
     }
 }

@@ -346,6 +346,19 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     log::info!("PHASE 2: Traceroute complete, starting network measurements...");
 
+    // Send stop traceroute messages to all connections
+    for conn in &ipv4_connections {
+        if let Err(e) = conn.send_stop_traceroute().await {
+            log::warn!("Failed to send stop traceroute for IPv4 connection {}: {:?}", conn.conn_id, e);
+        }
+    }
+    for conn in &ipv6_connections {
+        if let Err(e) = conn.send_stop_traceroute().await {
+            log::warn!("Failed to send stop traceroute for IPv6 connection {}: {:?}", conn.conn_id, e);
+        }
+    }
+    log::info!("Stop traceroute messages sent to all connections");
+
     // PHASE 2: Start measurement loops on the same connections
     // Collect states for calculation and UI updates
     let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();

@@ -98,8 +98,29 @@ async fn handle_bulk_message(session: Arc<ClientSession>, msg: DataChannelMessag
     measurements::handle_bulk_packet(session, msg).await;
 }
 
-async fn handle_control_message(session: Arc<ClientSession>, _msg: DataChannelMessage) {
+async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
     tracing::trace!("Control message from {}", session.id);
+    
+    // Try to parse as StopTracerouteMessage
+    if let Ok(stop_msg) = serde_json::from_slice::<common::StopTracerouteMessage>(&msg.data) {
+        // Validate conn_id - ensure message belongs to this session
+        if stop_msg.conn_id != session.conn_id {
+            tracing::warn!(
+                "StopTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                stop_msg.conn_id, session.id, session.conn_id
+            );
+            return;
+        }
+        
+        tracing::info!("Received stop traceroute request for session {}", session.id);
+        
+        // Set the stop flag
+        let mut state = session.measurement_state.write().await;
+        state.stop_traceroute = true;
+        drop(state);
+        
+        tracing::info!("Traceroute stop flag set for session {}", session.id);
+    }
 }
 
 async fn handle_testprobe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {

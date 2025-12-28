@@ -361,6 +361,17 @@ pub async fn start_traceroute_sender(
     loop {
         interval.tick().await;
         
+        // Check if we should stop traceroute
+        let should_stop = {
+            let state = session.measurement_state.read().await;
+            state.stop_traceroute
+        };
+        
+        if should_stop {
+            tracing::info!("Stopping traceroute sender for session {} (stop flag set)", session.id);
+            break;
+        }
+        
         // Get current TTL from state
         let current_ttl = {
             let state = session.measurement_state.read().await;
