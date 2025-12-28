@@ -35,7 +35,7 @@ function updateClientsTable(clients) {
     const tbody = document.getElementById('clients-body');
 
     if (clients.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10">No clients connected</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11">No clients connected</td></tr>';
         return;
     }
 
@@ -68,9 +68,15 @@ function updateClientsTable(clients) {
         const parentDisplay = (client.parent_id && client.parent_id !== client.id)
             ? `<span class="parent-id">${client.parent_id}</span>`
             : '-';
+        
+        // Format conn_id (truncate if it's a UUID)
+        const connIdDisplay = client.conn_id 
+            ? (client.conn_id.length > 8 ? client.conn_id.substring(0, 8) + '...' : client.conn_id)
+            : '-';
 
         row.innerHTML = `
             <td>${client.id}</td>
+            <td title="${client.conn_id || ''}">${connIdDisplay}</td>
             <td>${parentDisplay}</td>
             <td>${client.ip_version || '-'}</td>
             <td>${peerAddrPort}</td>

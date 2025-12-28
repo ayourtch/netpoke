@@ -65,7 +65,7 @@
             <!-- Dynamic connection tables will be inserted here by JavaScript -->
             <div class="dual-stack-container" id="default-metrics">
                 <div class="stack-column">
-                    <h3>IPv4 Connection</h3>
+                    <h3>IPv4 Connection <span id="ipv4-0-conn-id" style="font-size: 0.8em; color: #666;"></span></h3>
                     <table class="ipv4">
                         <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
                         <tr><td>Throughput</td><td id="ipv4-s2c-tp-1">-</td><td id="ipv4-s2c-tp-10">-</td><td id="ipv4-s2c-tp-60">-</td></tr>
@@ -76,7 +76,7 @@
                     </table>
                 </div>
                 <div class="stack-column">
-                    <h3>IPv6 Connection</h3>
+                    <h3>IPv6 Connection <span id="ipv6-0-conn-id" style="font-size: 0.8em; color: #666;"></span></h3>
                     <table class="ipv6">
                         <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
                         <tr><td>Throughput</td><td id="ipv6-s2c-tp-1">-</td><td id="ipv6-s2c-tp-10">-</td><td id="ipv6-s2c-tp-60">-</td></tr>
@@ -647,7 +647,7 @@
                 connDiv.style.marginBottom = '20px';
                 connDiv.innerHTML = `
                     <div class="stack-column">
-                        <h3>IPv4 Connection #${i + 1}</h3>
+                        <h3>IPv4 Connection #${i + 1} <span id="ipv4-${i}-conn-id" style="font-size: 0.8em; color: #666;"></span></h3>
                         <table class="ipv4">
                             <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
                             <tr><td>Throughput</td><td id="ipv4-${i}-s2c-tp-1">-</td><td id="ipv4-${i}-s2c-tp-10">-</td><td id="ipv4-${i}-s2c-tp-60">-</td></tr>
@@ -658,7 +658,7 @@
                         </table>
                     </div>
                     <div class="stack-column">
-                        <h3>IPv6 Connection #${i + 1}</h3>
+                        <h3>IPv6 Connection #${i + 1} <span id="ipv6-${i}-conn-id" style="font-size: 0.8em; color: #666;"></span></h3>
                         <table class="ipv6">
                             <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
                             <tr><td>Throughput</td><td id="ipv6-${i}-s2c-tp-1">-</td><td id="ipv6-${i}-s2c-tp-10">-</td><td id="ipv6-${i}-s2c-tp-60">-</td></tr>
