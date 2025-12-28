@@ -195,6 +195,13 @@ pub fn stop_measurement() {
     release_wake_lock();
 }
 
+/// Analyze the network: first perform traceroute, then start measurements
+#[wasm_bindgen]
+pub async fn analyze_network() -> Result<(), JsValue> {
+    // Default to 1 connection per address family
+    analyze_network_with_count(1).await
+}
+
 /// Analyze the network path (traceroute) once and then close connections
 #[wasm_bindgen]
 pub async fn analyze_path() -> Result<(), JsValue> {
@@ -275,6 +282,133 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
     release_wake_lock();
 
     log::info!("Path analysis finished");
+
+    Ok(())
+}
+
+/// Analyze the network with multiple connections: perform traceroute first, then start measurements
+#[wasm_bindgen]
+pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
+    let count = conn_count.clamp(1, 16) as usize;
+    log::info!("Starting network analysis with {} connections per address family...", count);
+
+    // Request wake lock to prevent device from sleeping
+    if let Err(e) = request_wake_lock().await {
+        log::warn!("Failed to acquire wake lock: {:?}", e);
+        // Continue anyway - wake lock is optional
+    }
+
+    // PHASE 1: Create connections with traceroute mode and collect path data
+    log::info!("PHASE 1: Establishing WebRTC connections and analyzing paths (traceroute)...");
+    
+    // Create IPv4 connections with traceroute mode
+    let mut ipv4_connections = Vec::with_capacity(count);
+    let mut parent_id: Option<String> = None;
+    
+    for i in 0..count {
+        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
+            "ipv4", 
+            parent_id.clone(), 
+            Some(MODE_TRACEROUTE.to_string()), 
+            None  // conn_id will be auto-generated
+        ).await?;
+        
+        if i == 0 {
+            parent_id = Some(conn.client_id.clone());
+        }
+        log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        ipv4_connections.push(conn);
+    }
+
+    // Create IPv6 connections with traceroute mode
+    let mut ipv6_connections = Vec::with_capacity(count);
+    for i in 0..count {
+        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
+            "ipv6", 
+            parent_id.clone(), 
+            Some(MODE_TRACEROUTE.to_string()), 
+            None  // conn_id will be auto-generated
+        ).await?;
+        log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        ipv6_connections.push(conn);
+    }
+
+    // Wait for traceroute data to be collected
+    log::info!("Collecting traceroute data for {} seconds...", PATH_ANALYSIS_TIMEOUT_MS / 1000);
+    
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let window = web_sys::window().expect("no global window available during traceroute timeout");
+        window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, PATH_ANALYSIS_TIMEOUT_MS as i32)
+            .expect("Failed to set timeout for traceroute");
+    });
+    wasm_bindgen_futures::JsFuture::from(promise).await?;
+
+    log::info!("PHASE 2: Traceroute complete, starting network measurements...");
+
+    // PHASE 2: Start measurement loops on the same connections
+    // Collect states for calculation and UI updates
+    let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();
+    for conn in &ipv4_connections {
+        calc_states.push(conn.state.clone());
+    }
+    for conn in &ipv6_connections {
+        calc_states.push(conn.state.clone());
+    }
+
+    // Start latency-sensitive metric calculation loop
+    let calc_states_for_interval = calc_states.clone();
+    gloo_timers::callback::Interval::new(100, move || {
+        for state in &calc_states_for_interval {
+            state.borrow_mut().calculate_metrics();
+        }
+    }).forget();
+
+    // Collect all connection states for UI updates
+    let ipv4_states: Vec<_> = ipv4_connections.iter().map(|c| c.state.clone()).collect();
+    let ipv6_states: Vec<_> = ipv6_connections.iter().map(|c| c.state.clone()).collect();
+    let conn_count_ui = count;
+    
+    // Start UI update loop that updates all connections
+    gloo_timers::callback::Interval::new(500, move || {
+        // Update metrics for each IPv4 connection
+        for (i, state) in ipv4_states.iter().enumerate() {
+            let state_ref = state.borrow();
+            if conn_count_ui > 1 {
+                // Multi-connection mode: update connection-specific tables
+                update_ui_connection("ipv4", i, &state_ref.metrics);
+            } else if i == 0 {
+                // Single connection mode: update default tables
+                // (first iteration only, handled below)
+            }
+        }
+        
+        // Update metrics for each IPv6 connection
+        for (i, state) in ipv6_states.iter().enumerate() {
+            let state_ref = state.borrow();
+            if conn_count_ui > 1 {
+                // Multi-connection mode: update connection-specific tables
+                update_ui_connection("ipv6", i, &state_ref.metrics);
+            }
+        }
+        
+        // For single connection or chart updates, use first connection of each type
+        if !ipv4_states.is_empty() && !ipv6_states.is_empty() {
+            let ipv4_metrics = ipv4_states[0].borrow();
+            let ipv6_metrics = ipv6_states[0].borrow();
+            update_ui_dual(&ipv4_metrics.metrics, &ipv6_metrics.metrics);
+        }
+    }).forget();
+
+    // Keep connections alive for measurements
+    for conn in ipv4_connections {
+        std::mem::forget(conn);
+    }
+    for conn in ipv6_connections {
+        std::mem::forget(conn);
+    }
+
+    log::info!("Network analysis complete, measurements running...");
 
     Ok(())
 }

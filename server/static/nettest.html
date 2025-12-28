@@ -54,8 +54,7 @@
             <option value="16">16 connections</option>
         </select>
     </div>
-    <button id="start-btn" onclick="startMeasurement()">Start Measurement</button>
-    <button id="analyze-btn" onclick="analyzePath()">Analyze Path</button>
+    <button id="analyze-network-btn" onclick="analyzeNetwork()">Analyze Network</button>
     <span id="wake-lock-status">Wake Lock: Checking...</span>
     <div id="status">Loading WASM module...</div>
     <div id="ayxx"></div>
@@ -636,8 +635,7 @@
     <script type="module">
         const errorEl = document.getElementById('error');
         const statusEl = document.getElementById('status');
-        const btnEl = document.getElementById('start-btn');
-        const analyzeBtn = document.getElementById('analyze-btn');
+        const analyzeNetworkBtn = document.getElementById('analyze-network-btn');
         const wakeLockStatusEl = document.getElementById('wake-lock-status');
 
         // Check if Wake Lock API is supported
@@ -662,7 +660,7 @@
 
                 // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                 const module = await import('/public/pkg/wifi_verify_client.js');
-                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count } = module;
+                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count } = module;
 
                 // Initialize WASM with explicit path and cache-busting
                 // Pass the .wasm file path to init() for Safari compatibility
@@ -677,47 +675,10 @@
                     return parseInt(select.value, 10) || 1;
                 };
 
-                window.startMeasurement = async function() {
-                    statusEl.textContent = 'Starting...';
+                window.analyzeNetwork = async function() {
+                    statusEl.textContent = 'Starting network analysis...';
                     statusEl.className = '';
-                    btnEl.disabled = true;
-                    analyzeBtn.disabled = true;
-                    errorEl.textContent = '';
-                    
-                    const connCount = getConnCount();
-                    console.log(`Starting measurement with ${connCount} connections per address family`);
-                    
-                    // Generate dynamic tables for multi-connection display
-                    if (window.generateMultiConnectionTables) {
-                        window.generateMultiConnectionTables(connCount);
-                    }
-
-                    try {
-                        await start_measurement_with_count(connCount);
-                        statusEl.textContent = `Running - measuring network with ${connCount} connection(s)...`;
-                        statusEl.className = 'running';
-                        
-                        // Update wake lock status
-                        if ('wakeLock' in navigator) {
-                            wakeLockStatusEl.textContent = '🔒 Wake Lock: Active';
-                            wakeLockStatusEl.className = 'active';
-                        }
-                    } catch (e) {
-                        const errMsg = 'Measurement error: ' + (e.message || e);
-                        statusEl.textContent = 'Error';
-                        statusEl.className = 'error';
-                        errorEl.textContent = errMsg;
-                        btnEl.disabled = false;
-                        analyzeBtn.disabled = false;
-                        console.error('Measurement error:', e);
-                    }
-                };
-
-                window.analyzePath = async function() {
-                    statusEl.textContent = 'Analyzing path...';
-                    statusEl.className = '';
-                    btnEl.disabled = true;
-                    analyzeBtn.disabled = true;
+                    analyzeNetworkBtn.disabled = true;
                     errorEl.textContent = '';
                     
                     // Clear the server messages textarea
@@ -732,28 +693,45 @@
                     }
                     
                     const connCount = getConnCount();
-                    console.log(`Starting path analysis with ${connCount} connections per address family`);
+                    console.log(`Starting network analysis with ${connCount} connections per address family`);
+                    
+                    // Generate dynamic tables for multi-connection display
+                    if (window.generateMultiConnectionTables) {
+                        window.generateMultiConnectionTables(connCount);
+                    }
 
                     try {
-                        await analyze_path_with_count(connCount);
-                        statusEl.textContent = `Path analysis complete (${connCount} connection(s))`;
-                        statusEl.className = '';
-                        btnEl.disabled = false;
-                        analyzeBtn.disabled = false;
+                        // Update status to show phase 1 (traceroute)
+                        statusEl.textContent = `Phase 1: Analyzing network paths (traceroute) with ${connCount} connection(s)...`;
+                        statusEl.className = 'running';
+                        
+                        // Update wake lock status
+                        if ('wakeLock' in navigator) {
+                            wakeLockStatusEl.textContent = '🔒 Wake Lock: Active';
+                            wakeLockStatusEl.className = 'active';
+                        }
+                        
+                        // Start the combined analysis
+                        await analyze_network_with_count(connCount);
+                        
+                        // Note: The status update for phase 2 is now handled by the Rust code logs
+                        // but we can update the UI to show it's running measurements
+                        statusEl.textContent = `Phase 2: Running network measurements with ${connCount} connection(s)...`;
+                        statusEl.className = 'running';
+                        
+                    } catch (e) {
+                        const errMsg = 'Network analysis error: ' + (e.message || e);
+                        statusEl.textContent = 'Error';
+                        statusEl.className = 'error';
+                        errorEl.textContent = errMsg;
+                        analyzeNetworkBtn.disabled = false;
+                        console.error('Network analysis error:', e);
                         
                         // Update wake lock status
                         if ('wakeLock' in navigator) {
                             wakeLockStatusEl.textContent = '🔓 Wake Lock: Ready';
                             wakeLockStatusEl.className = '';
                         }
-                    } catch (e) {
-                        const errMsg = 'Path analysis error: ' + (e.message || e);
-                        statusEl.textContent = 'Error';
-                        statusEl.className = 'error';
-                        errorEl.textContent = errMsg;
-                        btnEl.disabled = false;
-                        analyzeBtn.disabled = false;
-                        console.error('Path analysis error:', e);
                     }
                 };
             } catch (e) {
@@ -764,11 +742,7 @@
                 console.error('WASM load error:', e);
                 console.error('Full error:', e.stack);
 
-                window.startMeasurement = function() {
-                    alert('WASM module failed to load. Please refresh the page.');
-                };
-                
-                window.analyzePath = function() {
+                window.analyzeNetwork = function() {
                     alert('WASM module failed to load. Please refresh the page.');
                 };
             }
