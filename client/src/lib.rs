@@ -357,6 +357,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
 
     // Start latency-sensitive metric calculation loop
+    // Note: We use .forget() to let the interval run indefinitely for continuous measurements.
+    // The interval will be automatically cleaned up when the page is unloaded.
     let calc_states_for_interval = calc_states.clone();
     gloo_timers::callback::Interval::new(100, move || {
         for state in &calc_states_for_interval {
@@ -370,6 +372,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let conn_count_ui = count;
     
     // Start UI update loop that updates all connections
+    // Note: We use .forget() to let the interval run indefinitely for continuous UI updates.
+    // The interval will be automatically cleaned up when the page is unloaded.
     gloo_timers::callback::Interval::new(500, move || {
         // Update metrics for each IPv4 connection
         for (i, state) in ipv4_states.iter().enumerate() {
@@ -377,10 +381,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             if conn_count_ui > 1 {
                 // Multi-connection mode: update connection-specific tables
                 update_ui_connection("ipv4", i, &state_ref.metrics);
-            } else if i == 0 {
-                // Single connection mode: update default tables
-                // (first iteration only, handled below)
             }
+            // Note: Single connection mode (conn_count_ui == 1) is handled by update_ui_dual below
         }
         
         // Update metrics for each IPv6 connection
@@ -390,9 +392,11 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 // Multi-connection mode: update connection-specific tables
                 update_ui_connection("ipv6", i, &state_ref.metrics);
             }
+            // Note: Single connection mode (conn_count_ui == 1) is handled by update_ui_dual below
         }
         
-        // For single connection or chart updates, use first connection of each type
+        // For single connection mode or chart updates, use first connection of each type
+        // This also updates the default metrics tables in single connection mode
         if !ipv4_states.is_empty() && !ipv6_states.is_empty() {
             let ipv4_metrics = ipv4_states[0].borrow();
             let ipv6_metrics = ipv6_states[0].borrow();
@@ -401,6 +405,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }).forget();
 
     // Keep connections alive for measurements
+    // Note: We intentionally use std::mem::forget here to keep connections alive indefinitely.
+    // This is required for long-running network measurements. Connections will be closed
+    // when the page is unloaded or refreshed.
     for conn in ipv4_connections {
         std::mem::forget(conn);
     }

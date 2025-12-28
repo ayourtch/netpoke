@@ -714,8 +714,7 @@
                         // Start the combined analysis
                         await analyze_network_with_count(connCount);
                         
-                        // Note: The status update for phase 2 is now handled by the Rust code logs
-                        // but we can update the UI to show it's running measurements
+                        // Update UI to show measurements are now running
                         statusEl.textContent = `Phase 2: Running network measurements with ${connCount} connection(s)...`;
                         statusEl.className = 'running';
                         
