@@ -7,6 +7,9 @@ use wasm_bindgen::prelude::*;
 use web_sys::{window, Document};
 use std::cell::RefCell;
 
+// Path analysis timeout in milliseconds (30 seconds)
+const PATH_ANALYSIS_TIMEOUT_MS: i32 = 30000;
+
 // Global wake lock sentinel (stored as JsValue since WakeLockSentinel might not be exposed)
 thread_local! {
     static WAKE_LOCK: RefCell<Option<JsValue>> = RefCell::new(None);
@@ -154,14 +157,14 @@ pub async fn analyze_path() -> Result<(), JsValue> {
     let ipv4_peer = ipv4_connection.peer.clone();
     let ipv6_peer = ipv6_connection.peer.clone();
 
-    // Wait for 30 seconds to collect traceroute data
-    log::info!("Collecting traceroute data for 30 seconds...");
+    // Wait for path analysis timeout to collect traceroute data
+    log::info!("Collecting traceroute data for {} seconds...", PATH_ANALYSIS_TIMEOUT_MS / 1000);
     
     // Use a timer to wait
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        let window = web_sys::window().expect("no global window");
+        let window = web_sys::window().expect("no global window available during path analysis timeout setup");
         window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 30000)
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, PATH_ANALYSIS_TIMEOUT_MS)
             .expect("failed to set timeout");
     });
     wasm_bindgen_futures::JsFuture::from(promise).await?;
