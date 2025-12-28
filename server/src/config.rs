@@ -95,6 +95,7 @@ impl Default for Config {
 impl Config {
     pub fn load() -> Result<Self, config::ConfigError> {
         let config = config::Config::builder()
+            .add_source(config::File::with_name("/etc/netpoke/server_config").required(false))
             .add_source(config::File::with_name("server_config").required(false))
             .add_source(config::Environment::with_prefix("WIFI_VERIFY").separator("__"))
             .build()?;
