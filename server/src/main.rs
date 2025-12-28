@@ -23,6 +23,9 @@ use state::AppState;
 use common::{DashboardMessage, ClientInfo};
 use webrtc::stats::StatsReportType;
 use webrtc::ice::candidate::CandidatePairState;
+use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
+use webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState;
 use rustls;
 use wifi_verify_auth::{AuthService, auth_routes, require_auth};
 
@@ -508,10 +511,6 @@ async fn dashboard_debug(State(state): State<AppState>) -> Json<DashboardMessage
 }
 
 async fn server_diagnostics(State(state): State<AppState>) -> Json<common::ServerDiagnostics> {
-    use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-    use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
-    use webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState;
-    
     let server_uptime = state.server_start_time.elapsed().as_secs();
     let clients_lock = state.clients.read().await;
     
@@ -540,45 +539,54 @@ async fn server_diagnostics(State(state): State<AppState>) -> Json<common::Serve
             .unwrap_or((None, None));
         drop(peer_addr);
         
-        // Get candidate pairs from stats
+        // Get candidate pairs from stats for all sessions (not just Connected)
+        // This is important for diagnosing connection issues
         let mut candidate_pairs = Vec::new();
-        if conn_state == RTCPeerConnectionState::Connected {
-            let stats_report = session.peer_connection.get_stats().await;
-            
-            for stat in stats_report.reports.values() {
-                if let StatsReportType::CandidatePair(pair) = stat {
-                    // Find local and remote candidate details
-                    let mut local_type = "unknown".to_string();
-                    let mut local_address = "unknown".to_string();
-                    let mut remote_type = "unknown".to_string();
-                    let mut remote_address = "unknown".to_string();
-                    
-                    for candidate_stat in stats_report.reports.values() {
-                        if let StatsReportType::LocalCandidate(candidate) = candidate_stat {
-                            if candidate.id == pair.local_candidate_id {
-                                local_type = format!("{:?}", candidate.candidate_type);
-                                local_address = format!("{}:{}", candidate.ip, candidate.port);
-                            }
-                        }
-                        if let StatsReportType::RemoteCandidate(candidate) = candidate_stat {
-                            if candidate.id == pair.remote_candidate_id {
-                                remote_type = format!("{:?}", candidate.candidate_type);
-                                remote_address = format!("{}:{}", candidate.ip, candidate.port);
-                            }
-                        }
-                    }
-                    
-                    candidate_pairs.push(common::CandidatePairInfo {
-                        local_candidate_type: local_type,
-                        local_address,
-                        remote_candidate_type: remote_type,
-                        remote_address,
-                        state: format!("{:?}", pair.state),
-                        nominated: pair.nominated,
-                        bytes_sent: pair.bytes_sent,
-                        bytes_received: pair.bytes_received,
-                    });
+        let stats_report = session.peer_connection.get_stats().await;
+        
+        // Build lookup maps for candidates to avoid O(n²) complexity
+        let mut local_candidates = std::collections::HashMap::new();
+        let mut remote_candidates = std::collections::HashMap::new();
+        
+        for stat in stats_report.reports.values() {
+            match stat {
+                StatsReportType::LocalCandidate(candidate) => {
+                    local_candidates.insert(
+                        candidate.id.clone(),
+                        (format!("{:?}", candidate.candidate_type), format!("{}:{}", candidate.ip, candidate.port))
+                    );
                 }
+                StatsReportType::RemoteCandidate(candidate) => {
+                    remote_candidates.insert(
+                        candidate.id.clone(),
+                        (format!("{:?}", candidate.candidate_type), format!("{}:{}", candidate.ip, candidate.port))
+                    );
+                }
+                _ => {}
+            }
+        }
+        
+        // Now process candidate pairs with O(1) lookups
+        for stat in stats_report.reports.values() {
+            if let StatsReportType::CandidatePair(pair) = stat {
+                let (local_type, local_address) = local_candidates.get(&pair.local_candidate_id)
+                    .map(|(t, a)| (t.clone(), a.clone()))
+                    .unwrap_or_else(|| ("unknown".to_string(), "unknown".to_string()));
+                
+                let (remote_type, remote_address) = remote_candidates.get(&pair.remote_candidate_id)
+                    .map(|(t, a)| (t.clone(), a.clone()))
+                    .unwrap_or_else(|| ("unknown".to_string(), "unknown".to_string()));
+                
+                candidate_pairs.push(common::CandidatePairInfo {
+                    local_candidate_type: local_type,
+                    local_address,
+                    remote_candidate_type: remote_type,
+                    remote_address,
+                    state: format!("{:?}", pair.state),
+                    nominated: pair.nominated,
+                    bytes_sent: pair.bytes_sent,
+                    bytes_received: pair.bytes_received,
+                });
             }
         }
         
