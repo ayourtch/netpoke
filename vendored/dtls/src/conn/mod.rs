@@ -170,7 +170,7 @@ impl Conn for DTLSConn {
         buf: &[u8],
         options: &UdpSendOptions,
     ) -> UtilResult<usize> {
-        log::info!("🔵 DTLSConn::send_with_options: Sending encrypted data with TTL={:?}, TOS={:?}, DF={:?}",
+        log::debug!("🔵 DTLSConn::send_with_options: Sending encrypted data with TTL={:?}, TOS={:?}, DF={:?}",
             options.ttl, options.tos, options.df_bit);
         self.write_with_options(buf, options, None).await.map_err(util::Error::from_std)
     }
@@ -722,7 +722,7 @@ impl DTLSConn {
                 #[cfg(target_os = "linux")]
                 {
                     if let Some(ref opts) = udp_options {
-                        log::info!("🔵 DTLSConn::handle_outgoing_packets: Sending encrypted packet with TTL={:?}, TOS={:?}, DF={:?}",
+                        log::debug!("🔵 DTLSConn::handle_outgoing_packets: Sending encrypted packet with TTL={:?}, TOS={:?}, DF={:?}",
                             opts.ttl, opts.tos, opts.df_bit);
                         next_conn.send_with_options(compacted_raw_packets, opts).await?;
                     } else {

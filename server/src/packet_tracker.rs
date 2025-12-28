@@ -214,7 +214,7 @@ impl PacketTracker {
             
             tracing::debug!("Event added to queue, queue size: {}", queue.len());
             
-            tracing::info!(
+            tracing::debug!(
                 "ICMP error matched to tracked packet: dest={}, udp_length={}",
                 embedded_udp_info.dest_addr,
                 embedded_udp_info.udp_length

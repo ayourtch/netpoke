@@ -374,7 +374,7 @@ impl Stream {
             };
             
             if let Some(ref opts) = udp_send_options {
-                log::info!("🔵 Stream::packetize: Set UDP options on chunk: TTL={:?}, TOS={:?}, DF={:?}", 
+                log::debug!("🔵 Stream::packetize: Set UDP options on chunk: TTL={:?}, TOS={:?}, DF={:?}", 
                     opts.ttl, opts.tos, opts.df_bit);
             }
 

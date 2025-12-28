@@ -2051,7 +2051,7 @@ impl AssociationInternal {
             if packet_udp_options.is_none() {
                 packet_udp_options = c.udp_send_options;
                 if let Some(ref opts) = packet_udp_options {
-                    log::info!("🔵 Association::bundle: Extracted UDP options from chunk: TTL={:?}, TOS={:?}, DF={:?}",
+                    log::debug!("🔵 Association::bundle: Extracted UDP options from chunk: TTL={:?}, TOS={:?}, DF={:?}",
                         opts.ttl, opts.tos, opts.df_bit);
                 }
             }
