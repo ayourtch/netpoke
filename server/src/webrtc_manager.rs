@@ -1,6 +1,7 @@
 use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
@@ -14,9 +15,14 @@ pub async fn create_peer_connection() -> Result<Arc<RTCPeerConnection>, Box<dyn 
 
     let registry = register_default_interceptors(registry, &mut media_engine)?;
 
+    // Configure SettingEngine to disable mDNS
+    let mut setting_engine = SettingEngine::default();
+    setting_engine.set_ice_multicast_dns_mode(webrtc::ice::mdns::MulticastDnsMode::Disabled);
+
     let api = APIBuilder::new()
         .with_media_engine(media_engine)
         .with_interceptor_registry(registry)
+        .with_setting_engine(setting_engine)
         .build();
 
     let config = RTCConfiguration {
