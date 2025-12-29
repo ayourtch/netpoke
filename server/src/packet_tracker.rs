@@ -175,7 +175,8 @@ impl PacketTracker {
             let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, udp_packet.len());
             udp_packet[payload_start..payload_end].to_vec()
         } else {
-            // If cleartext is available (e.g., from FFI layer), use first 64 bytes of that
+            // If udp_packet is not available (e.g., empty or too short), use cleartext instead.
+            // This can happen when called from tracking_receiver_task where udp_packet is not available.
             cleartext.iter().take(MAX_PAYLOAD_PREFIX_SIZE).cloned().collect()
         };
         
@@ -231,7 +232,7 @@ impl PacketTracker {
         
         // First, try payload-based matching if we have payload data from the ICMP packet
         let mut matched: Option<TrackedPacket> = None;
-        let mut matched_key: Option<UdpPacketKey> = None;
+        let mut match_type = "none";
         
         if !embedded_udp_info.payload_prefix.is_empty() {
             let payload_key = PayloadPrefixKey {
@@ -243,7 +244,7 @@ impl PacketTracker {
                     tracing::debug!("PAYLOAD MATCH FOUND! payload_prefix_len={}, dest={}, udp_length={}",
                         embedded_udp_info.payload_prefix.len(), key.dest_addr, key.udp_length);
                     matched = Some(tracked);
-                    matched_key = Some(key);
+                    match_type = "payload";
                 } else {
                     tracing::debug!("Payload index pointed to non-existent packet key");
                 }
@@ -272,7 +273,7 @@ impl PacketTracker {
                 }
                 
                 matched = Some(tracked);
-                matched_key = Some(key);
+                match_type = "fallback";
             }
         }
         
@@ -281,11 +282,6 @@ impl PacketTracker {
         drop(payload_idx);
         
         if let Some(tracked) = matched {
-            let match_type = if matched_key.as_ref().map(|k| k.dest_addr) == Some(embedded_udp_info.dest_addr) {
-                "payload+fallback"
-            } else {
-                "payload"
-            };
             tracing::debug!("MATCH FOUND via {}: dest={}, udp_length={}", 
                 match_type, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
             
