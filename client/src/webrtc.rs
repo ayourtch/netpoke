@@ -354,6 +354,41 @@ impl WebRtcConnection {
         peer.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
         onicecandidate.forget();
 
+        // Set up ICE connection state change handler for debugging and monitoring
+        let client_id_for_ice_state = client_id.clone();
+        let ip_version_for_ice_state = ip_version.to_string();
+        let peer_for_ice_state = peer.clone();
+        let oniceconnectionstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            // Get the ice connection state from the peer
+            let ice_state = js_sys::Reflect::get(&peer_for_ice_state, &"iceConnectionState".into())
+                .ok()
+                .and_then(|s| s.as_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            log::info!("[{}][{}] ICE connection state: {}", 
+                ip_version_for_ice_state, 
+                &client_id_for_ice_state[..8.min(client_id_for_ice_state.len())],
+                ice_state);
+        }) as Box<dyn FnMut(_)>);
+        peer.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
+        oniceconnectionstatechange.forget();
+
+        // Set up ICE gathering state change handler for debugging
+        let client_id_for_gathering = client_id.clone();
+        let ip_version_for_gathering = ip_version.to_string();
+        let peer_for_gathering = peer.clone();
+        let onicegatheringstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            let gathering_state = js_sys::Reflect::get(&peer_for_gathering, &"iceGatheringState".into())
+                .ok()
+                .and_then(|s| s.as_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            log::info!("[{}][{}] ICE gathering state: {}", 
+                ip_version_for_gathering,
+                &client_id_for_gathering[..8.min(client_id_for_gathering.len())],
+                gathering_state);
+        }) as Box<dyn FnMut(_)>);
+        peer.set_onicegatheringstatechange(Some(onicegatheringstatechange.as_ref().unchecked_ref()));
+        onicegatheringstatechange.forget();
+
         // NOW set local and remote descriptions (ICE gathering will start after setLocalDescription)
         let offer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
         offer_obj.set_sdp(&offer_sdp);

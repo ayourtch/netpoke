@@ -9,6 +9,7 @@ use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
 use std::sync::Arc;
+use std::time::Duration;
 use common::IpFamily;
 
 /// Create a new RTCPeerConnection with the specified IP family filtering.
@@ -28,6 +29,16 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
     // Configure SettingEngine to disable mDNS and set network types based on IP family
     let mut setting_engine = SettingEngine::default();
     setting_engine.set_ice_multicast_dns_mode(webrtc::ice::mdns::MulticastDnsMode::Disabled);
+    
+    // Configure ICE timeouts for more robust connections
+    // - disconnected_timeout: 10s (default 5s) - more tolerance for temporary disconnections
+    // - failed_timeout: 30s (default 25s) - give more time to recover from disconnected state
+    // - keepalive_interval: 2s (default 2s) - keep connections alive with regular traffic
+    setting_engine.set_ice_timeouts(
+        Some(Duration::from_secs(10)),  // disconnected_timeout
+        Some(Duration::from_secs(30)),  // failed_timeout
+        Some(Duration::from_secs(2)),   // keepalive_interval
+    );
     
     // Apply IP family filtering if specified
     match ip_family {
@@ -65,6 +76,9 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
     Ok(peer_connection)
 }
 
+/// Timeout for ICE gathering to complete (in seconds)
+const ICE_GATHERING_TIMEOUT_SECS: u64 = 10;
+
 pub async fn handle_offer(
     peer: &Arc<RTCPeerConnection>,
     offer_sdp: String,
@@ -73,21 +87,67 @@ pub async fn handle_offer(
     peer.set_remote_description(offer).await?;
 
     let answer = peer.create_answer(None).await?;
-    peer.set_local_description(answer.clone()).await?;
 
-    // Wait for ICE gathering to complete
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
+    // Set up ICE gathering state change callback BEFORE setting local description
+    // This prevents a race condition where gathering completes before we start listening
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(16);
     peer.on_ice_gathering_state_change(Box::new(move |state| {
         let state_str = state.to_string();
+        tracing::debug!("ICE gathering state change: {}", state_str);
         let _ = tx.try_send(state_str);
         Box::pin(async {})
     }));
 
-    while let Some(gathering) = rx.recv().await {
-        tracing::debug!("ICE gathering state: {}", gathering);
-        if gathering == "complete" {
-            tracing::info!("ICE gathering complete");
-            break;
+    // Now set local description - ICE gathering starts after this
+    peer.set_local_description(answer.clone()).await?;
+
+    // Wait for ICE gathering to complete with timeout
+    let timeout_duration = tokio::time::Duration::from_secs(ICE_GATHERING_TIMEOUT_SECS);
+    let gathering_result = tokio::time::timeout(timeout_duration, async {
+        // First check if gathering is already complete
+        let current_state = peer.ice_gathering_state();
+        tracing::debug!("Initial ICE gathering state: {:?}", current_state);
+        if current_state == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete {
+            tracing::info!("ICE gathering already complete");
+            return Ok(());
+        }
+
+        // Wait for gathering to complete via callbacks
+        while let Some(gathering) = rx.recv().await {
+            tracing::debug!("ICE gathering state: {}", gathering);
+            if gathering == "complete" {
+                tracing::info!("ICE gathering complete");
+                return Ok(());
+            }
+        }
+        
+        // Channel closed without completing - check final state
+        let final_state = peer.ice_gathering_state();
+        if final_state == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete {
+            tracing::info!("ICE gathering complete (detected after channel close)");
+            Ok(())
+        } else {
+            tracing::warn!("ICE gathering channel closed unexpectedly, state: {:?}", final_state);
+            Err("ICE gathering channel closed unexpectedly")
+        }
+    }).await;
+
+    match gathering_result {
+        Ok(Ok(())) => {
+            // Gathering completed successfully
+        }
+        Ok(Err(e)) => {
+            tracing::error!("ICE gathering failed: {}", e);
+            return Err(e.into());
+        }
+        Err(_) => {
+            // Timeout - log warning but continue with whatever candidates we have
+            let current_state = peer.ice_gathering_state();
+            tracing::warn!(
+                "ICE gathering timed out after {} seconds (state: {:?}), continuing with available candidates",
+                ICE_GATHERING_TIMEOUT_SECS,
+                current_state
+            );
         }
     }
 
