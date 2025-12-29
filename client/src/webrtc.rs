@@ -8,53 +8,7 @@ use js_sys;
 use crate::{signaling, measurements};
 use std::rc::Rc;
 use std::cell::RefCell;
-
-/// Check if an ICE candidate uses a name-based address (e.g., mDNS like "xxx.local")
-/// instead of an explicit IP address
-fn is_name_based_candidate(candidate_str: &str) -> bool {
-    // Parse the candidate SDP attribute
-    // Format: "candidate:foundation component protocol priority ip port typ type ..."
-    // Example: "candidate:1234567890 1 udp 2122260223 192.168.1.100 54321 typ host"
-    // mDNS example: "candidate:1234567890 1 udp 2122260223 abc123.local 54321 typ host"
-
-    if let Some(candidate_part) = candidate_str.strip_prefix("candidate:") {
-        let parts: Vec<&str> = candidate_part.split_whitespace().collect();
-        if parts.len() >= 5 {
-            let ip = parts[4]; // IP address is the 5th field (index 4)
-
-            // Check if it ends with ".local" (mDNS candidate)
-            if ip.ends_with(".local") {
-                return true;
-            }
-        }
-    }
-
-    false
-}
-
-/// Determine if an ICE candidate is IPv4 or IPv6 by parsing the candidate string
-/// Returns Some("ipv4"), Some("ipv6"), or None if unable to determine
-fn get_candidate_ip_version(candidate_str: &str) -> Option<String> {
-    // Parse the candidate SDP attribute
-    // Format: "candidate:foundation component protocol priority ip port typ type ..."
-    // Example: "candidate:1234567890 1 udp 2122260223 192.168.1.100 54321 typ host"
-
-    if let Some(candidate_part) = candidate_str.strip_prefix("candidate:") {
-        let parts: Vec<&str> = candidate_part.split_whitespace().collect();
-        if parts.len() >= 5 {
-            let ip = parts[4]; // IP address is the 5th field (index 4)
-
-            // Check if it contains ':' which indicates IPv6
-            if ip.contains(':') {
-                return Some("ipv6".to_string());
-            } else if ip.contains('.') {
-                return Some("ipv4".to_string());
-            }
-        }
-    }
-
-    None
-}
+use common::{is_name_based_candidate, get_candidate_ip_version};
 
 /// Check if we should stop polling for ICE candidates
 /// Returns true when ICE gathering is complete and connection is established
