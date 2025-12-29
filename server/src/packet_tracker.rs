@@ -151,7 +151,7 @@ impl PacketTracker {
         &self,
         cleartext: Vec<u8>,
         udp_packet: Vec<u8>,
-        _src_port: u16,
+        src_port: u16,
         dest_addr: SocketAddr,
         udp_length: u16,
         send_options: SendOptions,
@@ -185,7 +185,7 @@ impl PacketTracker {
             expires_at,
             send_options,
             dest_addr,
-            src_port: 0,
+            src_port,
             payload_prefix: payload_prefix.clone(),
             conn_id,
         };

@@ -85,12 +85,13 @@ impl Conn for UdpSocket {
 // ============================================================================
 
 /// UDP send options for per-message configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct UdpSendOptions {
     pub ttl: Option<u8>,
     pub tos: Option<u8>,
     pub df_bit: Option<bool>,
     /// Connection ID for ICMP correlation (passed through to packet tracker)
+    /// Defaults to empty string for backward compatibility
     pub conn_id: String,
 }
 
