@@ -6,10 +6,11 @@ use webrtc::data_channel::data_channel_state::RTCDataChannelState;
 use webrtc::data_channel::data_channel_message::DataChannelMessage;
 
 // Constants for traceroute probe length modulation using coprime numbers
-// This ensures unique packet lengths for each (connection, hop) combination
+// This ensures unique packet lengths for each (connection, hop) combination even after encryption
 const BASE_PROBE_SIZE: usize = 100;           // Base size for all probes
 const CONN_ID_MULTIPLIER: usize = 97;         // Multiplier for connection ID (coprime with HOP_MULTIPLIER)
-const HOP_MULTIPLIER: usize = 3;              // Multiplier for hop count (coprime with CONN_ID_MULTIPLIER)
+const HOP_MULTIPLIER: usize = 50;             // Multiplier for hop count (coprime with CONN_ID_MULTIPLIER)
+                                              // Must be > 30 to account for encryption overhead variance
 const CONN_ID_HASH_RANGE: usize = 10;         // Range for connection ID hash (0-9)
 
 /// Hash a connection ID (UUID string) to a numeric value for probe length modulation
