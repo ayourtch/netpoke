@@ -530,7 +530,9 @@ impl WebRtcConnection {
     /// Safari compatibility. Safari doesn't consistently support `connectionState` property or
     /// fire `connectionstatechange` events, but `iceConnectionState` is well-supported.
     pub fn setup_address_update_callback(&self, ip_version: &str, conn_index: usize) {
-        // Shared flag to track if we've already updated addresses (to avoid duplicate updates)
+        // Shared flag to prevent duplicate address updates from multiple event listeners.
+        // We listen to both connectionstatechange and iceconnectionstatechange for Safari compatibility,
+        // and this flag ensures only the first successful connection trigger updates the UI.
         let addresses_updated = Rc::new(RefCell::new(false));
         
         let peer = self.peer.clone();
@@ -589,7 +591,7 @@ impl WebRtcConnection {
                 .and_then(|s| s.as_string());
             
             if let Some(state) = ice_state {
-                log::info!("ICE connection state changed to: {} (for address update)", state);
+                log::info!("ICE connection state changed to: {}", state);
                 
                 // "connected" or "completed" indicates a successful ICE connection
                 if state == "connected" || state == "completed" {
@@ -608,10 +610,11 @@ impl WebRtcConnection {
             }
         }) as Box<dyn FnMut(_)>);
 
-        // Note: We're adding another iceconnectionstatechange handler here, which is in addition to
-        // the one set up in new_with_ip_version_and_mode for debugging. The browser will call both.
-        // We use addEventListener instead of set_oniceconnectionstatechange to avoid overwriting
-        // the existing handler.
+        // Add iceconnectionstatechange handler for address updates.
+        // Note: This is separate from the debug handler in new_with_ip_version_and_mode which logs
+        // ICE state for all connections. This handler specifically triggers address updates and
+        // uses the shared flag to coordinate with connectionstatechange. Using addEventListener
+        // allows both handlers to coexist.
         use wasm_bindgen::JsCast;
         let _ = self.peer.add_event_listener_with_callback(
             "iceconnectionstatechange",
