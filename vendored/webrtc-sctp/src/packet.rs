@@ -130,6 +130,10 @@ impl Packet {
             }
 
             let ct = ChunkType(raw[offset]);
+            if raw.slice(offset..).len() == 0 {
+                println!("AYXX: empty chunk of type {:?} at the end", &ct);
+                break;
+            }
             let c: Box<dyn Chunk + Send + Sync> = match ct {
                 CT_INIT => Box::new(ChunkInit::unmarshal(&raw.slice(offset..))?),
                 CT_INIT_ACK => Box::new(ChunkInit::unmarshal(&raw.slice(offset..))?),

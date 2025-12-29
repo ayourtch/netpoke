@@ -77,6 +77,10 @@ impl Chunk for ChunkForwardTsn {
         let mut streams = vec![];
         let mut remaining = buf.len() - offset;
         while remaining > 0 {
+            if offset == CHUNK_HEADER_SIZE + header.value_length() {
+                println!("AYXX: Skip last empty TSN chunk, remaining: {} value_length: {}, new_cumulative_tsn: {}", remaining, header.value_length(), new_cumulative_tsn);
+                break;
+            }
             let s = ChunkForwardTsnStream::unmarshal(
                 &buf.slice(offset..CHUNK_HEADER_SIZE + header.value_length()),
             )?;
@@ -150,7 +154,12 @@ impl Chunk for ChunkForwardTsnStream {
     }
 
     fn unmarshal(buf: &Bytes) -> Result<Self> {
+        if buf.len() == 0 {
+            let backtrace = std::backtrace::Backtrace::capture();
+            println!("Backtrace: {:?}", &backtrace);
+        }
         if buf.len() < FORWARD_TSN_STREAM_LENGTH {
+            println!("AYXX: Error::ErrChunkTooShort 2: {} < {} ( {:02x?} )", buf.len(), FORWARD_TSN_STREAM_LENGTH, &buf);
             return Err(Error::ErrChunkTooShort);
         }
 
