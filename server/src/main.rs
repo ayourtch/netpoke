@@ -227,7 +227,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Spawn the peer connection cleanup task
     // This receives peer connections that failed during signaling and closes them
-    // to prevent resource leaks (spawned tasks, UDP sockets, ICE agent loops)
+    // to prevent resource leaks (spawned tasks, UDP sockets, ICE agent loops).
+    // Note: This task runs for the lifetime of the server. It will automatically
+    // shut down when all senders (cloned into AppState) are dropped during server shutdown.
     tokio::spawn(async move {
         let mut rx = peer_cleanup_rx;
         while let Some(peer) = rx.recv().await {
