@@ -393,6 +393,10 @@ fn update_traceroute_visualization(hop_msg: &common::TraceHopMessage) {
             js_sys::Reflect::set(&js_obj, &JsValue::from_str("ip_address"), &JsValue::NULL).ok();
         }
         
+        // Include original UDP address/port info for cross-checking
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("original_src_port"), &JsValue::from_f64(hop_msg.original_src_port as f64)).ok();
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("original_dest_addr"), &JsValue::from_str(&hop_msg.original_dest_addr)).ok();
+        
         // Call the JavaScript function
         if let Ok(add_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addTracerouteHop")) {
             if let Ok(add_fn) = add_fn.dyn_into::<js_sys::Function>() {

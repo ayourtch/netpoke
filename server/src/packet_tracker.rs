@@ -314,6 +314,8 @@ impl PacketTracker {
                 send_options: tracked.send_options,
                 router_ip,
                 conn_id: tracked.conn_id,
+                original_src_port: embedded_udp_info.src_port,
+                original_dest_addr: embedded_udp_info.dest_addr.to_string(),
             };
             
             let mut queue = self.event_queue.write().await;

@@ -174,6 +174,14 @@ pub struct TraceHopMessage {
     /// Defaults to empty string for backwards compatibility
     #[serde(default)]
     pub conn_id: String,
+    
+    /// Source port from the original UDP packet
+    #[serde(default)]
+    pub original_src_port: u16,
+    
+    /// Destination address (IP:port) from the original UDP packet
+    #[serde(default)]
+    pub original_dest_addr: String,
 }
 
 /// Message sent from client to server to stop traceroute probes
@@ -211,6 +219,12 @@ pub struct TrackedPacketEvent {
     
     /// Connection ID extracted from the packet (for per-session event routing)
     pub conn_id: String,
+    
+    /// Source port from the original UDP packet (extracted from ICMP embedded data)
+    pub original_src_port: u16,
+    
+    /// Destination address (IP:port) from the original UDP packet
+    pub original_dest_addr: String,
 }
 
 #[cfg(test)]

@@ -454,6 +454,11 @@
             const connId = hopData.conn_id || 'default';
             const ipAddress = hopData.ip_address;
             
+            // Track UDP address pairs for cross-checking
+            if (hopData.original_src_port && hopData.original_dest_addr) {
+                addConnectionUdpPair(connId, hopData.original_src_port, hopData.original_dest_addr);
+            }
+            
             // Determine IP version from the address
             let ipVersion = 'ipv4';
             if (ipAddress && ipAddress.includes(':')) {
@@ -650,11 +655,40 @@
         window.clearTracerouteData = clearTracerouteData;
         
         // Peer connections data structure
-        // Maps: ipVersion -> connIndex -> { conn_id, local_address, remote_address }
+        // Maps: ipVersion -> connIndex -> { conn_id, local_address, remote_address, udp_pairs }
         let peerConnectionsData = {
             ipv4: {},
             ipv6: {}
         };
+        
+        // Track unique UDP address pairs per connection (conn_id -> Set of "src_port -> dest_addr" strings)
+        let connectionUdpPairs = {};
+        
+        // Helper function to escape HTML to prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Function to add a UDP address pair to a connection
+        function addConnectionUdpPair(connId, srcPort, destAddr) {
+            // Filter out unset values (srcPort of 0 indicates unset since valid ephemeral ports are > 0)
+            if (!connId || srcPort === undefined || srcPort === null || !destAddr) return;
+            
+            if (!connectionUdpPairs[connId]) {
+                connectionUdpPairs[connId] = new Set();
+            }
+            
+            const pairKey = `${srcPort} → ${destAddr}`;
+            const hadPair = connectionUdpPairs[connId].has(pairKey);
+            connectionUdpPairs[connId].add(pairKey);
+            
+            // Re-render if we added a new pair
+            if (!hadPair) {
+                renderPeerConnectionsList();
+            }
+        }
         
         // Function to register a peer connection
         function registerPeerConnection(ipVersion, connIndex, connId, localAddress, remoteAddress) {
@@ -663,6 +697,11 @@
                 local_address: localAddress || 'Unknown',
                 remote_address: remoteAddress || 'Unknown'
             };
+            
+            // Initialize UDP pairs tracking for this connection
+            if (!connectionUdpPairs[connId]) {
+                connectionUdpPairs[connId] = new Set();
+            }
             
             // Update the UI
             renderPeerConnectionsList();
@@ -675,6 +714,7 @@
         function clearPeerConnectionsData() {
             peerConnectionsData.ipv4 = {};
             peerConnectionsData.ipv6 = {};
+            connectionUdpPairs = {};
             renderPeerConnectionsList();
         }
         
@@ -732,18 +772,34 @@
                 const bgColor = conn.ipVersion === 'IPv4' ? '#e3f2fd' : '#fff3e0';
                 const borderColor = conn.ipVersion === 'IPv4' ? '#2196F3' : '#FF9800';
                 
+                // Get UDP pairs for this connection
+                const udpPairs = connectionUdpPairs[conn.conn_id] || new Set();
+                const udpPairsArray = Array.from(udpPairs);
+                
+                let udpPairsHtml = '';
+                if (udpPairsArray.length > 0) {
+                    udpPairsHtml = `
+                    <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed ${borderColor};">
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;"><strong>UDP Pairs (src → dest):</strong></div>
+                        <div style="font-size: 10px; font-family: monospace; max-height: 60px; overflow-y: auto; background: rgba(255,255,255,0.5); padding: 4px; border-radius: 3px;">
+                            ${udpPairsArray.map(pair => `<div style="margin: 1px 0;">${escapeHtml(pair)}</div>`).join('')}
+                        </div>
+                    </div>`;
+                }
+                
                 html += `
                 <div style="background: ${bgColor}; border: 2px solid ${borderColor}; border-radius: 8px; padding: 12px;">
                     <div style="font-weight: bold; margin-bottom: 8px; color: ${borderColor};">
-                        ${conn.ipVersion} Connection #${conn.index + 1}
+                        ${escapeHtml(conn.ipVersion)} Connection #${conn.index + 1}
                     </div>
                     <div style="font-size: 13px; margin-bottom: 6px;">
-                        <strong>Conn ID:</strong> <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;" title="${conn.conn_id}">${shortConnId}</code>
+                        <strong>Conn ID:</strong> <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;" title="${escapeHtml(conn.conn_id)}">${escapeHtml(shortConnId)}</code>
                     </div>
                     <div style="font-size: 12px; color: #555;">
-                        <div><strong>Local:</strong> ${conn.local_address}</div>
-                        <div><strong>Remote:</strong> ${conn.remote_address}</div>
+                        <div><strong>Local:</strong> ${escapeHtml(conn.local_address)}</div>
+                        <div><strong>Remote:</strong> ${escapeHtml(conn.remote_address)}</div>
                     </div>
+                    ${udpPairsHtml}
                 </div>`;
             }
             

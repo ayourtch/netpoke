@@ -580,10 +580,12 @@ pub async fn start_traceroute_sender(
                             rtt_ms,
                             message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
                             conn_id: event.conn_id.clone(),
+                            original_src_port: event.original_src_port,
+                            original_dest_addr: event.original_dest_addr.clone(),
                         };
 
-                        tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms, conn_id={}", 
-                            hop, event.router_ip, rtt_ms, event.conn_id);
+                        tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms, conn_id={}, src_port={}, dest={}", 
+                            hop, event.router_ip, rtt_ms, event.conn_id, event.original_src_port, event.original_dest_addr);
 
                         if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
                             if let Err(e) = control_channel.send(&msg_json.into()).await {
