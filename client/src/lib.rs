@@ -4,8 +4,9 @@ mod measurements;
 use crate::measurements::current_time_ms;
 
 use wasm_bindgen::prelude::*;
-use web_sys::{window, Document};
+use web_sys::{window, Document, RtcPeerConnection};
 use std::cell::RefCell;
+use gloo_timers::callback::Interval;
 
 // Path analysis timeout in milliseconds (30 seconds)
 const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
@@ -14,9 +15,12 @@ const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
 const MODE_TRACEROUTE: &str = "traceroute";
 const MODE_MEASUREMENT: &str = "measurement";
 
-// Global wake lock sentinel (stored as JsValue since WakeLockSentinel might not be exposed)
+// Global state for tracking active connections and testing status
 thread_local! {
     static WAKE_LOCK: RefCell<Option<JsValue>> = RefCell::new(None);
+    static ACTIVE_PEERS: RefCell<Vec<RtcPeerConnection>> = RefCell::new(Vec::new());
+    static ACTIVE_INTERVALS: RefCell<Vec<Interval>> = RefCell::new(Vec::new());
+    static IS_TESTING_ACTIVE: RefCell<bool> = RefCell::new(false);
 }
 
 #[wasm_bindgen(start)]
@@ -71,6 +75,50 @@ fn release_wake_lock() {
                 }
             }
         }
+    });
+}
+
+/// Set the testing active state
+fn set_testing_active(active: bool) {
+    IS_TESTING_ACTIVE.with(|state| {
+        *state.borrow_mut() = active;
+    });
+}
+
+/// Check if testing is currently active
+#[wasm_bindgen]
+pub fn is_testing_active() -> bool {
+    IS_TESTING_ACTIVE.with(|state| *state.borrow())
+}
+
+/// Register a peer connection to be tracked
+fn register_peer(peer: RtcPeerConnection) {
+    ACTIVE_PEERS.with(|peers| {
+        peers.borrow_mut().push(peer);
+    });
+}
+
+/// Register an interval to be tracked
+fn register_interval(interval: Interval) {
+    ACTIVE_INTERVALS.with(|intervals| {
+        intervals.borrow_mut().push(interval);
+    });
+}
+
+/// Clear all tracked connections and intervals
+fn clear_active_resources() {
+    // Close all peer connections
+    ACTIVE_PEERS.with(|peers| {
+        let mut peers_mut = peers.borrow_mut();
+        for peer in peers_mut.drain(..) {
+            peer.close();
+        }
+    });
+    
+    // Cancel all intervals
+    ACTIVE_INTERVALS.with(|intervals| {
+        let mut intervals_mut = intervals.borrow_mut();
+        intervals_mut.clear();
     });
 }
 
@@ -135,11 +183,12 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
 
     // Start latency-sensitive metric calculation loop
     let calc_states_for_interval = calc_states.clone();
-    gloo_timers::callback::Interval::new(100, move || {
+    let calc_interval = gloo_timers::callback::Interval::new(100, move || {
         for state in &calc_states_for_interval {
             state.borrow_mut().calculate_metrics();
         }
-    }).forget();
+    });
+    register_interval(calc_interval);
 
     // Collect all connection states for UI updates
     let ipv4_states: Vec<_> = ipv4_connections.iter().map(|c| c.state.clone()).collect();
@@ -147,7 +196,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
     let conn_count = count;
     
     // Start UI update loop that updates all connections
-    gloo_timers::callback::Interval::new(500, move || {
+    let ui_interval = gloo_timers::callback::Interval::new(500, move || {
         // Update metrics for each IPv4 connection
         for (i, state) in ipv4_states.iter().enumerate() {
             let state_ref = state.borrow();
@@ -175,24 +224,46 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
             let ipv6_metrics = ipv6_states[0].borrow();
             update_ui_dual(&ipv4_metrics.metrics, &ipv6_metrics.metrics);
         }
-    }).forget();
+    });
+    register_interval(ui_interval);
 
-    // Keep connections alive
+    // Register all peer connections and mark testing as active
     for conn in ipv4_connections {
+        register_peer(conn.peer.clone());
         std::mem::forget(conn);
     }
     for conn in ipv6_connections {
+        register_peer(conn.peer.clone());
         std::mem::forget(conn);
     }
+    
+    set_testing_active(true);
 
     Ok(())
 }
 
-/// Stop the measurement and release the wake lock
+/// Stop the measurement and release the wake lock (deprecated - use stop_testing)
 #[wasm_bindgen]
 pub fn stop_measurement() {
     log::info!("Stopping measurement...");
     release_wake_lock();
+}
+
+/// Stop all active testing, close connections, and clean up resources
+#[wasm_bindgen]
+pub fn stop_testing() {
+    log::info!("Stopping all active testing...");
+    
+    // Close all connections and clear intervals
+    clear_active_resources();
+    
+    // Release wake lock
+    release_wake_lock();
+    
+    // Mark testing as inactive
+    set_testing_active(false);
+    
+    log::info!("All testing stopped and resources cleaned up");
 }
 
 /// Analyze the network: first perform traceroute, then start measurements
@@ -396,14 +467,13 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
 
     // Start latency-sensitive metric calculation loop
-    // Note: We use .forget() to prevent the interval from being dropped, allowing it to run
-    // indefinitely for continuous measurements until the page is closed by the user.
     let calc_states_for_interval = calc_states.clone();
-    gloo_timers::callback::Interval::new(100, move || {
+    let calc_interval = gloo_timers::callback::Interval::new(100, move || {
         for state in &calc_states_for_interval {
             state.borrow_mut().calculate_metrics();
         }
-    }).forget();
+    });
+    register_interval(calc_interval);
 
     // Collect all connection states for UI updates
     let ipv4_states: Vec<_> = ipv4_connections.iter().map(|c| c.state.clone()).collect();
@@ -411,9 +481,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let conn_count_ui = count;
     
     // Start UI update loop that updates all connections
-    // Note: We use .forget() to prevent the interval from being dropped, allowing it to run
-    // indefinitely for continuous UI updates until the page is closed by the user.
-    gloo_timers::callback::Interval::new(500, move || {
+    let ui_interval = gloo_timers::callback::Interval::new(500, move || {
         // Update metrics for each IPv4 connection
         for (i, state) in ipv4_states.iter().enumerate() {
             let state_ref = state.borrow();
@@ -441,18 +509,20 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             let ipv6_metrics = ipv6_states[0].borrow();
             update_ui_dual(&ipv4_metrics.metrics, &ipv6_metrics.metrics);
         }
-    }).forget();
+    });
+    register_interval(ui_interval);
 
-    // Keep connections alive for measurements
-    // Note: We intentionally use std::mem::forget here to keep connections alive indefinitely.
-    // This is required for long-running network measurements. The WebRTC connections will be
-    // cleaned up by the browser when the page is closed or navigated away.
+    // Register all peer connections and mark testing as active
     for conn in ipv4_connections {
+        register_peer(conn.peer.clone());
         std::mem::forget(conn);
     }
     for conn in ipv6_connections {
+        register_peer(conn.peer.clone());
         std::mem::forget(conn);
     }
+    
+    set_testing_active(true);
 
     log::info!("Network analysis complete, measurements running...");
 

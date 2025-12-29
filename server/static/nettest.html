@@ -17,6 +17,24 @@
         .ipv6 th { background-color: #FF9800; }
         button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
         button:hover { background-color: #ddd; }
+        button:disabled { 
+            background-color: #ccc; 
+            color: #666; 
+            cursor: not-allowed; 
+            opacity: 0.6;
+        }
+        #stop-testing-btn { 
+            background-color: #f44336; 
+            color: white; 
+            margin-left: 10px;
+        }
+        #stop-testing-btn:hover:not(:disabled) { 
+            background-color: #d32f2f; 
+        }
+        #stop-testing-btn:disabled {
+            background-color: #ccc;
+            color: #666;
+        }
         .running { color: green; }
         .error { color: red; }
         #chart-container { margin-top: 40px; }
@@ -55,6 +73,7 @@
         </select>
     </div>
     <button id="analyze-network-btn" onclick="analyzeNetwork()">Analyze Network</button>
+    <button id="stop-testing-btn" onclick="stopTesting()" disabled>Stop Testing</button>
     <span id="wake-lock-status">Wake Lock: Checking...</span>
     <div id="status">Loading WASM module...</div>
     <div id="ayxx"></div>
@@ -714,7 +733,14 @@
         const errorEl = document.getElementById('error');
         const statusEl = document.getElementById('status');
         const analyzeNetworkBtn = document.getElementById('analyze-network-btn');
+        const stopTestingBtn = document.getElementById('stop-testing-btn');
         const wakeLockStatusEl = document.getElementById('wake-lock-status');
+
+        // Update button states based on testing status
+        function updateButtonStates(isTesting) {
+            analyzeNetworkBtn.disabled = isTesting;
+            stopTestingBtn.disabled = !isTesting;
+        }
 
         // Check if Wake Lock API is supported
         function checkWakeLockSupport() {
@@ -738,7 +764,7 @@
 
                 // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                 const module = await import('/public/pkg/wifi_verify_client.js');
-                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count } = module;
+                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active } = module;
 
                 // Initialize WASM with explicit path and cache-busting
                 // Pass the .wasm file path to init() for Safari compatibility
@@ -756,8 +782,10 @@
                 window.analyzeNetwork = async function() {
                     statusEl.textContent = 'Starting network analysis...';
                     statusEl.className = '';
-                    analyzeNetworkBtn.disabled = true;
                     errorEl.textContent = '';
+                    
+                    // Update button states - disable analyze, enable stop
+                    updateButtonStates(true);
                     
                     // Clear the server messages textarea
                     const serverMessagesEl = document.getElementById('server-messages');
@@ -801,14 +829,44 @@
                         statusEl.textContent = 'Error';
                         statusEl.className = 'error';
                         errorEl.textContent = errMsg;
-                        analyzeNetworkBtn.disabled = false;
                         console.error('Network analysis error:', e);
+                        
+                        // Update button states - enable analyze, disable stop
+                        updateButtonStates(false);
                         
                         // Update wake lock status
                         if ('wakeLock' in navigator) {
                             wakeLockStatusEl.textContent = '🔓 Wake Lock: Ready';
                             wakeLockStatusEl.className = '';
                         }
+                    }
+                };
+                
+                // Stop testing function
+                window.stopTesting = function() {
+                    console.log('Stopping network testing...');
+                    
+                    try {
+                        // Call the WASM stop_testing function
+                        stop_testing();
+                        
+                        // Update UI
+                        statusEl.textContent = 'Testing stopped';
+                        statusEl.className = '';
+                        
+                        // Update button states - enable analyze, disable stop
+                        updateButtonStates(false);
+                        
+                        // Update wake lock status
+                        if ('wakeLock' in navigator) {
+                            wakeLockStatusEl.textContent = '🔓 Wake Lock: Ready';
+                            wakeLockStatusEl.className = '';
+                        }
+                        
+                        console.log('Testing stopped successfully');
+                    } catch (e) {
+                        console.error('Error stopping testing:', e);
+                        errorEl.textContent = 'Error stopping testing: ' + (e.message || e);
                     }
                 };
             } catch (e) {
