@@ -13,6 +13,29 @@ use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::stats::StatsReportType;
 use webrtc::ice::candidate::CandidatePairState;
 
+/// Check if an ICE candidate uses a name-based address (e.g., mDNS like "xxx.local")
+/// instead of an explicit IP address
+fn is_name_based_candidate(candidate_str: &str) -> bool {
+    // Parse the candidate SDP attribute
+    // Format: "candidate:foundation component protocol priority ip port typ type ..."
+    // Example: "candidate:1234567890 1 udp 2122260223 192.168.1.100 54321 typ host"
+    // mDNS example: "candidate:1234567890 1 udp 2122260223 abc123.local 54321 typ host"
+
+    if let Some(candidate_part) = candidate_str.strip_prefix("candidate:") {
+        let parts: Vec<&str> = candidate_part.split_whitespace().collect();
+        if parts.len() >= 5 {
+            let ip = parts[4]; // IP address is the 5th field (index 4)
+
+            // Check if it ends with ".local" (mDNS candidate)
+            if ip.ends_with(".local") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Determine if an ICE candidate is IPv4 or IPv6 by parsing the candidate string
 /// Returns Some("ipv4"), Some("ipv6"), or None if unable to determine
 fn get_candidate_ip_version(candidate_str: &str) -> Option<String> {
@@ -53,6 +76,12 @@ fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 5 {
                 let ip = parts[4]; // IP address is the 5th field (index 4)
+
+                // First, filter out name-based candidates (e.g., xxx.local mDNS)
+                if ip.ends_with(".local") {
+                    tracing::debug!("Filtering out name-based (mDNS) candidate from SDP: {}", ip);
+                    continue;
+                }
 
                 let detected_version = if ip.contains(':') {
                     "ipv6"
@@ -187,8 +216,13 @@ pub async fn signaling_start(
                 let client_id = client_id_for_ice.clone();
 
                 tokio::spawn(async move {
-                    // Filter candidates by IP version if specified
-                    let should_store = if let Some(ref expected_version) = ip_version_filter {
+                    // First, filter out name-based (mDNS) candidates
+                    let should_store = if candidate_address.ends_with(".local") {
+                        tracing::debug!("Server filtering out name-based (mDNS) candidate for client {}: {}",
+                            client_id, candidate_address);
+                        false
+                    } else if let Some(ref expected_version) = ip_version_filter {
+                        // Filter candidates by IP version if specified
                         // Check if address is IPv4 or IPv6
                         let detected_version = if candidate_address.contains(':') {
                             "ipv6"
@@ -335,8 +369,14 @@ pub async fn ice_candidate(
     };
 
     // Filter candidate by IP version if session has one specified
-    let should_add = if let Some(ref expected_version) = session.ip_version {
-        let candidate_str = &candidate_init.candidate;
+    // Also filter out name-based (mDNS) candidates
+    let candidate_str = &candidate_init.candidate;
+    let should_add = if is_name_based_candidate(candidate_str) {
+        // Filter out name-based (mDNS) candidates
+        tracing::debug!("Server filtering out name-based (mDNS) candidate from client {}: {}",
+            req.client_id, candidate_str);
+        false
+    } else if let Some(ref expected_version) = session.ip_version {
         if let Some(detected_version) = get_candidate_ip_version(candidate_str) {
             let matches = detected_version.eq_ignore_ascii_case(expected_version);
             if matches {
