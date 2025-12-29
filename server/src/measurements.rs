@@ -549,11 +549,11 @@ pub async fn start_traceroute_sender(
                 // Wait a short interval before sending next TTL probe (10ms for ICMP response)
                 tokio::time::sleep(Duration::from_millis(TTL_SEND_INTERVAL_MS)).await;
 
-                // Check for ICMP events from the packet tracker
-                let events = session.packet_tracker.drain_events().await;
+                // Check for ICMP events from the packet tracker for THIS session only
+                let events = session.packet_tracker.drain_events_for_conn_id(&session.conn_id).await;
                 
                 if !events.is_empty() {
-                    tracing::debug!("Processing {} ICMP events for traceroute", events.len());
+                    tracing::debug!("Processing {} ICMP events for traceroute (conn_id={})", events.len(), session.conn_id);
                     
                     for event in events {
                         // Extract TTL from send options to determine hop number
@@ -565,16 +565,17 @@ pub async fn start_traceroute_sender(
                         let rtt_ms = rtt.as_secs_f64() * 1000.0;
                         
                         // Create hop message with actual ICMP data
+                        // Use the conn_id from the event, which was extracted from the tracked packet
                         let hop_message = common::TraceHopMessage {
                             hop,
                             ip_address: event.router_ip.clone(),
                             rtt_ms,
                             message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
-                            conn_id: session.conn_id.clone(),
+                            conn_id: event.conn_id.clone(),
                         };
 
-                        tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms", 
-                            hop, event.router_ip, rtt_ms);
+                        tracing::debug!("Sending traceroute hop message: hop={}, ip={:?}, rtt={:.2}ms, conn_id={}", 
+                            hop, event.router_ip, rtt_ms, event.conn_id);
 
                         if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
                             if let Err(e) = control_channel.send(&msg_json.into()).await {

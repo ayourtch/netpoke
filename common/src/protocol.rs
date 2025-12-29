@@ -208,6 +208,9 @@ pub struct TrackedPacketEvent {
     
     /// IP address of the router that sent the ICMP error
     pub router_ip: Option<String>,
+    
+    /// Connection ID extracted from the packet (for per-session event routing)
+    pub conn_id: String,
 }
 
 #[cfg(test)]

@@ -11,6 +11,24 @@ use std::time::Instant;
 use tokio::sync::{RwLock, mpsc};
 use common::{SendOptions, TrackedPacketEvent};
 
+/// Extract conn_id from cleartext JSON data
+/// The cleartext is expected to be a serialized TestProbePacket or ProbePacket
+/// which contains a conn_id field
+fn extract_conn_id_from_cleartext(cleartext: &[u8]) -> String {
+    // Try to parse the cleartext as JSON and extract conn_id
+    if let Ok(text) = std::str::from_utf8(cleartext) {
+        // Use a simple JSON extraction to avoid full deserialization
+        // Look for "conn_id":"<value>" pattern
+        if let Some(start_idx) = text.find("\"conn_id\":\"") {
+            let after_key = &text[start_idx + 11..]; // Skip past "conn_id":"
+            if let Some(end_idx) = after_key.find('"') {
+                return after_key[..end_idx].to_string();
+            }
+        }
+    }
+    String::new()
+}
+
 /// Data sent from UDP layer to ICMP listener for packet tracking
 #[derive(Debug, Clone)]
 pub struct UdpPacketInfo {
@@ -67,6 +85,9 @@ pub struct TrackedPacket {
     
     /// First 64 bytes of the UDP payload (for matching with ICMP errors)
     pub payload_prefix: Vec<u8>,
+    
+    /// Connection ID for per-session event routing
+    pub conn_id: String,
 }
 
 /// Callback type for handling unmatched ICMP errors
@@ -153,8 +174,11 @@ impl PacketTracker {
             return;
         }
         
-        tracing::debug!("track_packet called: src_port={}, dest={}, udp_length={}, track_for_ms={}, ttl={:?}", 
-            src_port, dest_addr, udp_length, send_options.track_for_ms, send_options.ttl);
+        // Extract conn_id from cleartext for per-session event routing
+        let conn_id = extract_conn_id_from_cleartext(&cleartext);
+        
+        tracing::debug!("track_packet called: src_port={}, dest={}, udp_length={}, track_for_ms={}, ttl={:?}, conn_id={}", 
+            src_port, dest_addr, udp_length, send_options.track_for_ms, send_options.ttl, conn_id);
         
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
@@ -191,6 +215,7 @@ impl PacketTracker {
             dest_addr,
             src_port,
             payload_prefix: payload_prefix.clone(),
+            conn_id,
         };
         
         let mut packets = self.tracked_packets.write().await;
@@ -282,8 +307,8 @@ impl PacketTracker {
         drop(payload_idx);
         
         if let Some(tracked) = matched {
-            tracing::debug!("MATCH FOUND via {}: dest={}, udp_length={}", 
-                match_type, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+            tracing::debug!("MATCH FOUND via {}: dest={}, udp_length={}, conn_id={}", 
+                match_type, embedded_udp_info.dest_addr, embedded_udp_info.udp_length, tracked.conn_id);
             
             let event = TrackedPacketEvent {
                 icmp_packet,
@@ -293,6 +318,7 @@ impl PacketTracker {
                 icmp_received_at: Instant::now(),
                 send_options: tracked.send_options,
                 router_ip,
+                conn_id: tracked.conn_id,
             };
             
             let mut queue = self.event_queue.write().await;
@@ -318,10 +344,33 @@ impl PacketTracker {
         }
     }
     
-    /// Get and clear all queued events
+    /// Get and clear all queued events (deprecated - use drain_events_for_conn_id instead)
     pub async fn drain_events(&self) -> Vec<TrackedPacketEvent> {
         let mut queue = self.event_queue.write().await;
         std::mem::take(&mut *queue)
+    }
+    
+    /// Get and remove queued events for a specific connection ID
+    /// Only returns events matching the given conn_id, leaving other events in the queue
+    pub async fn drain_events_for_conn_id(&self, conn_id: &str) -> Vec<TrackedPacketEvent> {
+        let mut queue = self.event_queue.write().await;
+        
+        // Partition events: matching conn_id vs. others
+        let mut matching = Vec::new();
+        let mut remaining = Vec::new();
+        
+        for event in queue.drain(..) {
+            if event.conn_id == conn_id {
+                matching.push(event);
+            } else {
+                remaining.push(event);
+            }
+        }
+        
+        // Put non-matching events back in the queue
+        *queue = remaining;
+        
+        matching
     }
     
     /// Get current number of tracked packets
@@ -342,8 +391,11 @@ impl PacketTracker {
                 continue;
             }
             
-            tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}", 
-                info.dest_addr, info.udp_length, info.send_options.ttl);
+            // Extract conn_id from cleartext for per-session event routing
+            let conn_id = extract_conn_id_from_cleartext(&info.cleartext);
+            
+            tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}, conn_id={}", 
+                info.dest_addr, info.udp_length, info.send_options.ttl, conn_id);
             
             let expires_at = info.sent_at + std::time::Duration::from_millis(info.send_options.track_for_ms as u64);
             
@@ -369,6 +421,7 @@ impl PacketTracker {
                 dest_addr: info.dest_addr,
                 src_port: 0, // Not available at this layer
                 payload_prefix: payload_prefix.clone(),
+                conn_id,
             };
             
             let mut packets = tracked_packets.write().await;
@@ -791,5 +844,100 @@ mod tests {
         // Packet should have been matched via fallback (length)
         assert_eq!(tracker.tracked_count().await, 0);
         assert_eq!(tracker.drain_events().await.len(), 1);
+    }
+    
+    #[tokio::test]
+    async fn test_conn_id_extraction_and_filtering() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let dest2 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 2)), 8080);
+        
+        // Create cleartext with conn_id embedded (simulating TestProbePacket JSON)
+        let cleartext1 = br#"{"test_seq":1,"timestamp_ms":1234,"direction":"ServerToClient","conn_id":"session-a-uuid"}"#.to_vec();
+        let cleartext2 = br#"{"test_seq":2,"timestamp_ms":1234,"direction":"ServerToClient","conn_id":"session-b-uuid"}"#.to_vec();
+        
+        // Track packets for two different sessions
+        tracker.track_packet(
+            cleartext1.clone(),
+            vec![0; 8], // minimal UDP packet
+            12345,
+            dest1,
+            100,
+            options,
+        ).await;
+        
+        tracker.track_packet(
+            cleartext2.clone(),
+            vec![0; 8],
+            12345,
+            dest2,
+            200,
+            options,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 2);
+        
+        // Simulate ICMP errors for both packets
+        let embedded_info1 = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest1,
+            udp_length: 100,
+            payload_prefix: Vec::new(),
+        };
+        let embedded_info2 = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest2,
+            udp_length: 200,
+            payload_prefix: Vec::new(),
+        };
+        
+        tracker.match_icmp_error(vec![0u8; 56], embedded_info1, Some("10.0.0.1".to_string())).await;
+        tracker.match_icmp_error(vec![0u8; 56], embedded_info2, Some("10.0.0.2".to_string())).await;
+        
+        // Both packets should have been matched
+        assert_eq!(tracker.tracked_count().await, 0);
+        
+        // Now test per-session draining
+        // Session A should only get its event
+        let session_a_events = tracker.drain_events_for_conn_id("session-a-uuid").await;
+        assert_eq!(session_a_events.len(), 1);
+        assert_eq!(session_a_events[0].conn_id, "session-a-uuid");
+        assert_eq!(session_a_events[0].router_ip, Some("10.0.0.1".to_string()));
+        
+        // Session B should only get its event
+        let session_b_events = tracker.drain_events_for_conn_id("session-b-uuid").await;
+        assert_eq!(session_b_events.len(), 1);
+        assert_eq!(session_b_events[0].conn_id, "session-b-uuid");
+        assert_eq!(session_b_events[0].router_ip, Some("10.0.0.2".to_string()));
+        
+        // Queue should be empty now
+        assert_eq!(tracker.drain_events().await.len(), 0);
+    }
+    
+    #[test]
+    fn test_extract_conn_id_from_cleartext() {
+        // Test valid JSON with conn_id
+        let cleartext = br#"{"test_seq":1,"conn_id":"my-test-uuid","timestamp_ms":1234}"#;
+        assert_eq!(super::extract_conn_id_from_cleartext(cleartext), "my-test-uuid");
+        
+        // Test JSON without conn_id
+        let no_conn_id = br#"{"test_seq":1,"timestamp_ms":1234}"#;
+        assert_eq!(super::extract_conn_id_from_cleartext(no_conn_id), "");
+        
+        // Test empty cleartext
+        assert_eq!(super::extract_conn_id_from_cleartext(&[]), "");
+        
+        // Test invalid UTF-8
+        let invalid_utf8 = vec![0xFF, 0xFE, 0x00];
+        assert_eq!(super::extract_conn_id_from_cleartext(&invalid_utf8), "");
     }
 }
