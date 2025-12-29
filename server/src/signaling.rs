@@ -12,15 +12,13 @@ use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::stats::StatsReportType;
 use webrtc::ice::candidate::CandidatePairState;
-use common::{is_name_based_candidate, get_candidate_ip_version};
+use common::{is_name_based_candidate, get_candidate_ip_version, IpFamily};
 
 /// Filter SDP to remove ICE candidates of the wrong IP version or name-based addresses
+/// 
+/// Name-based candidates (e.g., mDNS xxx.local) are always filtered out.
+/// If an IP version is specified, candidates of the wrong IP version are also filtered.
 fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
-    if ip_version.is_none() {
-        return sdp.to_string();
-    }
-
-    let expected_version = ip_version.unwrap();
     let mut filtered_lines = Vec::new();
 
     for line in sdp.lines() {
@@ -35,19 +33,24 @@ fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
                 continue;
             }
 
-            // Check IP version
-            if let Some(detected_version) = get_candidate_ip_version(candidate_str) {
-                if detected_version.eq_ignore_ascii_case(expected_version) {
-                    // Keep this candidate
-                    filtered_lines.push(line);
-                    tracing::debug!("Keeping {} candidate in SDP: {}", detected_version, line);
+            // Check IP version if specified
+            if let Some(expected_version) = ip_version {
+                if let Some(detected_version) = get_candidate_ip_version(candidate_str) {
+                    if detected_version.eq_ignore_ascii_case(expected_version) {
+                        // Keep this candidate
+                        filtered_lines.push(line);
+                        tracing::debug!("Keeping {} candidate in SDP: {}", detected_version, line);
+                    } else {
+                        // Filter out this candidate
+                        tracing::debug!("Filtering out {} candidate from SDP for {} connection: {}",
+                            detected_version, expected_version, line);
+                    }
                 } else {
-                    // Filter out this candidate
-                    tracing::debug!("Filtering out {} candidate from SDP for {} connection: {}",
-                        detected_version, expected_version, line);
+                    // Unknown format, keep it
+                    filtered_lines.push(line);
                 }
             } else {
-                // Unknown format, keep it
+                // No IP version filter specified, keep all non-mDNS candidates
                 filtered_lines.push(line);
             }
         } else {
@@ -95,8 +98,11 @@ pub async fn signaling_start(
     tracing::info!("SDP: {}", &req.sdp);
     tracing::info!("IP Version: {:?}, conn_id: {}", req.ip_version, req.conn_id);
 
-    // Create peer connection
-    let peer = webrtc_manager::create_peer_connection()
+    // Convert ip_version string to IpFamily for peer connection filtering
+    let ip_family = req.ip_version.as_ref().map(|v| IpFamily::from_str_loose(v));
+
+    // Create peer connection with IP family filtering
+    let peer = webrtc_manager::create_peer_connection(ip_family)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create peer connection: {}", e);
@@ -397,5 +403,49 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("test-123"));
         assert!(json.contains("ipv4"));
+    }
+
+    #[test]
+    fn test_filter_sdp_candidates_removes_mdns_without_ip_version() {
+        // SDP with mDNS candidate should have it removed even without IP version filter
+        let sdp = "v=0\r\n\
+                   o=- 1234567890 1 IN IP4 127.0.0.1\r\n\
+                   s=-\r\n\
+                   a=candidate:1234567890 1 udp 2122260223 abc123.local 54321 typ host\r\n\
+                   a=candidate:1234567891 1 udp 2122260222 192.168.1.100 54322 typ host\r\n\
+                   a=end-of-candidates\r\n";
+        
+        let filtered = filter_sdp_candidates(sdp, None);
+        
+        // mDNS candidate should be removed
+        assert!(!filtered.contains("abc123.local"));
+        // IPv4 candidate should remain
+        assert!(filtered.contains("192.168.1.100"));
+        // Non-candidate lines should remain
+        assert!(filtered.contains("v=0"));
+        assert!(filtered.contains("a=end-of-candidates"));
+    }
+
+    #[test]
+    fn test_filter_sdp_candidates_filters_by_ip_version() {
+        let sdp = "v=0\r\n\
+                   o=- 1234567890 1 IN IP4 127.0.0.1\r\n\
+                   s=-\r\n\
+                   a=candidate:1234567890 1 udp 2122260223 abc123.local 54321 typ host\r\n\
+                   a=candidate:1234567891 1 udp 2122260222 192.168.1.100 54322 typ host\r\n\
+                   a=candidate:1234567892 1 udp 2122260221 2001:db8::1 54323 typ host\r\n\
+                   a=end-of-candidates\r\n";
+        
+        // Filter for IPv4 only
+        let filtered_ipv4 = filter_sdp_candidates(sdp, Some(&"ipv4".to_string()));
+        assert!(!filtered_ipv4.contains("abc123.local")); // mDNS removed
+        assert!(filtered_ipv4.contains("192.168.1.100"));  // IPv4 kept
+        assert!(!filtered_ipv4.contains("2001:db8::1"));   // IPv6 removed
+        
+        // Filter for IPv6 only
+        let filtered_ipv6 = filter_sdp_candidates(sdp, Some(&"ipv6".to_string()));
+        assert!(!filtered_ipv6.contains("abc123.local")); // mDNS removed
+        assert!(!filtered_ipv6.contains("192.168.1.100")); // IPv4 removed
+        assert!(filtered_ipv6.contains("2001:db8::1"));    // IPv6 kept
     }
 }

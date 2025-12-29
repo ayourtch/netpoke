@@ -2,6 +2,34 @@ use serde::{Deserialize, Serialize};
 use crate::metrics::ClientMetrics;
 use std::time::Instant;
 
+/// IP address family to use for ICE candidates
+/// This controls which network types are used during ICE candidate gathering
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum IpFamily {
+    /// Use only IPv4 addresses (UDP4)
+    #[serde(alias = "ipv4", alias = "4")]
+    IPv4,
+    /// Use only IPv6 addresses (UDP6)
+    #[serde(alias = "ipv6", alias = "6")]
+    IPv6,
+    /// Use both IPv4 and IPv6 addresses (default)
+    #[default]
+    #[serde(alias = "any", alias = "all")]
+    Both,
+}
+
+impl IpFamily {
+    /// Parse from a string representation
+    pub fn from_str_loose(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "ipv4" | "4" | "v4" => IpFamily::IPv4,
+            "ipv6" | "6" | "v6" => IpFamily::IPv6,
+            _ => IpFamily::Both,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Direction {
     ClientToServer,
@@ -338,5 +366,50 @@ mod tests {
         // Verify testprobe JSON does NOT have "seq" field (it has "test_seq" instead)
         assert!(!testprobe_json.contains("\"seq\":"), 
             "TestProbePacket JSON should NOT contain 'seq' field, only 'test_seq'");
+    }
+
+    #[test]
+    fn test_ip_family_default() {
+        let family: IpFamily = Default::default();
+        assert_eq!(family, IpFamily::Both);
+    }
+
+    #[test]
+    fn test_ip_family_from_str_loose() {
+        assert_eq!(IpFamily::from_str_loose("ipv4"), IpFamily::IPv4);
+        assert_eq!(IpFamily::from_str_loose("IPV4"), IpFamily::IPv4);
+        assert_eq!(IpFamily::from_str_loose("4"), IpFamily::IPv4);
+        assert_eq!(IpFamily::from_str_loose("v4"), IpFamily::IPv4);
+        
+        assert_eq!(IpFamily::from_str_loose("ipv6"), IpFamily::IPv6);
+        assert_eq!(IpFamily::from_str_loose("IPV6"), IpFamily::IPv6);
+        assert_eq!(IpFamily::from_str_loose("6"), IpFamily::IPv6);
+        assert_eq!(IpFamily::from_str_loose("v6"), IpFamily::IPv6);
+        
+        assert_eq!(IpFamily::from_str_loose("both"), IpFamily::Both);
+        assert_eq!(IpFamily::from_str_loose("any"), IpFamily::Both);
+        assert_eq!(IpFamily::from_str_loose("unknown"), IpFamily::Both);
+    }
+
+    #[test]
+    fn test_ip_family_serialization() {
+        let ipv4_json = serde_json::to_string(&IpFamily::IPv4).unwrap();
+        let ipv6_json = serde_json::to_string(&IpFamily::IPv6).unwrap();
+        let both_json = serde_json::to_string(&IpFamily::Both).unwrap();
+        
+        assert_eq!(ipv4_json, "\"ipv4\"");
+        assert_eq!(ipv6_json, "\"ipv6\"");
+        assert_eq!(both_json, "\"both\"");
+        
+        // Test deserialization
+        assert_eq!(serde_json::from_str::<IpFamily>("\"ipv4\"").unwrap(), IpFamily::IPv4);
+        assert_eq!(serde_json::from_str::<IpFamily>("\"ipv6\"").unwrap(), IpFamily::IPv6);
+        assert_eq!(serde_json::from_str::<IpFamily>("\"both\"").unwrap(), IpFamily::Both);
+        
+        // Test aliases
+        assert_eq!(serde_json::from_str::<IpFamily>("\"4\"").unwrap(), IpFamily::IPv4);
+        assert_eq!(serde_json::from_str::<IpFamily>("\"6\"").unwrap(), IpFamily::IPv6);
+        assert_eq!(serde_json::from_str::<IpFamily>("\"any\"").unwrap(), IpFamily::Both);
+        assert_eq!(serde_json::from_str::<IpFamily>("\"all\"").unwrap(), IpFamily::Both);
     }
 }
