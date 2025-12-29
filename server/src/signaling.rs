@@ -98,7 +98,9 @@ pub async fn signaling_start(
     tracing::info!("SDP: {}", &req.sdp);
     tracing::info!("IP Version: {:?}, conn_id: {}", req.ip_version, req.conn_id);
 
-    // Convert ip_version string to IpFamily for peer connection filtering
+    // Convert ip_version string to IpFamily for peer connection filtering.
+    // IpFamily::from_str_loose accepts "ipv4", "4", "v4" for IPv4, "ipv6", "6", "v6" for IPv6,
+    // and defaults to IpFamily::Both for any other value.
     let ip_family = req.ip_version.as_ref().map(|v| IpFamily::from_str_loose(v));
 
     // Create peer connection with IP family filtering
