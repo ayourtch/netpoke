@@ -236,6 +236,10 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         if i == 0 {
             parent_id = Some(conn.client_id.clone());
         }
+        
+        // Enable traceroute mode to prevent measurement data collection
+        conn.set_traceroute_mode(true);
+        
         log::info!("IPv4 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         ipv4_connections.push(conn);
     }
@@ -249,6 +253,10 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
             Some(MODE_TRACEROUTE.to_string()), 
             None  // conn_id will be auto-generated
         ).await?;
+        
+        // Enable traceroute mode to prevent measurement data collection
+        conn.set_traceroute_mode(true);
+        
         log::info!("IPv6 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         ipv6_connections.push(conn);
     }
@@ -316,6 +324,10 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         if i == 0 {
             parent_id = Some(conn.client_id.clone());
         }
+        
+        // Enable traceroute mode to prevent measurement data collection during Phase 1
+        conn.set_traceroute_mode(true);
+        
         log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         ipv4_connections.push(conn);
     }
@@ -329,6 +341,10 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             Some(MODE_TRACEROUTE.to_string()), 
             None  // conn_id will be auto-generated
         ).await?;
+        
+        // Enable traceroute mode to prevent measurement data collection during Phase 1
+        conn.set_traceroute_mode(true);
+        
         log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         ipv6_connections.push(conn);
     }

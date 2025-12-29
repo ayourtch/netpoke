@@ -16,6 +16,7 @@ pub struct MeasurementState {
     pub metrics: ClientMetrics,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
+    pub traceroute_active: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -45,6 +46,7 @@ impl MeasurementState {
             metrics: ClientMetrics::default(),
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
+            traceroute_active: false,
         }
     }
 
@@ -55,6 +57,11 @@ impl MeasurementState {
         // Reset metrics to default values
         self.metrics = ClientMetrics::default();
         log::info!("Cleared metrics for conn_id: {}", self.conn_id);
+    }
+
+    pub fn set_traceroute_active(&mut self, active: bool) {
+        self.traceroute_active = active;
+        log::info!("Set traceroute_active = {} for conn_id: {}", active, self.conn_id);
     }
 
     pub fn calculate_metrics(&mut self) {
@@ -182,20 +189,25 @@ pub fn setup_probe_channel(
                 let now_ms = current_time_ms();
                 let mut state = state_receiver.borrow_mut();
 
-                state.received_probes.push_back(ReceivedProbe {
-                    seq: probe.seq,
-                    sent_at_ms: probe.timestamp_ms,
-                    received_at_ms: now_ms,
-                });
+                // Skip data collection during traceroute phase
+                if !state.traceroute_active {
+                    state.received_probes.push_back(ReceivedProbe {
+                        seq: probe.seq,
+                        sent_at_ms: probe.timestamp_ms,
+                        received_at_ms: now_ms,
+                    });
 
-                // Keep only last 60 seconds of probes
-                let cutoff = now_ms.saturating_sub(60_000);
-                while let Some(p) = state.received_probes.front() {
-                    if p.received_at_ms < cutoff {
-                        state.received_probes.pop_front();
-                    } else {
-                        break;
+                    // Keep only last 60 seconds of probes
+                    let cutoff = now_ms.saturating_sub(60_000);
+                    while let Some(p) = state.received_probes.front() {
+                        if p.received_at_ms < cutoff {
+                            state.received_probes.pop_front();
+                        } else {
+                            break;
+                        }
                     }
+                } else {
+                    log::trace!("Skipping probe data collection during traceroute phase (seq: {})", probe.seq);
                 }
 
                 // Echo probe back to server with received timestamp
@@ -255,19 +267,24 @@ pub fn setup_bulk_channel(
         if bytes > 0 {
             let mut state = state_receiver.borrow_mut();
             
-            state.received_bulk_bytes.push_back(ReceivedBulk {
-                bytes,
-                received_at_ms: now_ms,
-            });
+            // Skip data collection during traceroute phase
+            if !state.traceroute_active {
+                state.received_bulk_bytes.push_back(ReceivedBulk {
+                    bytes,
+                    received_at_ms: now_ms,
+                });
 
-            // Keep only last 60 seconds of bulk data
-            let cutoff = now_ms.saturating_sub(60_000);
-            while let Some(b) = state.received_bulk_bytes.front() {
-                if b.received_at_ms < cutoff {
-                    state.received_bulk_bytes.pop_front();
-                } else {
-                    break;
+                // Keep only last 60 seconds of bulk data
+                let cutoff = now_ms.saturating_sub(60_000);
+                while let Some(b) = state.received_bulk_bytes.front() {
+                    if b.received_at_ms < cutoff {
+                        state.received_bulk_bytes.pop_front();
+                    } else {
+                        break;
+                    }
                 }
+            } else {
+                log::trace!("Skipping bulk data collection during traceroute phase ({} bytes)", bytes);
             }
         }
     }) as Box<dyn FnMut(MessageEvent)>);

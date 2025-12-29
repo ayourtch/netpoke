@@ -335,10 +335,18 @@ impl WebRtcConnection {
             // Send the message using ArrayBuffer
             channel.send_with_array_buffer(&array.buffer())?;
             log::info!("Sent stop traceroute message for conn_id: {}", self.conn_id);
+            
+            // Disable traceroute mode to allow measurement data collection
+            self.state.borrow_mut().set_traceroute_active(false);
         } else {
             log::warn!("Control channel not available to send stop traceroute message");
         }
         
         Ok(())
+    }
+    
+    /// Enable traceroute mode (prevents measurement data collection)
+    pub fn set_traceroute_mode(&self, active: bool) {
+        self.state.borrow_mut().set_traceroute_active(active);
     }
 }
