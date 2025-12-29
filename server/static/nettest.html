@@ -112,6 +112,14 @@
         <p><em>C2S metrics are measured by the server and visible on the <a href="/static/dashboard.html">dashboard</a>.</em></p>
     </div>
 
+    <div id="peer-connections-container" style="margin-top: 20px;">
+        <h2>Peer Connections</h2>
+        <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Active peer connections with their connection IDs (matching traceroute data) and five-tuple information.</em></p>
+        <div id="peer-connections-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px;">
+            <div style="text-align: center; color: #999; padding: 20px; border: 1px dashed #ccc; border-radius: 4px;">No active connections. Click "Analyze Network" to start.</div>
+        </div>
+    </div>
+
     <div id="traceroute-visualization" style="margin-top: 20px;">
         <h2>Traceroute Path Visualization</h2>
         <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</em></p>
@@ -641,6 +649,111 @@
         window.addTracerouteHop = addTracerouteHop;
         window.clearTracerouteData = clearTracerouteData;
         
+        // Peer connections data structure
+        // Maps: ipVersion -> connIndex -> { conn_id, local_address, remote_address }
+        let peerConnectionsData = {
+            ipv4: {},
+            ipv6: {}
+        };
+        
+        // Function to register a peer connection
+        function registerPeerConnection(ipVersion, connIndex, connId, localAddress, remoteAddress) {
+            peerConnectionsData[ipVersion][connIndex] = {
+                conn_id: connId,
+                local_address: localAddress || 'Unknown',
+                remote_address: remoteAddress || 'Unknown'
+            };
+            
+            // Update the UI
+            renderPeerConnectionsList();
+            
+            // Update the table title with connection ID
+            updateConnectionTitle(ipVersion, connIndex, connId);
+        }
+        
+        // Function to clear peer connections data
+        function clearPeerConnectionsData() {
+            peerConnectionsData.ipv4 = {};
+            peerConnectionsData.ipv6 = {};
+            renderPeerConnectionsList();
+        }
+        
+        // Function to update connection title with conn_id
+        function updateConnectionTitle(ipVersion, connIndex, connId) {
+            const shortConnId = connId.length > 8 ? connId.substring(0, 8) : connId;
+            const connIdEl = document.getElementById(`${ipVersion}-${connIndex}-conn-id`);
+            if (connIdEl) {
+                connIdEl.textContent = `[${shortConnId}]`;
+                connIdEl.title = `Full Connection ID: ${connId}`;
+            }
+        }
+        
+        // Function to render the peer connections list
+        function renderPeerConnectionsList() {
+            const container = document.getElementById('peer-connections-list');
+            if (!container) return;
+            
+            const allConnections = [];
+            
+            // Collect IPv4 connections
+            for (const [index, connInfo] of Object.entries(peerConnectionsData.ipv4)) {
+                allConnections.push({
+                    ipVersion: 'IPv4',
+                    index: parseInt(index),
+                    ...connInfo
+                });
+            }
+            
+            // Collect IPv6 connections
+            for (const [index, connInfo] of Object.entries(peerConnectionsData.ipv6)) {
+                allConnections.push({
+                    ipVersion: 'IPv6',
+                    index: parseInt(index),
+                    ...connInfo
+                });
+            }
+            
+            if (allConnections.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px; border: 1px dashed #ccc; border-radius: 4px;">No active connections. Click "Analyze Network" to start.</div>';
+                return;
+            }
+            
+            // Sort by IP version then by index
+            allConnections.sort((a, b) => {
+                if (a.ipVersion !== b.ipVersion) {
+                    return a.ipVersion === 'IPv4' ? -1 : 1;
+                }
+                return a.index - b.index;
+            });
+            
+            let html = '';
+            for (const conn of allConnections) {
+                const shortConnId = conn.conn_id.length > 8 ? conn.conn_id.substring(0, 8) : conn.conn_id;
+                const bgColor = conn.ipVersion === 'IPv4' ? '#e3f2fd' : '#fff3e0';
+                const borderColor = conn.ipVersion === 'IPv4' ? '#2196F3' : '#FF9800';
+                
+                html += `
+                <div style="background: ${bgColor}; border: 2px solid ${borderColor}; border-radius: 8px; padding: 12px;">
+                    <div style="font-weight: bold; margin-bottom: 8px; color: ${borderColor};">
+                        ${conn.ipVersion} Connection #${conn.index + 1}
+                    </div>
+                    <div style="font-size: 13px; margin-bottom: 6px;">
+                        <strong>Conn ID:</strong> <code style="background: #f5f5f5; padding: 2px 6px; border-radius: 3px;" title="${conn.conn_id}">${shortConnId}</code>
+                    </div>
+                    <div style="font-size: 12px; color: #555;">
+                        <div><strong>Local:</strong> ${conn.local_address}</div>
+                        <div><strong>Remote:</strong> ${conn.remote_address}</div>
+                    </div>
+                </div>`;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        // Make peer connection functions globally available
+        window.registerPeerConnection = registerPeerConnection;
+        window.clearPeerConnectionsData = clearPeerConnectionsData;
+        
         // Function to generate metrics tables for multiple connections
         function generateMultiConnectionTables(connCount) {
             const container = document.getElementById('metrics-tables-container');
@@ -796,6 +909,11 @@
                     // Clear traceroute visualization
                     if (window.clearTracerouteData) {
                         window.clearTracerouteData();
+                    }
+                    
+                    // Clear peer connections data
+                    if (window.clearPeerConnectionsData) {
+                        window.clearPeerConnectionsData();
                     }
                     
                     const connCount = getConnCount();

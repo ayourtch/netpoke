@@ -156,6 +156,10 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
             parent_id = Some(conn.client_id.clone());
         }
         log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        
+        // Register the connection with JavaScript for display
+        register_peer_connection_js("ipv4", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        
         ipv4_connections.push(conn);
     }
 
@@ -169,6 +173,10 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
             None  // conn_id will be auto-generated
         ).await?;
         log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        
+        // Register the connection with JavaScript for display
+        register_peer_connection_js("ipv6", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        
         ipv6_connections.push(conn);
     }
 
@@ -312,6 +320,10 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         conn.set_traceroute_mode(true);
         
         log::info!("IPv4 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        
+        // Register the connection with JavaScript for display
+        register_peer_connection_js("ipv4", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        
         ipv4_connections.push(conn);
     }
 
@@ -329,6 +341,10 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         conn.set_traceroute_mode(true);
         
         log::info!("IPv6 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        
+        // Register the connection with JavaScript for display
+        register_peer_connection_js("ipv6", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        
         ipv6_connections.push(conn);
     }
 
@@ -400,6 +416,10 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         conn.set_traceroute_mode(true);
         
         log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        
+        // Register the connection with JavaScript for display
+        register_peer_connection_js("ipv4", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        
         ipv4_connections.push(conn);
     }
 
@@ -417,6 +437,10 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         conn.set_traceroute_mode(true);
         
         log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
+        
+        // Register the connection with JavaScript for display
+        register_peer_connection_js("ipv6", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        
         ipv6_connections.push(conn);
     }
 
@@ -611,6 +635,35 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
 
     // Update chart with metrics data
     call_add_metrics_data(ipv4_metrics, ipv6_metrics);
+}
+
+/// Register a peer connection with JavaScript for display in the peer connections list
+fn register_peer_connection_js(ip_version: &str, conn_index: usize, conn_id: &str, local_address: &str, remote_address: &str) {
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen::JsCast;
+    
+    let window = match window() {
+        Some(w) => w,
+        None => return,
+    };
+    
+    // Call JavaScript function registerPeerConnection(ipVersion, connIndex, connId, localAddress, remoteAddress)
+    if let Ok(register_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("registerPeerConnection")) {
+        if let Some(func) = register_fn.dyn_ref::<js_sys::Function>() {
+            let args = js_sys::Array::new();
+            args.push(&JsValue::from_str(ip_version));
+            args.push(&JsValue::from_f64(conn_index as f64));
+            args.push(&JsValue::from_str(conn_id));
+            args.push(&JsValue::from_str(local_address));
+            args.push(&JsValue::from_str(remote_address));
+            
+            if let Err(e) = func.apply(&JsValue::NULL, &args) {
+                log::warn!("Failed to call registerPeerConnection: {:?}", e);
+            } else {
+                log::info!("Registered peer connection: {} {} conn_id={}", ip_version, conn_index, conn_id);
+            }
+        }
+    }
 }
 
 /// Update UI for a specific connection index
