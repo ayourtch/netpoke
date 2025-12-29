@@ -5,7 +5,7 @@
 /// based on the track_for_ms value.
 
 use std::collections::HashMap;
-use std::net::{SocketAddr, IpAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{RwLock, mpsc};
@@ -38,6 +38,9 @@ pub struct UdpPacketKey {
     pub udp_length: u16,  // UDP packet length (includes 8-byte UDP header + payload)
 }
 
+/// Maximum payload prefix size to store for matching (64 bytes)
+pub const MAX_PAYLOAD_PREFIX_SIZE: usize = 64;
+
 /// Information about a tracked packet
 #[derive(Debug, Clone)]
 pub struct TrackedPacket {
@@ -61,16 +64,29 @@ pub struct TrackedPacket {
     
     /// Source port used
     pub src_port: u16,
+    
+    /// First 64 bytes of the UDP payload (for matching with ICMP errors)
+    pub payload_prefix: Vec<u8>,
 }
 
 /// Callback type for handling unmatched ICMP errors
 /// Passes the full destination socket address (IP + port) for session lookup and cleanup
 pub type IcmpErrorCallback = Arc<dyn Fn(SocketAddr) + Send + Sync>;
 
+/// Key for payload-based matching (uses first N bytes of UDP payload)
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct PayloadPrefixKey {
+    /// First N bytes of the UDP payload (up to MAX_PAYLOAD_PREFIX_SIZE)
+    pub payload_prefix: Vec<u8>,
+}
+
 /// Manages tracked packets and provides lookup for ICMP correlation
 pub struct PacketTracker {
-    /// Maps packet key to tracked packet info
+    /// Maps packet key to tracked packet info (primary index using 5-tuple + length)
     tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
+    
+    /// Secondary index: maps payload prefix to UdpPacketKey for faster payload-based lookup
+    payload_index: Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
     
     /// Queue of matched ICMP events
     pub(crate) event_queue: Arc<RwLock<Vec<TrackedPacketEvent>>>,
@@ -88,6 +104,7 @@ impl PacketTracker {
         
         let tracker = Self {
             tracked_packets: Arc::new(RwLock::new(HashMap::new())),
+            payload_index: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
             tracking_rx: Arc::new(tokio::sync::Mutex::new(rx)),
             icmp_error_callback: Arc::new(RwLock::new(None)),
@@ -95,19 +112,21 @@ impl PacketTracker {
         
         // Start cleanup task for expired tracked packets
         let tracked_packets = tracker.tracked_packets.clone();
+        let payload_index = tracker.payload_index.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
-                Self::cleanup_expired(&tracked_packets).await;
+                Self::cleanup_expired(&tracked_packets, &payload_index).await;
             }
         });
         
         // Start tracking receiver task
         let tracking_rx = tracker.tracking_rx.clone();
         let tracked_packets = tracker.tracked_packets.clone();
+        let payload_index = tracker.payload_index.clone();
         tokio::spawn(async move {
-            Self::tracking_receiver_task(tracking_rx, tracked_packets).await;
+            Self::tracking_receiver_task(tracking_rx, tracked_packets, payload_index).await;
         });
         
         (tracker, tx)
@@ -148,6 +167,20 @@ impl PacketTracker {
             udp_length,
         };
         
+        // Extract first 64 bytes of UDP payload for payload-based matching
+        // udp_packet contains the full UDP packet (header + payload)
+        // The UDP payload starts after the 8-byte UDP header
+        let payload_prefix = if udp_packet.len() > 8 {
+            let payload_start = 8;
+            let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, udp_packet.len());
+            udp_packet[payload_start..payload_end].to_vec()
+        } else {
+            // If cleartext is available (e.g., from FFI layer), use first 64 bytes of that
+            cleartext.iter().take(MAX_PAYLOAD_PREFIX_SIZE).cloned().collect()
+        };
+        
+        tracing::debug!("Storing payload_prefix of {} bytes for matching", payload_prefix.len());
+        
         let tracked = TrackedPacket {
             cleartext,
             udp_packet,
@@ -156,10 +189,18 @@ impl PacketTracker {
             send_options,
             dest_addr,
             src_port,
+            payload_prefix: payload_prefix.clone(),
         };
         
         let mut packets = self.tracked_packets.write().await;
-        packets.insert(key, tracked);
+        packets.insert(key.clone(), tracked);
+        
+        // Add to payload index if we have a non-empty payload prefix
+        if !payload_prefix.is_empty() {
+            let payload_key = PayloadPrefixKey { payload_prefix };
+            let mut payload_idx = self.payload_index.write().await;
+            payload_idx.insert(payload_key, key);
+        }
         
         let count = packets.len();
         tracing::debug!("Packet tracked successfully, total tracked packets: {}", count);
@@ -173,31 +214,80 @@ impl PacketTracker {
     }
     
     /// Try to match an ICMP error packet with a tracked UDP packet
+    /// First attempts payload-based matching (more reliable), then falls back to 5-tuple + length
     pub async fn match_icmp_error(
         &self,
         icmp_packet: Vec<u8>,
         embedded_udp_info: EmbeddedUdpInfo,
         router_ip: Option<String>,
     ) {
-        tracing::debug!("match_icmp_error called: src_port={}, dest={}, udp_length={}", 
-            embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+        tracing::debug!("match_icmp_error called: src_port={}, dest={}, udp_length={}, payload_prefix_len={}", 
+            embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
+            embedded_udp_info.payload_prefix.len());
         
         let mut packets = self.tracked_packets.write().await;
+        let mut payload_idx = self.payload_index.write().await;
         tracing::debug!("Current tracked packets count: {}", packets.len());
         
-        // Match based on destination address and UDP length
-        let key = UdpPacketKey {
-            dest_addr: embedded_udp_info.dest_addr,
-            udp_length: embedded_udp_info.udp_length,
-        };
+        // First, try payload-based matching if we have payload data from the ICMP packet
+        let mut matched: Option<TrackedPacket> = None;
+        let mut matched_key: Option<UdpPacketKey> = None;
         
-        let matched = packets.remove(&key);
-        // Release lock early to avoid holding it during callback
+        if !embedded_udp_info.payload_prefix.is_empty() {
+            let payload_key = PayloadPrefixKey {
+                payload_prefix: embedded_udp_info.payload_prefix.clone(),
+            };
+            
+            if let Some(key) = payload_idx.remove(&payload_key) {
+                if let Some(tracked) = packets.remove(&key) {
+                    tracing::debug!("PAYLOAD MATCH FOUND! payload_prefix_len={}, dest={}, udp_length={}",
+                        embedded_udp_info.payload_prefix.len(), key.dest_addr, key.udp_length);
+                    matched = Some(tracked);
+                    matched_key = Some(key);
+                } else {
+                    tracing::debug!("Payload index pointed to non-existent packet key");
+                }
+            } else {
+                tracing::debug!("No payload match found, trying fallback to 5-tuple + length");
+            }
+        }
+        
+        // Fallback: Match based on destination address and UDP length (5-tuple + length)
+        if matched.is_none() {
+            let key = UdpPacketKey {
+                dest_addr: embedded_udp_info.dest_addr,
+                udp_length: embedded_udp_info.udp_length,
+            };
+            
+            if let Some(tracked) = packets.remove(&key) {
+                tracing::debug!("FALLBACK MATCH FOUND! dest={}, udp_length={}",
+                    embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+                
+                // Also remove from payload index if present
+                if !tracked.payload_prefix.is_empty() {
+                    let payload_key = PayloadPrefixKey {
+                        payload_prefix: tracked.payload_prefix.clone(),
+                    };
+                    payload_idx.remove(&payload_key);
+                }
+                
+                matched = Some(tracked);
+                matched_key = Some(key);
+            }
+        }
+        
+        // Release locks early to avoid holding them during callback
         drop(packets);
+        drop(payload_idx);
         
         if let Some(tracked) = matched {
-            tracing::debug!("MATCH FOUND! dest={}, udp_length={}", 
-                embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+            let match_type = if matched_key.as_ref().map(|k| k.dest_addr) == Some(embedded_udp_info.dest_addr) {
+                "payload+fallback"
+            } else {
+                "payload"
+            };
+            tracing::debug!("MATCH FOUND via {}: dest={}, udp_length={}", 
+                match_type, embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
             
             let event = TrackedPacketEvent {
                 icmp_packet,
@@ -220,8 +310,9 @@ impl PacketTracker {
                 embedded_udp_info.udp_length
             );
         } else {
-            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}", 
-                embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
+            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}, payload_prefix_len={}", 
+                embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
+                embedded_udp_info.payload_prefix.len());
             
             // Pass unmatched ICMP error to callback for session state to handle
             let callback = self.icmp_error_callback.read().await;
@@ -246,6 +337,7 @@ impl PacketTracker {
     async fn tracking_receiver_task(
         tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
         tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
+        payload_index: Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
     ) {
         let mut rx = tracking_rx.lock().await;
         
@@ -264,6 +356,14 @@ impl PacketTracker {
                 udp_length: info.udp_length,
             };
             
+            // Extract first 64 bytes of cleartext for payload-based matching
+            let payload_prefix: Vec<u8> = info.cleartext.iter()
+                .take(MAX_PAYLOAD_PREFIX_SIZE)
+                .cloned()
+                .collect();
+            
+            tracing::debug!("Storing payload_prefix of {} bytes (from UDP layer)", payload_prefix.len());
+            
             let tracked = TrackedPacket {
                 cleartext: info.cleartext,
                 udp_packet: Vec::new(), // Not available at this layer
@@ -272,10 +372,18 @@ impl PacketTracker {
                 send_options: info.send_options,
                 dest_addr: info.dest_addr,
                 src_port: 0, // Not available at this layer
+                payload_prefix: payload_prefix.clone(),
             };
             
             let mut packets = tracked_packets.write().await;
-            packets.insert(key, tracked);
+            packets.insert(key.clone(), tracked);
+            
+            // Add to payload index if we have a non-empty payload prefix
+            if !payload_prefix.is_empty() {
+                let payload_key = PayloadPrefixKey { payload_prefix };
+                let mut payload_idx = payload_index.write().await;
+                payload_idx.insert(payload_key, key);
+            }
             
             let count = packets.len();
             tracing::debug!("Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
@@ -290,16 +398,34 @@ impl PacketTracker {
     }
     
     /// Clean up expired tracking entries
-    async fn cleanup_expired(tracked_packets: &Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>) {
+    async fn cleanup_expired(
+        tracked_packets: &Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
+        payload_index: &Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
+    ) {
         let now = Instant::now();
         let mut packets = tracked_packets.write().await;
+        let mut payload_idx = payload_index.write().await;
         
-        let before_count = packets.len();
-        packets.retain(|_, tracked| tracked.expires_at > now);
-        let removed = before_count - packets.len();
+        // Collect expired entries and their payload prefixes
+        let expired_keys: Vec<(UdpPacketKey, Vec<u8>)> = packets
+            .iter()
+            .filter(|(_, tracked)| tracked.expires_at <= now)
+            .map(|(key, tracked)| (key.clone(), tracked.payload_prefix.clone()))
+            .collect();
         
-        if removed > 0 {
-            tracing::debug!("Cleaned up {} expired tracked packets", removed);
+        let removed_count = expired_keys.len();
+        
+        // Remove from both indexes
+        for (key, payload_prefix) in expired_keys {
+            packets.remove(&key);
+            if !payload_prefix.is_empty() {
+                let payload_key = PayloadPrefixKey { payload_prefix };
+                payload_idx.remove(&payload_key);
+            }
+        }
+        
+        if removed_count > 0 {
+            tracing::debug!("Cleaned up {} expired tracked packets", removed_count);
         }
     }
 }
@@ -573,5 +699,101 @@ mod tests {
         
         // Callback should not have been invoked for matched error
         assert!(!*callback_invoked.read().await, "Callback should not be invoked for matched errors");
+    }
+    
+    #[tokio::test]
+    async fn test_payload_based_matching() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        
+        // Create a fake UDP packet with a recognizable payload
+        // UDP packet = 8 bytes header + payload
+        let payload = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x12, 0x34, 0x56, 0x78];
+        let mut udp_packet = vec![0u8; 8]; // 8-byte UDP header
+        udp_packet.extend_from_slice(&payload);
+        
+        // Track a packet
+        tracker.track_packet(
+            payload.clone(),  // cleartext
+            udp_packet,       // udp packet  
+            12345,            // src port
+            dest,
+            (8 + payload.len()) as u16, // udp_length
+            options,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with matching payload but DIFFERENT UDP length
+        // This tests that payload matching takes priority
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 999, // Wrong UDP length
+            payload_prefix: payload.clone(), // But matching payload!
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, Some("10.0.0.1".to_string())).await;
+        
+        // Packet should have been matched via payload
+        assert_eq!(tracker.tracked_count().await, 0);
+        
+        let events = tracker.drain_events().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].router_ip, Some("10.0.0.1".to_string()));
+    }
+    
+    #[tokio::test]
+    async fn test_fallback_to_length_matching() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let udp_length = 150;
+        
+        // Track a packet
+        tracker.track_packet(
+            vec![1, 2, 3, 4],  // cleartext
+            vec![0; 50],       // udp packet
+            12345,             // src port
+            dest,
+            udp_length,
+            options,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with NO payload (like some ICMP Time Exceeded)
+        // but matching UDP length - should fallback to length matching
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length,
+            payload_prefix: Vec::new(), // No payload available
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        
+        // Packet should have been matched via fallback (length)
+        assert_eq!(tracker.tracked_count().await, 0);
+        assert_eq!(tracker.drain_events().await.len(), 1);
     }
 }

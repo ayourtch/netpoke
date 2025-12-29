@@ -4,7 +4,7 @@
 /// with tracked UDP packets. Requires CAP_NET_RAW or root privileges.
 
 use std::sync::Arc;
-use crate::packet_tracker::{PacketTracker, EmbeddedUdpInfo};
+use crate::packet_tracker::{PacketTracker, EmbeddedUdpInfo, MAX_PAYLOAD_PREFIX_SIZE};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr};
 
 // Constants for packet parsing
@@ -239,9 +239,11 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         packet[embedded_udp_start + 5],
     ]);
     
-    // Extract first 8 bytes of UDP payload (for matching) - though usually empty in ICMP Time Exceeded
+    // Extract first 64 bytes of UDP payload (for matching)
+    // RFC 792 requires at least 8 bytes of original datagram to be included,
+    // but many routers include more. We try to extract up to MAX_PAYLOAD_PREFIX_SIZE bytes.
     let payload_start = embedded_udp_start + 8;
-    let payload_end = std::cmp::min(payload_start + 8, packet.len());
+    let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, packet.len());
     let payload_prefix = packet[payload_start..payload_end].to_vec();
     
     tracing::debug!("Parsed ICMP error successfully:");
@@ -251,12 +253,13 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     tracing::debug!("  payload_prefix len={}", payload_prefix.len());
     
     tracing::debug!(
-        "Parsed ICMP error: type={}, src_port={}, dest={}:{}, udp_length={}",
+        "Parsed ICMP error: type={}, src_port={}, dest={}:{}, udp_length={}, payload_bytes={}",
         icmp_type,
         src_port,
         dest_ip,
         dest_port,
-        udp_length
+        udp_length,
+        payload_prefix.len()
     );
     
     Some(EmbeddedUdpInfo {
@@ -362,9 +365,11 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         packet[embedded_udp_start + 5],
     ]);
     
-    // Extract first 8 bytes of UDP payload (for matching)
+    // Extract first 64 bytes of UDP payload (for matching)
+    // RFC 4443 requires at least 1280 bytes of the original packet to be included,
+    // so we should have enough data to extract the full payload prefix.
     let payload_start = embedded_udp_start + UDP_HEADER_SIZE;
-    let payload_end = std::cmp::min(payload_start + 8, packet.len());
+    let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, packet.len());
     let payload_prefix = packet[payload_start..payload_end].to_vec();
     
     tracing::debug!("Parsed ICMPv6 error successfully:");
@@ -374,12 +379,13 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     tracing::debug!("  payload_prefix len={}", payload_prefix.len());
     
     tracing::debug!(
-        "Parsed ICMPv6 error: type={}, src_port={}, dest=[{}]:{}, udp_length={}",
+        "Parsed ICMPv6 error: type={}, src_port={}, dest=[{}]:{}, udp_length={}, payload_bytes={}",
         icmpv6_type,
         src_port,
         dest_ip,
         dest_port,
-        udp_length
+        udp_length,
+        payload_prefix.len()
     );
     
     Some(EmbeddedUdpInfo {
