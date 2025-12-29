@@ -189,7 +189,7 @@ pub fn setup_probe_channel(
                 let now_ms = current_time_ms();
                 let mut state = state_receiver.borrow_mut();
 
-                // Skip data collection during traceroute phase
+                // Skip probe data collection during traceroute phase
                 if !state.traceroute_active {
                     state.received_probes.push_back(ReceivedProbe {
                         seq: probe.seq,
@@ -267,7 +267,7 @@ pub fn setup_bulk_channel(
         if bytes > 0 {
             let mut state = state_receiver.borrow_mut();
             
-            // Skip data collection during traceroute phase
+            // Skip bulk data collection during traceroute phase
             if !state.traceroute_active {
                 state.received_bulk_bytes.push_back(ReceivedBulk {
                     bytes,
