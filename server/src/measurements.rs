@@ -390,9 +390,9 @@ pub async fn start_traceroute_sender(
     }
     
     const MAX_TTL: u8 = 30;
-    const TRACEROUTE_TIMEOUT_SECS: u64 = 45;
-    const TTL_SEND_INTERVAL_MS: u64 = 10; // 10ms between TTL probes on same connection
-    const ROUND_INTERVAL_MS: u64 = 200; // 200ms between complete rounds of all TTLs
+    const TRACEROUTE_TIMEOUT_SECS: u64 = 35;
+    const TTL_SEND_INTERVAL_MS: u64 = 20; // time between TTL probes on same connection
+    const ROUND_INTERVAL_MS: u64 = 2000; // time between complete rounds of all TTLs
 
     loop {
         // Check if we should stop traceroute before starting a new round
@@ -410,7 +410,7 @@ pub async fn start_traceroute_sender(
         }
         
         if timeout_exceeded {
-            tracing::info!("Stopping traceroute sender for session {} (45-second timeout exceeded)", session.id);
+            tracing::info!("Stopping traceroute sender for session {} ({}-second timeout exceeded)", session.id, TRACEROUTE_TIMEOUT_SECS);
             break;
         }
         
