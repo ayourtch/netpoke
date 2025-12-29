@@ -369,7 +369,7 @@ impl Stream {
                 stream_sequence_number: self.sequence_number.load(Ordering::SeqCst),
                 abandoned: head_abandoned.clone(), // all fragmented chunks use the same abandoned
                 all_inflight: head_all_inflight.clone(), // all fragmented chunks use the same all_inflight
-                udp_send_options,
+                udp_send_options: udp_send_options.clone(),
                 ..Default::default()
             };
             

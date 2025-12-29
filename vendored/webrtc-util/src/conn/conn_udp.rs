@@ -85,11 +85,13 @@ impl Conn for UdpSocket {
 // ============================================================================
 
 /// UDP send options for per-message configuration
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct UdpSendOptions {
     pub ttl: Option<u8>,
     pub tos: Option<u8>,
     pub df_bit: Option<bool>,
+    /// Connection ID for ICMP correlation (passed through to packet tracker)
+    pub conn_id: String,
 }
 
 #[cfg(target_os = "linux")]
@@ -106,7 +108,7 @@ async fn send_to_with_options_impl(
     
     let fd = socket.as_raw_fd();
     let buf = buf.to_vec();
-    let options = *options;
+    let options = options.clone();
     
     // Run blocking sendmsg in a blocking task
     let result = task::spawn_blocking(move || {
@@ -331,6 +333,8 @@ fn sendmsg_with_options(
                     ttl: u8,
                     buf_ptr: *const u8,
                     buf_len: usize,
+                    conn_id_ptr: *const u8,
+                    conn_id_len: usize,
                 );
                 
                 fn wifi_verify_track_udp_packet_v6(
@@ -340,6 +344,8 @@ fn sendmsg_with_options(
                     hop_limit: u8,
                     buf_ptr: *const u8,
                     buf_len: usize,
+                    conn_id_ptr: *const u8,
+                    conn_id_len: usize,
                 );
             }
             
@@ -349,8 +355,8 @@ fn sendmsg_with_options(
                     let dest_ip = u32::from_be_bytes(addr_v4.ip().octets());
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    log::debug!("Calling wifi_verify_track_udp_packet (IPv4): dest={}:{}, udp_length={}, ttl={}",
-                        addr_v4.ip(), addr_v4.port(), udp_length, ttl_value);
+                    log::debug!("Calling wifi_verify_track_udp_packet (IPv4): dest={}:{}, udp_length={}, ttl={}, conn_id={}",
+                        addr_v4.ip(), addr_v4.port(), udp_length, ttl_value, options.conn_id);
                     
                     unsafe {
                         wifi_verify_track_udp_packet(
@@ -360,6 +366,8 @@ fn sendmsg_with_options(
                             ttl_value,
                             buf.as_ptr(),
                             buf.len(),
+                            options.conn_id.as_ptr(),
+                            options.conn_id.len(),
                         );
                     }
                 }
@@ -368,8 +376,8 @@ fn sendmsg_with_options(
                     let dest_ip = addr_v6.ip().octets();
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    log::debug!("Calling wifi_verify_track_udp_packet_v6 (IPv6): dest=[{}]:{}, udp_length={}, hop_limit={}",
-                        addr_v6.ip(), addr_v6.port(), udp_length, ttl_value);
+                    log::debug!("Calling wifi_verify_track_udp_packet_v6 (IPv6): dest=[{}]:{}, udp_length={}, hop_limit={}, conn_id={}",
+                        addr_v6.ip(), addr_v6.port(), udp_length, ttl_value, options.conn_id);
                     
                     unsafe {
                         wifi_verify_track_udp_packet_v6(
@@ -379,6 +387,8 @@ fn sendmsg_with_options(
                             ttl_value,
                             buf.as_ptr(),
                             buf.len(),
+                            options.conn_id.as_ptr(),
+                            options.conn_id.len(),
                         );
                     }
                 }

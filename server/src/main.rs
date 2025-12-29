@@ -320,7 +320,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Initialize the global tracking callback for UDP-to-ICMP communication
     let tracking_sender = app_state.tracking_sender.clone();
-    tracking_channel::init_tracking_callback(move |dest_addr, udp_length, ttl, cleartext, sent_at| {
+    tracking_channel::init_tracking_callback(move |dest_addr, udp_length, ttl, cleartext, sent_at, conn_id| {
         use crate::packet_tracker::UdpPacketInfo;
         use common::SendOptions;
         
@@ -338,6 +338,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     track_for_ms: 5000, // Track for 5 seconds
                 },
                 sent_at,
+                conn_id,
             };
             
             if let Err(e) = tracking_sender.send(info) {

@@ -9,8 +9,8 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 /// Callback type for tracking UDP packets
-/// Parameters: (dest_addr, udp_length, ttl, cleartext_data, sent_at)
-pub type TrackingCallback = Box<dyn Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant) + Send + Sync>;
+/// Parameters: (dest_addr, udp_length, ttl, cleartext_data, sent_at, conn_id)
+pub type TrackingCallback = Box<dyn Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant, String) + Send + Sync>;
 
 static TRACKING_CALLBACK: OnceLock<TrackingCallback> = OnceLock::new();
 
@@ -18,7 +18,7 @@ static TRACKING_CALLBACK: OnceLock<TrackingCallback> = OnceLock::new();
 /// Should be called once at application startup
 pub fn init_tracking_callback<F>(callback: F)
 where
-    F: Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant) + Send + Sync + 'static,
+    F: Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant, String) + Send + Sync + 'static,
 {
     if TRACKING_CALLBACK.set(Box::new(callback)).is_err() {
         panic!("Tracking callback already initialized");
@@ -33,9 +33,10 @@ pub fn track_udp_packet(
     ttl: Option<u8>,
     cleartext: Vec<u8>,
     sent_at: Instant,
+    conn_id: String,
 ) {
     if let Some(callback) = TRACKING_CALLBACK.get() {
-        callback(dest_addr, udp_length, ttl, cleartext, sent_at);
+        callback(dest_addr, udp_length, ttl, cleartext, sent_at, conn_id);
     }
 }
 
@@ -49,6 +50,8 @@ pub extern "C" fn wifi_verify_track_udp_packet(
     ttl: u8,              // TTL value
     buf_ptr: *const u8,   // Pointer to buffer data
     buf_len: usize,       // Buffer length
+    conn_id_ptr: *const u8, // Pointer to conn_id string
+    conn_id_len: usize,     // conn_id string length
 ) {
     if buf_ptr.is_null() || buf_len == 0 {
         return;
@@ -57,6 +60,16 @@ pub extern "C" fn wifi_verify_track_udp_packet(
     // Safety: We trust the caller to provide valid pointers
     let cleartext = unsafe {
         std::slice::from_raw_parts(buf_ptr, buf_len).to_vec()
+    };
+    
+    // Extract conn_id from pointer
+    let conn_id = if conn_id_ptr.is_null() || conn_id_len == 0 {
+        String::new()
+    } else {
+        unsafe {
+            let bytes = std::slice::from_raw_parts(conn_id_ptr, conn_id_len);
+            String::from_utf8_lossy(bytes).to_string()
+        }
     };
     
     let dest_addr = SocketAddr::from((
@@ -70,6 +83,7 @@ pub extern "C" fn wifi_verify_track_udp_packet(
         Some(ttl),
         cleartext,
         Instant::now(),
+        conn_id,
     );
 }
 
@@ -83,6 +97,8 @@ pub extern "C" fn wifi_verify_track_udp_packet_v6(
     hop_limit: u8,              // IPv6 Hop Limit (equivalent to IPv4 TTL)
     buf_ptr: *const u8,         // Pointer to buffer data
     buf_len: usize,             // Buffer length
+    conn_id_ptr: *const u8,     // Pointer to conn_id string
+    conn_id_len: usize,         // conn_id string length
 ) {
     const IPV6_ADDR_LEN: usize = 16;
     
@@ -102,6 +118,16 @@ pub extern "C" fn wifi_verify_track_udp_packet_v6(
         std::slice::from_raw_parts(buf_ptr, buf_len).to_vec()
     };
     
+    // Extract conn_id from pointer
+    let conn_id = if conn_id_ptr.is_null() || conn_id_len == 0 {
+        String::new()
+    } else {
+        unsafe {
+            let bytes = std::slice::from_raw_parts(conn_id_ptr, conn_id_len);
+            String::from_utf8_lossy(bytes).to_string()
+        }
+    };
+    
     let dest_addr = SocketAddr::from((
         std::net::Ipv6Addr::from(dest_ip_bytes),
         dest_port,
@@ -113,5 +139,6 @@ pub extern "C" fn wifi_verify_track_udp_packet_v6(
         Some(hop_limit),
         cleartext,
         Instant::now(),
+        conn_id,
     );
 }

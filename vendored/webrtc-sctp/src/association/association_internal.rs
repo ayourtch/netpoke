@@ -2049,7 +2049,7 @@ impl AssociationInternal {
             // All chunks in the same message should have the same options
             #[cfg(target_os = "linux")]
             if packet_udp_options.is_none() {
-                packet_udp_options = c.udp_send_options;
+                packet_udp_options = c.udp_send_options.clone();
                 if let Some(ref opts) = packet_udp_options {
                     log::debug!("🔵 Association::bundle: Extracted UDP options from chunk: TTL={:?}, TOS={:?}, DF={:?}",
                         opts.ttl, opts.tos, opts.df_bit);

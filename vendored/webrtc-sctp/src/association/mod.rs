@@ -490,7 +490,7 @@ impl Association {
                 // Extract UDP send options from the packet before marshalling
                 // Added for wifi-verify: per-packet UDP options support
                 #[cfg(target_os = "linux")]
-                let udp_options = raw.udp_send_options;
+                let udp_options = raw.udp_send_options.clone();
                 
                 let mut buf = buffer
                     .take()

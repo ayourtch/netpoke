@@ -11,19 +11,6 @@ use std::time::Instant;
 use tokio::sync::{RwLock, mpsc};
 use common::{SendOptions, TrackedPacketEvent};
 
-/// Extract conn_id from cleartext JSON data
-/// The cleartext is expected to be a serialized TestProbePacket or ProbePacket
-/// which contains a conn_id field
-fn extract_conn_id_from_cleartext(cleartext: &[u8]) -> String {
-    // Try to parse as JSON value and extract conn_id field safely
-    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(cleartext) {
-        if let Some(conn_id) = value.get("conn_id").and_then(|v| v.as_str()) {
-            return conn_id.to_string();
-        }
-    }
-    String::new()
-}
-
 /// Data sent from UDP layer to ICMP listener for packet tracking
 #[derive(Debug, Clone)]
 pub struct UdpPacketInfo {
@@ -41,6 +28,9 @@ pub struct UdpPacketInfo {
     
     /// When the packet was sent
     pub sent_at: Instant,
+    
+    /// Connection ID for per-session event routing
+    pub conn_id: String,
 }
 
 /// Key for matching UDP packets in ICMP errors
@@ -154,32 +144,25 @@ impl PacketTracker {
         *cb = Some(callback);
     }
     
-    /// Track a packet for ICMP correlation
+    /// Track a packet for ICMP correlation (test-only helper)
+    /// In production, packets are tracked via the UDP layer FFI callback
+    #[cfg(test)]
     pub async fn track_packet(
         &self,
         cleartext: Vec<u8>,
         udp_packet: Vec<u8>,
-        src_port: u16,
+        _src_port: u16,
         dest_addr: SocketAddr,
-        udp_length: u16,  // Expected UDP packet length (UDP header + payload)
+        udp_length: u16,
         send_options: SendOptions,
+        conn_id: String,
     ) {
         if send_options.track_for_ms == 0 {
-            tracing::debug!("track_packet called but track_for_ms is 0, not tracking");
             return;
         }
         
-        // Extract conn_id from cleartext for per-session event routing
-        let conn_id = extract_conn_id_from_cleartext(&cleartext);
-        
-        tracing::debug!("track_packet called: src_port={}, dest={}, udp_length={}, track_for_ms={}, ttl={:?}, conn_id={}", 
-            src_port, dest_addr, udp_length, send_options.track_for_ms, send_options.ttl, conn_id);
-        
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
-        
-        // Create key from destination address and UDP length
-        tracing::debug!("Creating tracking key with dest_addr={}, udp_length={}", dest_addr, udp_length);
         
         let key = UdpPacketKey {
             dest_addr,
@@ -187,19 +170,13 @@ impl PacketTracker {
         };
         
         // Extract first 64 bytes of UDP payload for payload-based matching
-        // udp_packet contains the full UDP packet (header + payload)
-        // The UDP payload starts after the 8-byte UDP header
         let payload_prefix = if udp_packet.len() > 8 {
             let payload_start = 8;
             let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, udp_packet.len());
             udp_packet[payload_start..payload_end].to_vec()
         } else {
-            // If udp_packet is not available (e.g., empty or too short), use cleartext instead.
-            // This can happen when called from tracking_receiver_task where udp_packet is not available.
             cleartext.iter().take(MAX_PAYLOAD_PREFIX_SIZE).cloned().collect()
         };
-        
-        tracing::debug!("Storing payload_prefix of {} bytes for matching", payload_prefix.len());
         
         let tracked = TrackedPacket {
             cleartext,
@@ -208,7 +185,7 @@ impl PacketTracker {
             expires_at,
             send_options,
             dest_addr,
-            src_port,
+            src_port: 0,
             payload_prefix: payload_prefix.clone(),
             conn_id,
         };
@@ -216,22 +193,11 @@ impl PacketTracker {
         let mut packets = self.tracked_packets.write().await;
         packets.insert(key.clone(), tracked);
         
-        // Add to payload index if we have a non-empty payload prefix
         if !payload_prefix.is_empty() {
             let payload_key = PayloadPrefixKey { payload_prefix };
             let mut payload_idx = self.payload_index.write().await;
             payload_idx.insert(payload_key, key);
         }
-        
-        let count = packets.len();
-        tracing::debug!("Packet tracked successfully, total tracked packets: {}", count);
-        
-        tracing::debug!(
-            "Tracking packet: src_port={}, dest={}, expires_in={}ms",
-            src_port,
-            dest_addr,
-            send_options.track_for_ms
-        );
     }
     
     /// Try to match an ICMP error packet with a tracked UDP packet
@@ -389,8 +355,8 @@ impl PacketTracker {
                 continue;
             }
             
-            // Extract conn_id from cleartext for per-session event routing
-            let conn_id = extract_conn_id_from_cleartext(&info.cleartext);
+            // Use conn_id directly from UdpPacketInfo (passed through from UdpSendOptions)
+            let conn_id = info.conn_id.clone();
             
             tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}, conn_id={}", 
                 info.dest_addr, info.udp_length, info.send_options.ttl, conn_id);
@@ -520,6 +486,7 @@ mod tests {
             dest,
             100,                // udp_length
             options,
+            String::new(),      // conn_id
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
@@ -548,6 +515,7 @@ mod tests {
             dest,
             udp_length,
             options,
+            String::new(),
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
@@ -594,6 +562,7 @@ mod tests {
             dest,
             150,
             options,
+            String::new(),
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
@@ -639,6 +608,7 @@ mod tests {
             dest,
             100,  // udp_length
             options,
+            String::new(),
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
@@ -725,6 +695,7 @@ mod tests {
             dest,
             200,
             options,
+            String::new(),
         ).await;
         
         // Send a matching ICMP error
@@ -776,6 +747,7 @@ mod tests {
             dest,
             (8 + payload.len()) as u16, // udp_length
             options,
+            String::new(),
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
@@ -823,6 +795,7 @@ mod tests {
             dest,
             udp_length,
             options,
+            String::new(),
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 1);
@@ -871,6 +844,7 @@ mod tests {
             dest1,
             100,
             options,
+            "session-a-uuid".to_string(),
         ).await;
         
         tracker.track_packet(
@@ -880,6 +854,7 @@ mod tests {
             dest2,
             200,
             options,
+            "session-b-uuid".to_string(),
         ).await;
         
         assert_eq!(tracker.tracked_count().await, 2);
@@ -919,23 +894,5 @@ mod tests {
         
         // Queue should be empty now
         assert_eq!(tracker.drain_events().await.len(), 0);
-    }
-    
-    #[test]
-    fn test_extract_conn_id_from_cleartext() {
-        // Test valid JSON with conn_id
-        let cleartext = br#"{"test_seq":1,"conn_id":"my-test-uuid","timestamp_ms":1234}"#;
-        assert_eq!(super::extract_conn_id_from_cleartext(cleartext), "my-test-uuid");
-        
-        // Test JSON without conn_id
-        let no_conn_id = br#"{"test_seq":1,"timestamp_ms":1234}"#;
-        assert_eq!(super::extract_conn_id_from_cleartext(no_conn_id), "");
-        
-        // Test empty cleartext
-        assert_eq!(super::extract_conn_id_from_cleartext(&[]), "");
-        
-        // Test invalid UTF-8
-        let invalid_utf8 = vec![0xFF, 0xFE, 0x00];
-        assert_eq!(super::extract_conn_id_from_cleartext(&invalid_utf8), "");
     }
 }

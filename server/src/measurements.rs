@@ -524,11 +524,13 @@ pub async fn start_traceroute_sender(
                         ttl: Some(current_ttl),
                         tos: None,
                         df_bit: Some(true),
+                        conn_id: session.conn_id.clone(),
                     });
-                    tracing::debug!("Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}", 
+                    tracing::debug!("Created UdpSendOptions: TTL={:?}, TOS={:?}, DF={:?}, conn_id={}", 
                         options.as_ref().and_then(|o| o.ttl),
                         options.as_ref().and_then(|o| o.tos),
-                        options.as_ref().and_then(|o| o.df_bit));
+                        options.as_ref().and_then(|o| o.df_bit),
+                        session.conn_id);
                     testprobe_channel.send_with_options(&json.into(), options).await
                 };
                 
@@ -550,19 +552,13 @@ pub async fn start_traceroute_sender(
                 tokio::time::sleep(Duration::from_millis(TTL_SEND_INTERVAL_MS)).await;
 
                 // Check for ICMP events from the packet tracker for THIS session only
+                // conn_id is now properly passed through UdpSendOptions to the tracking layer
                 let events = session.packet_tracker.drain_events_for_conn_id(&session.conn_id).await;
                 
                 if !events.is_empty() {
                     tracing::debug!("Processing {} ICMP events for traceroute (conn_id={})", events.len(), session.conn_id);
                     
                     for event in events {
-                        // Validate that the event's conn_id matches this session
-                        // This should always be true since we filter by conn_id, but verify for safety
-                        debug_assert_eq!(
-                            event.conn_id, session.conn_id,
-                            "Event conn_id mismatch: event has '{}' but session has '{}'",
-                            event.conn_id, session.conn_id
-                        );
                         
                         // Extract TTL from send options to determine hop number
                         // TTL should always be set in send_options for traceroute packets
@@ -573,7 +569,7 @@ pub async fn start_traceroute_sender(
                         let rtt_ms = rtt.as_secs_f64() * 1000.0;
                         
                         // Create hop message with actual ICMP data
-                        // Use the conn_id from the event, which was extracted from the tracked packet
+                        // conn_id is properly passed through UdpSendOptions and available in the event
                         let hop_message = common::TraceHopMessage {
                             hop,
                             ip_address: event.router_ip.clone(),
