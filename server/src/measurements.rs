@@ -506,7 +506,8 @@ pub async fn start_traceroute_sender(
                 // This helps with matching ICMP errors based on UDP packet length
                 // Use coprime modulation to ensure unique lengths across all probes:
                 // length = BASE_PROBE_SIZE + (conn_id_hash * CONN_ID_MULTIPLIER) + (hop * HOP_MULTIPLIER)
-                // Where CONN_ID_MULTIPLIER (97) and HOP_MULTIPLIER (3) are coprime
+                // Where CONN_ID_MULTIPLIER (97) and HOP_MULTIPLIER (50) are coprime
+                // The 50-byte spacing ensures no collisions even with ~30-byte encryption overhead variance
                 let conn_id_numeric = hash_conn_id(&session.conn_id);
                 let target_size = BASE_PROBE_SIZE + (conn_id_numeric * CONN_ID_MULTIPLIER) + (current_ttl as usize * HOP_MULTIPLIER);
                 if json.len() < target_size {
