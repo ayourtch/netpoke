@@ -46,93 +46,89 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
     let mut local_candidate_id = None;
     let mut remote_candidate_id = None;
     
-    // First pass: find the selected candidate pair
-    let entries_fn = js_sys::Reflect::get(&stats_report, &"forEach".into())?;
-    if entries_fn.dyn_ref::<js_sys::Function>().is_some() {
-        // We need to iterate through the stats to find candidate-pair with selected=true
-        // Using a different approach: convert to entries and iterate
-        let values_fn = js_sys::Reflect::get(&stats_report, &"values".into())?;
-        if let Some(values) = values_fn.dyn_ref::<js_sys::Function>() {
-            let iterator = values.call0(&stats_report)?;
+    // Iterate through the stats using the values() iterator
+    // RTCStatsReport is a Map-like object with a values() method that returns an iterator
+    let values_fn = js_sys::Reflect::get(&stats_report, &"values".into())?;
+    if let Some(values) = values_fn.dyn_ref::<js_sys::Function>() {
+        let iterator = values.call0(&stats_report)?;
+        
+        // Collect all stats into a vector first
+        let mut all_stats = Vec::new();
+        loop {
+            let next_fn = js_sys::Reflect::get(&iterator, &"next".into())?;
+            if let Some(next) = next_fn.dyn_ref::<js_sys::Function>() {
+                let result = next.call0(&iterator)?;
+                let done = js_sys::Reflect::get(&result, &"done".into())?;
+                if done.as_bool().unwrap_or(true) {
+                    break;
+                }
+                let value = js_sys::Reflect::get(&result, &"value".into())?;
+                all_stats.push(value);
+            } else {
+                break;
+            }
+        }
+        
+        // Find selected candidate pair
+        for stat in &all_stats {
+            let stat_type = js_sys::Reflect::get(stat, &"type".into())
+                .ok()
+                .and_then(|t| t.as_string());
             
-            // Collect all stats into a vector first
-            let mut all_stats = Vec::new();
-            loop {
-                let next_fn = js_sys::Reflect::get(&iterator, &"next".into())?;
-                if let Some(next) = next_fn.dyn_ref::<js_sys::Function>() {
-                    let result = next.call0(&iterator)?;
-                    let done = js_sys::Reflect::get(&result, &"done".into())?;
-                    if done.as_bool().unwrap_or(true) {
-                        break;
-                    }
-                    let value = js_sys::Reflect::get(&result, &"value".into())?;
-                    all_stats.push(value);
-                } else {
+            if stat_type.as_deref() == Some("candidate-pair") {
+                // Check if this is the selected/nominated pair
+                let selected = js_sys::Reflect::get(stat, &"selected".into())
+                    .ok()
+                    .and_then(|s| s.as_bool())
+                    .unwrap_or(false);
+                let nominated = js_sys::Reflect::get(stat, &"nominated".into())
+                    .ok()
+                    .and_then(|s| s.as_bool())
+                    .unwrap_or(false);
+                let state = js_sys::Reflect::get(stat, &"state".into())
+                    .ok()
+                    .and_then(|s| s.as_string());
+                
+                // A candidate pair is active if it's selected/nominated and in succeeded state
+                if (selected || nominated) && state.as_deref() == Some("succeeded") {
+                    local_candidate_id = js_sys::Reflect::get(stat, &"localCandidateId".into())
+                        .ok()
+                        .and_then(|s| s.as_string());
+                    remote_candidate_id = js_sys::Reflect::get(stat, &"remoteCandidateId".into())
+                        .ok()
+                        .and_then(|s| s.as_string());
                     break;
                 }
             }
-            
-            // Find selected candidate pair
+        }
+        
+        // Now find the actual candidate addresses
+        if let (Some(local_id), Some(remote_id)) = (&local_candidate_id, &remote_candidate_id) {
             for stat in &all_stats {
+                let stat_id = js_sys::Reflect::get(stat, &"id".into())
+                    .ok()
+                    .and_then(|s| s.as_string());
                 let stat_type = js_sys::Reflect::get(stat, &"type".into())
                     .ok()
                     .and_then(|t| t.as_string());
                 
-                if stat_type.as_deref() == Some("candidate-pair") {
-                    // Check if this is the selected/nominated pair
-                    let selected = js_sys::Reflect::get(stat, &"selected".into())
-                        .ok()
-                        .and_then(|s| s.as_bool())
-                        .unwrap_or(false);
-                    let nominated = js_sys::Reflect::get(stat, &"nominated".into())
-                        .ok()
-                        .and_then(|s| s.as_bool())
-                        .unwrap_or(false);
-                    let state = js_sys::Reflect::get(stat, &"state".into())
-                        .ok()
-                        .and_then(|s| s.as_string());
-                    
-                    // A candidate pair is active if it's selected/nominated and in succeeded state
-                    if (selected || nominated) && state.as_deref() == Some("succeeded") {
-                        local_candidate_id = js_sys::Reflect::get(stat, &"localCandidateId".into())
+                if stat_type.as_deref() == Some("local-candidate") || stat_type.as_deref() == Some("remote-candidate") {
+                    if let Some(ref id) = stat_id {
+                        let address = js_sys::Reflect::get(stat, &"address".into())
                             .ok()
-                            .and_then(|s| s.as_string());
-                        remote_candidate_id = js_sys::Reflect::get(stat, &"remoteCandidateId".into())
+                            .and_then(|a| a.as_string());
+                        let port = js_sys::Reflect::get(stat, &"port".into())
                             .ok()
-                            .and_then(|s| s.as_string());
-                        break;
-                    }
-                }
-            }
-            
-            // Now find the actual candidate addresses
-            if let (Some(local_id), Some(remote_id)) = (&local_candidate_id, &remote_candidate_id) {
-                for stat in &all_stats {
-                    let stat_id = js_sys::Reflect::get(stat, &"id".into())
-                        .ok()
-                        .and_then(|s| s.as_string());
-                    let stat_type = js_sys::Reflect::get(stat, &"type".into())
-                        .ok()
-                        .and_then(|t| t.as_string());
-                    
-                    if stat_type.as_deref() == Some("local-candidate") || stat_type.as_deref() == Some("remote-candidate") {
-                        if let Some(ref id) = stat_id {
-                            let address = js_sys::Reflect::get(stat, &"address".into())
-                                .ok()
-                                .and_then(|a| a.as_string());
-                            let port = js_sys::Reflect::get(stat, &"port".into())
-                                .ok()
-                                .and_then(|p| p.as_f64())
-                                .map(|p| p as u16);
-                            
-                            if id == local_id {
-                                if let (Some(addr), Some(p)) = (address, port) {
-                                    local_address = Some(format!("{}:{}", addr, p));
-                                }
-                            } else if id == remote_id {
-                                if let (Some(addr), Some(p)) = (address, port) {
-                                    remote_address = Some(format!("{}:{}", addr, p));
-                                }
+                            .and_then(|p| p.as_f64())
+                            .map(|p| p as u16);
+                        
+                        if id == local_id {
+                            if let (Some(addr), Some(p)) = (address, port) {
+                                local_address = Some(format!("{}:{}", addr, p));
+                            }
+                        } else if id == remote_id {
+                            if let (Some(addr), Some(p)) = (address, port) {
+                                remote_address = Some(format!("{}:{}", addr, p));
                             }
                         }
                     }
@@ -517,6 +513,9 @@ impl WebRtcConnection {
         }) as Box<dyn FnMut(_)>);
 
         self.peer.set_onconnectionstatechange(Some(onconnectionstatechange.as_ref().unchecked_ref()));
+        // Note: forget() is required to prevent the closure from being dropped when this function returns.
+        // The closure will live as long as the peer connection, and will be cleaned up when the peer is closed.
+        // This is the standard pattern for WebRTC callbacks in WASM.
         onconnectionstatechange.forget();
         
         log::info!("Set up address update callback for {} connection {}", ip_version, conn_index);
