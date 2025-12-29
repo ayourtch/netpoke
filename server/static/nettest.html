@@ -442,6 +442,12 @@
             ipv6: {}
         };
         
+        // Helper function to look up IP version by conn_id from registered peer connections
+        // Uses the cache for O(1) lookup performance
+        function getIpVersionByConnId(connId) {
+            return connIdToIpVersionCache.get(connId) || null;
+        }
+        
         // Function to add traceroute hop data
         function addTracerouteHop(hopData) {
             // Filter out "Probing hop" messages (placeholder messages)
@@ -454,10 +460,16 @@
             const connId = hopData.conn_id || 'default';
             const ipAddress = hopData.ip_address;
             
-            // Determine IP version from the address
-            let ipVersion = 'ipv4';
-            if (ipAddress && ipAddress.includes(':')) {
-                ipVersion = 'ipv6';
+            // Determine IP version from the registered peer connection, NOT from the router IP address
+            // This is critical because each peer connection is established with a specific IP version
+            // (either IPv4-only or IPv6-only), and traceroute results should be grouped by
+            // the connection's IP version, not by the router's IP address format.
+            let ipVersion = getIpVersionByConnId(connId);
+            if (!ipVersion) {
+                // Fallback: if conn_id not found in registered connections (shouldn't happen normally),
+                // log a warning and skip this hop to avoid incorrectly categorizing data
+                console.warn(`Traceroute hop received for unknown conn_id: ${connId}, ignoring`);
+                return;
             }
             
             // Initialize connection if needed
@@ -656,6 +668,9 @@
             ipv6: {}
         };
         
+        // Cache for O(1) conn_id to IP version lookup (used by traceroute visualization)
+        let connIdToIpVersionCache = new Map();
+        
         // Function to register a peer connection
         function registerPeerConnection(ipVersion, connIndex, connId, localAddress, remoteAddress) {
             peerConnectionsData[ipVersion][connIndex] = {
@@ -663,6 +678,9 @@
                 local_address: localAddress || 'Unknown',
                 remote_address: remoteAddress || 'Unknown'
             };
+            
+            // Update the cache for O(1) lookup
+            connIdToIpVersionCache.set(connId, ipVersion);
             
             // Update the UI
             renderPeerConnectionsList();
@@ -675,6 +693,7 @@
         function clearPeerConnectionsData() {
             peerConnectionsData.ipv4 = {};
             peerConnectionsData.ipv6 = {};
+            connIdToIpVersionCache.clear();
             renderPeerConnectionsList();
         }
         
