@@ -525,11 +525,24 @@ impl WebRtcConnection {
     /// This should be called after creating the connection, providing the IP version and connection
     /// index so the UI can be updated with the actual local/remote addresses when the connection
     /// is established.
+    /// 
+    /// Note: We listen to both `connectionstatechange` and `iceconnectionstatechange` events for
+    /// Safari compatibility. Safari doesn't consistently support `connectionState` property or
+    /// fire `connectionstatechange` events, but `iceConnectionState` is well-supported.
     pub fn setup_address_update_callback(&self, ip_version: &str, conn_index: usize) {
+        // Shared flag to track if we've already updated addresses (to avoid duplicate updates)
+        let addresses_updated = Rc::new(RefCell::new(false));
+        
         let peer = self.peer.clone();
         let ip_version_owned = ip_version.to_string();
+        let addresses_updated_for_conn = addresses_updated.clone();
         
         let onconnectionstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            // Check if already updated
+            if *addresses_updated_for_conn.borrow() {
+                return;
+            }
+            
             let connection_state = js_sys::Reflect::get(&peer, &"connectionState".into())
                 .ok()
                 .and_then(|s| s.as_string());
@@ -538,6 +551,9 @@ impl WebRtcConnection {
                 log::info!("Connection state changed to: {}", state);
                 
                 if state == "connected" {
+                    // Mark as updated before spawning to prevent race conditions
+                    *addresses_updated_for_conn.borrow_mut() = true;
+                    
                     // Connection is established, fetch the selected candidate pair addresses
                     let peer_clone = peer.clone();
                     let ip_version_clone = ip_version_owned.clone();
@@ -556,6 +572,53 @@ impl WebRtcConnection {
         // This is the standard pattern for WebRTC callbacks in WASM.
         onconnectionstatechange.forget();
         
-        log::info!("Set up address update callback for {} connection {}", ip_version, conn_index);
+        // Also listen for ICE connection state changes for Safari compatibility.
+        // Safari doesn't consistently support connectionState, but iceConnectionState is well-supported.
+        let peer_for_ice = self.peer.clone();
+        let ip_version_for_ice = ip_version.to_string();
+        let addresses_updated_for_ice = addresses_updated.clone();
+        
+        let oniceconnectionstatechange_for_address = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            // Check if already updated
+            if *addresses_updated_for_ice.borrow() {
+                return;
+            }
+            
+            let ice_state = js_sys::Reflect::get(&peer_for_ice, &"iceConnectionState".into())
+                .ok()
+                .and_then(|s| s.as_string());
+            
+            if let Some(state) = ice_state {
+                log::info!("ICE connection state changed to: {} (for address update)", state);
+                
+                // "connected" or "completed" indicates a successful ICE connection
+                if state == "connected" || state == "completed" {
+                    // Mark as updated before spawning to prevent race conditions
+                    *addresses_updated_for_ice.borrow_mut() = true;
+                    
+                    // Connection is established, fetch the selected candidate pair addresses
+                    let peer_clone = peer_for_ice.clone();
+                    let ip_version_clone = ip_version_for_ice.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Err(e) = update_peer_connection_addresses_from_stats(&peer_clone, &ip_version_clone, conn_index).await {
+                            log::warn!("Failed to update peer connection addresses from ICE state: {:?}", e);
+                        }
+                    });
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        // Note: We're adding another iceconnectionstatechange handler here, which is in addition to
+        // the one set up in new_with_ip_version_and_mode for debugging. The browser will call both.
+        // We use addEventListener instead of set_oniceconnectionstatechange to avoid overwriting
+        // the existing handler.
+        use wasm_bindgen::JsCast;
+        let _ = self.peer.add_event_listener_with_callback(
+            "iceconnectionstatechange",
+            oniceconnectionstatechange_for_address.as_ref().unchecked_ref()
+        );
+        oniceconnectionstatechange_for_address.forget();
+        
+        log::info!("Set up address update callback for {} connection {} (with Safari compatibility)", ip_version, conn_index);
     }
 }
