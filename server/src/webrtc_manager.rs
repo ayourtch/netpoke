@@ -79,6 +79,10 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
 /// Timeout for ICE gathering to complete (in seconds)
 const ICE_GATHERING_TIMEOUT_SECS: u64 = 10;
 
+/// Buffer size for ICE gathering state change channel.
+/// Set to 16 to handle rapid state changes without blocking the callback.
+const ICE_STATE_CHANNEL_BUFFER: usize = 16;
+
 pub async fn handle_offer(
     peer: &Arc<RTCPeerConnection>,
     offer_sdp: String,
@@ -90,7 +94,7 @@ pub async fn handle_offer(
 
     // Set up ICE gathering state change callback BEFORE setting local description
     // This prevents a race condition where gathering completes before we start listening
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(16);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(ICE_STATE_CHANNEL_BUFFER);
     peer.on_ice_gathering_state_change(Box::new(move |state| {
         let state_str = state.to_string();
         tracing::debug!("ICE gathering state change: {}", state_str);
@@ -109,7 +113,7 @@ pub async fn handle_offer(
         tracing::debug!("Initial ICE gathering state: {:?}", current_state);
         if current_state == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete {
             tracing::info!("ICE gathering already complete");
-            return Ok(());
+            return Ok::<(), String>(());
         }
 
         // Wait for gathering to complete via callbacks
@@ -127,8 +131,8 @@ pub async fn handle_offer(
             tracing::info!("ICE gathering complete (detected after channel close)");
             Ok(())
         } else {
-            tracing::warn!("ICE gathering channel closed unexpectedly, state: {:?}", final_state);
-            Err("ICE gathering channel closed unexpectedly")
+            tracing::warn!("ICE gathering incomplete: callback channel closed before completion (state: {:?})", final_state);
+            Err("ICE gathering incomplete: callback channel closed before completion".to_string())
         }
     }).await;
 

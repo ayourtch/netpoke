@@ -10,6 +10,9 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use common::{is_name_based_candidate, get_candidate_ip_version};
 
+/// Length to truncate client IDs for logging (first 8 characters)
+const CLIENT_ID_LOG_LENGTH: usize = 8;
+
 /// Check if we should stop polling for ICE candidates
 /// Returns true when ICE gathering is complete and connection is established
 async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
@@ -366,7 +369,7 @@ impl WebRtcConnection {
                 .unwrap_or_else(|| "unknown".to_string());
             log::info!("[{}][{}] ICE connection state: {}", 
                 ip_version_for_ice_state, 
-                &client_id_for_ice_state[..8.min(client_id_for_ice_state.len())],
+                &client_id_for_ice_state[..CLIENT_ID_LOG_LENGTH.min(client_id_for_ice_state.len())],
                 ice_state);
         }) as Box<dyn FnMut(_)>);
         peer.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
@@ -383,7 +386,7 @@ impl WebRtcConnection {
                 .unwrap_or_else(|| "unknown".to_string());
             log::info!("[{}][{}] ICE gathering state: {}", 
                 ip_version_for_gathering,
-                &client_id_for_gathering[..8.min(client_id_for_gathering.len())],
+                &client_id_for_gathering[..CLIENT_ID_LOG_LENGTH.min(client_id_for_gathering.len())],
                 gathering_state);
         }) as Box<dyn FnMut(_)>);
         peer.set_onicegatheringstatechange(Some(onicegatheringstatechange.as_ref().unchecked_ref()));
