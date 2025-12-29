@@ -15,15 +15,10 @@ use common::{SendOptions, TrackedPacketEvent};
 /// The cleartext is expected to be a serialized TestProbePacket or ProbePacket
 /// which contains a conn_id field
 fn extract_conn_id_from_cleartext(cleartext: &[u8]) -> String {
-    // Try to parse the cleartext as JSON and extract conn_id
-    if let Ok(text) = std::str::from_utf8(cleartext) {
-        // Use a simple JSON extraction to avoid full deserialization
-        // Look for "conn_id":"<value>" pattern
-        if let Some(start_idx) = text.find("\"conn_id\":\"") {
-            let after_key = &text[start_idx + 11..]; // Skip past "conn_id":"
-            if let Some(end_idx) = after_key.find('"') {
-                return after_key[..end_idx].to_string();
-            }
+    // Try to parse as JSON value and extract conn_id field safely
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(cleartext) {
+        if let Some(conn_id) = value.get("conn_id").and_then(|v| v.as_str()) {
+            return conn_id.to_string();
         }
     }
     String::new()
@@ -344,7 +339,8 @@ impl PacketTracker {
         }
     }
     
-    /// Get and clear all queued events (deprecated - use drain_events_for_conn_id instead)
+    /// Get and clear all queued events
+    #[deprecated(since = "0.1.0", note = "Use drain_events_for_conn_id() for per-session event filtering")]
     pub async fn drain_events(&self) -> Vec<TrackedPacketEvent> {
         let mut queue = self.event_queue.write().await;
         std::mem::take(&mut *queue)

@@ -556,6 +556,14 @@ pub async fn start_traceroute_sender(
                     tracing::debug!("Processing {} ICMP events for traceroute (conn_id={})", events.len(), session.conn_id);
                     
                     for event in events {
+                        // Validate that the event's conn_id matches this session
+                        // This should always be true since we filter by conn_id, but verify for safety
+                        debug_assert_eq!(
+                            event.conn_id, session.conn_id,
+                            "Event conn_id mismatch: event has '{}' but session has '{}'",
+                            event.conn_id, session.conn_id
+                        );
+                        
                         // Extract TTL from send options to determine hop number
                         // TTL should always be set in send_options for traceroute packets
                         let hop = event.send_options.ttl.expect("TTL should be set for traceroute packets");
