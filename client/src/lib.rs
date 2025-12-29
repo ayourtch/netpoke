@@ -163,6 +163,9 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         // Register the connection with JavaScript for display
         register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
+        // Set up callback to update addresses when connection is established
+        conn.setup_address_update_callback("ipv4", i);
+        
         ipv4_connections.push(conn);
     }
 
@@ -179,6 +182,9 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         
         // Register the connection with JavaScript for display
         register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
+        
+        // Set up callback to update addresses when connection is established
+        conn.setup_address_update_callback("ipv6", i);
         
         ipv6_connections.push(conn);
     }
@@ -327,6 +333,9 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         // Register the connection with JavaScript for display
         register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
+        // Set up callback to update addresses when connection is established
+        conn.setup_address_update_callback("ipv4", i);
+        
         ipv4_connections.push(conn);
     }
 
@@ -347,6 +356,9 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         
         // Register the connection with JavaScript for display
         register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
+        
+        // Set up callback to update addresses when connection is established
+        conn.setup_address_update_callback("ipv6", i);
         
         ipv6_connections.push(conn);
     }
@@ -423,6 +435,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         // Register the connection with JavaScript for display
         register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
+        // Set up callback to update addresses when connection is established
+        conn.setup_address_update_callback("ipv4", i);
+        
         ipv4_connections.push(conn);
     }
 
@@ -443,6 +458,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         
         // Register the connection with JavaScript for display
         register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
+        
+        // Set up callback to update addresses when connection is established
+        conn.setup_address_update_callback("ipv6", i);
         
         ipv6_connections.push(conn);
     }

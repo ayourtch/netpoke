@@ -31,6 +31,157 @@ async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
     ice_complete && connected
 }
 
+/// Update peer connection addresses in the UI by fetching stats from the RTCPeerConnection
+async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, ip_version: &str, conn_index: usize) -> Result<(), JsValue> {
+    // Get stats from the peer connection
+    let stats_promise = peer.get_stats();
+    let stats_result = wasm_bindgen_futures::JsFuture::from(stats_promise).await?;
+    
+    // The result is an RTCStatsReport which is a Map-like object
+    let stats_report = stats_result;
+    
+    // Find the selected candidate pair
+    let mut local_address = None;
+    let mut remote_address = None;
+    let mut local_candidate_id = None;
+    let mut remote_candidate_id = None;
+    
+    // First pass: find the selected candidate pair
+    let entries_fn = js_sys::Reflect::get(&stats_report, &"forEach".into())?;
+    if entries_fn.dyn_ref::<js_sys::Function>().is_some() {
+        // We need to iterate through the stats to find candidate-pair with selected=true
+        // Using a different approach: convert to entries and iterate
+        let values_fn = js_sys::Reflect::get(&stats_report, &"values".into())?;
+        if let Some(values) = values_fn.dyn_ref::<js_sys::Function>() {
+            let iterator = values.call0(&stats_report)?;
+            
+            // Collect all stats into a vector first
+            let mut all_stats = Vec::new();
+            loop {
+                let next_fn = js_sys::Reflect::get(&iterator, &"next".into())?;
+                if let Some(next) = next_fn.dyn_ref::<js_sys::Function>() {
+                    let result = next.call0(&iterator)?;
+                    let done = js_sys::Reflect::get(&result, &"done".into())?;
+                    if done.as_bool().unwrap_or(true) {
+                        break;
+                    }
+                    let value = js_sys::Reflect::get(&result, &"value".into())?;
+                    all_stats.push(value);
+                } else {
+                    break;
+                }
+            }
+            
+            // Find selected candidate pair
+            for stat in &all_stats {
+                let stat_type = js_sys::Reflect::get(stat, &"type".into())
+                    .ok()
+                    .and_then(|t| t.as_string());
+                
+                if stat_type.as_deref() == Some("candidate-pair") {
+                    // Check if this is the selected/nominated pair
+                    let selected = js_sys::Reflect::get(stat, &"selected".into())
+                        .ok()
+                        .and_then(|s| s.as_bool())
+                        .unwrap_or(false);
+                    let nominated = js_sys::Reflect::get(stat, &"nominated".into())
+                        .ok()
+                        .and_then(|s| s.as_bool())
+                        .unwrap_or(false);
+                    let state = js_sys::Reflect::get(stat, &"state".into())
+                        .ok()
+                        .and_then(|s| s.as_string());
+                    
+                    // A candidate pair is active if it's selected/nominated and in succeeded state
+                    if (selected || nominated) && state.as_deref() == Some("succeeded") {
+                        local_candidate_id = js_sys::Reflect::get(stat, &"localCandidateId".into())
+                            .ok()
+                            .and_then(|s| s.as_string());
+                        remote_candidate_id = js_sys::Reflect::get(stat, &"remoteCandidateId".into())
+                            .ok()
+                            .and_then(|s| s.as_string());
+                        break;
+                    }
+                }
+            }
+            
+            // Now find the actual candidate addresses
+            if let (Some(local_id), Some(remote_id)) = (&local_candidate_id, &remote_candidate_id) {
+                for stat in &all_stats {
+                    let stat_id = js_sys::Reflect::get(stat, &"id".into())
+                        .ok()
+                        .and_then(|s| s.as_string());
+                    let stat_type = js_sys::Reflect::get(stat, &"type".into())
+                        .ok()
+                        .and_then(|t| t.as_string());
+                    
+                    if stat_type.as_deref() == Some("local-candidate") || stat_type.as_deref() == Some("remote-candidate") {
+                        if let Some(ref id) = stat_id {
+                            let address = js_sys::Reflect::get(stat, &"address".into())
+                                .ok()
+                                .and_then(|a| a.as_string());
+                            let port = js_sys::Reflect::get(stat, &"port".into())
+                                .ok()
+                                .and_then(|p| p.as_f64())
+                                .map(|p| p as u16);
+                            
+                            if id == local_id {
+                                if let (Some(addr), Some(p)) = (address, port) {
+                                    local_address = Some(format!("{}:{}", addr, p));
+                                }
+                            } else if id == remote_id {
+                                if let (Some(addr), Some(p)) = (address, port) {
+                                    remote_address = Some(format!("{}:{}", addr, p));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Update the UI if we found addresses
+    if local_address.is_some() || remote_address.is_some() {
+        update_peer_connection_addresses_js(
+            ip_version,
+            conn_index,
+            local_address.as_deref(),
+            remote_address.as_deref()
+        );
+        
+        log::info!("Updated {} connection {} addresses: local={:?}, remote={:?}",
+            ip_version, conn_index, local_address, remote_address);
+    }
+    
+    Ok(())
+}
+
+/// Call JavaScript function to update peer connection addresses
+fn update_peer_connection_addresses_js(ip_version: &str, conn_index: usize, local_address: Option<&str>, remote_address: Option<&str>) {
+    use wasm_bindgen::JsCast;
+    
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return,
+    };
+    
+    // Call JavaScript function updatePeerConnectionAddresses(ipVersion, connIndex, localAddress, remoteAddress)
+    if let Ok(update_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("updatePeerConnectionAddresses")) {
+        if let Some(func) = update_fn.dyn_ref::<js_sys::Function>() {
+            let args = js_sys::Array::new();
+            args.push(&JsValue::from_str(ip_version));
+            args.push(&JsValue::from_f64(conn_index as f64));
+            args.push(&local_address.map(JsValue::from_str).unwrap_or(JsValue::NULL));
+            args.push(&remote_address.map(JsValue::from_str).unwrap_or(JsValue::NULL));
+            
+            if let Err(e) = func.apply(&JsValue::NULL, &args) {
+                log::warn!("Failed to call updatePeerConnectionAddresses: {:?}", e);
+            }
+        }
+    }
+}
+
 pub struct WebRtcConnection {
     pub peer: RtcPeerConnection,
     pub client_id: String,
@@ -333,5 +484,41 @@ impl WebRtcConnection {
     /// Enable traceroute mode (prevents measurement data collection)
     pub fn set_traceroute_mode(&self, active: bool) {
         self.state.borrow_mut().set_traceroute_active(active);
+    }
+    
+    /// Set up a callback to update the peer connection addresses when the connection state changes
+    /// 
+    /// This should be called after creating the connection, providing the IP version and connection
+    /// index so the UI can be updated with the actual local/remote addresses when the connection
+    /// is established.
+    pub fn setup_address_update_callback(&self, ip_version: &str, conn_index: usize) {
+        let peer = self.peer.clone();
+        let ip_version_owned = ip_version.to_string();
+        
+        let onconnectionstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
+            let connection_state = js_sys::Reflect::get(&peer, &"connectionState".into())
+                .ok()
+                .and_then(|s| s.as_string());
+            
+            if let Some(state) = connection_state {
+                log::info!("Connection state changed to: {}", state);
+                
+                if state == "connected" {
+                    // Connection is established, fetch the selected candidate pair addresses
+                    let peer_clone = peer.clone();
+                    let ip_version_clone = ip_version_owned.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        if let Err(e) = update_peer_connection_addresses_from_stats(&peer_clone, &ip_version_clone, conn_index).await {
+                            log::warn!("Failed to update peer connection addresses: {:?}", e);
+                        }
+                    });
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        self.peer.set_onconnectionstatechange(Some(onconnectionstatechange.as_ref().unchecked_ref()));
+        onconnectionstatechange.forget();
+        
+        log::info!("Set up address update callback for {} connection {}", ip_version, conn_index);
     }
 }

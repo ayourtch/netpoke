@@ -710,6 +710,28 @@
             updateConnectionTitle(ipVersion, connIndex, connId);
         }
         
+        // Function to update peer connection addresses (called when WebRTC provides actual addresses)
+        function updatePeerConnectionAddresses(ipVersion, connIndex, localAddress, remoteAddress) {
+            if (peerConnectionsData[ipVersion] && peerConnectionsData[ipVersion][connIndex]) {
+                const conn = peerConnectionsData[ipVersion][connIndex];
+                let changed = false;
+                
+                if (localAddress && localAddress !== conn.local_address) {
+                    conn.local_address = localAddress;
+                    changed = true;
+                }
+                if (remoteAddress && remoteAddress !== conn.remote_address) {
+                    conn.remote_address = remoteAddress;
+                    changed = true;
+                }
+                
+                // Only re-render if something changed
+                if (changed) {
+                    renderPeerConnectionsList();
+                }
+            }
+        }
+        
         // Function to clear peer connections data
         function clearPeerConnectionsData() {
             peerConnectionsData.ipv4 = {};
@@ -808,6 +830,7 @@
         
         // Make peer connection functions globally available
         window.registerPeerConnection = registerPeerConnection;
+        window.updatePeerConnectionAddresses = updatePeerConnectionAddresses;
         window.clearPeerConnectionsData = clearPeerConnectionsData;
         
         // Function to generate metrics tables for multiple connections
