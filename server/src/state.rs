@@ -15,6 +15,9 @@ pub struct AppState {
     pub packet_tracker: Arc<PacketTracker>,
     pub tracking_sender: mpsc::UnboundedSender<UdpPacketInfo>,
     pub server_start_time: Instant,
+    /// Channel for sending peer connections that need to be closed
+    /// This is used when signaling fails to prevent resource leaks
+    pub peer_cleanup_sender: mpsc::UnboundedSender<Arc<RTCPeerConnection>>,
 }
 
 pub struct ClientSession {
@@ -96,14 +99,18 @@ pub struct EchoedProbe {
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    /// Creates a new AppState and returns both it and the receiver for peer connection cleanup
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<Arc<RTCPeerConnection>>) {
         let (tracker, tx) = PacketTracker::new();
-        Self {
+        let (cleanup_tx, cleanup_rx) = mpsc::unbounded_channel();
+        let state = Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             packet_tracker: Arc::new(tracker),
             tracking_sender: tx,
             server_start_time: Instant::now(),
-        }
+            peer_cleanup_sender: cleanup_tx,
+        };
+        (state, cleanup_rx)
     }
 }
 

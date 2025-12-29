@@ -223,7 +223,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  CORS enabled: {}", config.security.enable_cors);
     
     // Initialize packet tracker and ICMP listener
-    let app_state = state::AppState::new();
+    let (app_state, peer_cleanup_rx) = state::AppState::new();
+    
+    // Spawn the peer connection cleanup task
+    // This receives peer connections that failed during signaling and closes them
+    // to prevent resource leaks (spawned tasks, UDP sockets, ICE agent loops)
+    tokio::spawn(async move {
+        let mut rx = peer_cleanup_rx;
+        while let Some(peer) = rx.recv().await {
+            tracing::debug!("Cleaning up failed peer connection");
+            if let Err(e) = peer.close().await {
+                tracing::warn!("Error closing peer connection during cleanup: {}", e);
+            } else {
+                tracing::debug!("Successfully closed peer connection during cleanup");
+            }
+        }
+        tracing::info!("Peer connection cleanup task shutting down");
+    });
     
     // Register ICMP error callback for session-based error tracking and cleanup
     {

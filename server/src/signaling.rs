@@ -275,15 +275,11 @@ pub async fn signaling_start(
         Ok(sdp) => sdp,
         Err(e) => {
             tracing::error!("Failed to handle offer: {}", e);
-            // Close the peer connection to prevent resource leak
+            // Send the peer connection to the cleanup task to prevent resource leak
             // (spawned tasks, UDP sockets, ICE agent loops)
-            // Spawn a task to close the connection so we don't block the error response
-            let peer_to_close = peer.clone();
-            tokio::spawn(async move {
-                if let Err(close_err) = peer_to_close.close().await {
-                    tracing::warn!("Error closing peer connection after handle_offer failure: {}", close_err);
-                }
-            });
+            if let Err(send_err) = state.peer_cleanup_sender.send(peer) {
+                tracing::warn!("Failed to send peer connection for cleanup: {}", send_err);
+            }
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     };
