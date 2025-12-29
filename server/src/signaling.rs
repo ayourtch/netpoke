@@ -271,12 +271,22 @@ pub async fn signaling_start(
     }));
 
     // Handle offer and create answer
-    let answer_sdp = webrtc_manager::handle_offer(&peer, req.sdp)
-        .await
-        .map_err(|e| {
+    let answer_sdp = match webrtc_manager::handle_offer(&peer, req.sdp).await {
+        Ok(sdp) => sdp,
+        Err(e) => {
             tracing::error!("Failed to handle offer: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+            // Close the peer connection to prevent resource leak
+            // (spawned tasks, UDP sockets, ICE agent loops)
+            // Spawn a task to close the connection so we don't block the error response
+            let peer_to_close = peer.clone();
+            tokio::spawn(async move {
+                if let Err(close_err) = peer_to_close.close().await {
+                    tracing::warn!("Error closing peer connection after handle_offer failure: {}", close_err);
+                }
+            });
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
 
     // Filter SDP candidates based on IP version
     let filtered_sdp = filter_sdp_candidates(&answer_sdp, req.ip_version.as_ref());
