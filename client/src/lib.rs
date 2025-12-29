@@ -15,6 +15,9 @@ const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
 const MODE_TRACEROUTE: &str = "traceroute";
 const MODE_MEASUREMENT: &str = "measurement";
 
+// Placeholder text for WebRTC-managed addresses (actual addresses are abstracted by the browser)
+const WEBRTC_MANAGED_ADDRESS: &str = "WebRTC managed";
+
 // Global state for tracking active connections and testing status
 thread_local! {
     static WAKE_LOCK: RefCell<Option<JsValue>> = RefCell::new(None);
@@ -158,7 +161,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv4", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
         ipv4_connections.push(conn);
     }
@@ -175,7 +178,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv6", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
         ipv6_connections.push(conn);
     }
@@ -322,7 +325,7 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         log::info!("IPv4 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv4", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
         ipv4_connections.push(conn);
     }
@@ -343,7 +346,7 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
         log::info!("IPv6 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv6", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
         ipv6_connections.push(conn);
     }
@@ -418,7 +421,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv4", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
         ipv4_connections.push(conn);
     }
@@ -439,7 +442,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv6", i, &conn.conn_id, "WebRTC managed", "WebRTC managed");
+        register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         
         ipv6_connections.push(conn);
     }
@@ -637,7 +640,14 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
     call_add_metrics_data(ipv4_metrics, ipv6_metrics);
 }
 
-/// Register a peer connection with JavaScript for display in the peer connections list
+/// Register a peer connection with JavaScript for display in the peer connections list.
+/// 
+/// # Parameters
+/// - `ip_version`: The IP version of the connection ("ipv4" or "ipv6")
+/// - `conn_index`: The zero-based index of this connection within its IP version group
+/// - `conn_id`: The unique connection ID (UUID) that matches the conn_id in traceroute data
+/// - `local_address`: The local address string (IP:port or placeholder)
+/// - `remote_address`: The remote address string (IP:port or placeholder)
 fn register_peer_connection_js(ip_version: &str, conn_index: usize, conn_id: &str, local_address: &str, remote_address: &str) {
     use wasm_bindgen::JsValue;
     use wasm_bindgen::JsCast;
