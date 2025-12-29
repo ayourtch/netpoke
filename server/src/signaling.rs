@@ -25,40 +25,29 @@ fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
 
     for line in sdp.lines() {
         if line.starts_with("a=candidate:") {
-            // Parse the candidate line
-            // Format: a=candidate:foundation component protocol priority ip port typ type ...
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 5 {
-                let ip = parts[4]; // IP address is the 5th field (index 4)
+            // Convert SDP line format (a=candidate:...) to candidate format (candidate:...)
+            // by stripping the "a=" prefix for use with shared utility functions
+            let candidate_str = &line[2..]; // Remove "a=" prefix
+            
+            // First, filter out name-based candidates (e.g., xxx.local mDNS)
+            if is_name_based_candidate(candidate_str) {
+                tracing::debug!("Filtering out name-based (mDNS) candidate from SDP: {}", line);
+                continue;
+            }
 
-                // First, filter out name-based candidates (e.g., xxx.local mDNS)
-                if ip.ends_with(".local") {
-                    tracing::debug!("Filtering out name-based (mDNS) candidate from SDP: {}", ip);
-                    continue;
-                }
-
-                let detected_version = if ip.contains(':') {
-                    "ipv6"
-                } else if ip.contains('.') {
-                    "ipv4"
-                } else {
-                    ""
-                };
-
-                if !detected_version.is_empty() && detected_version.eq_ignore_ascii_case(expected_version) {
+            // Check IP version
+            if let Some(detected_version) = get_candidate_ip_version(candidate_str) {
+                if detected_version.eq_ignore_ascii_case(expected_version) {
                     // Keep this candidate
                     filtered_lines.push(line);
-                    tracing::debug!("Keeping {} candidate in SDP: {}", detected_version, ip);
-                } else if !detected_version.is_empty() {
+                    tracing::debug!("Keeping {} candidate in SDP: {}", detected_version, line);
+                } else {
                     // Filter out this candidate
                     tracing::debug!("Filtering out {} candidate from SDP for {} connection: {}",
-                        detected_version, expected_version, ip);
-                } else {
-                    // Unknown format, keep it
-                    filtered_lines.push(line);
+                        detected_version, expected_version, line);
                 }
             } else {
-                // Malformed candidate line, keep it
+                // Unknown format, keep it
                 filtered_lines.push(line);
             }
         } else {
