@@ -655,7 +655,7 @@ pub async fn handle_testprobe_packet(
                 // Test probe reached the client successfully
                 // NOTE: We do NOT reset testprobe_seq to avoid sequence number reuse
                 // while older test probes are still in flight or in the tracking deques
-                tracing::info!("🎯 Test probe reached client for session {}", session.id);
+                // tracing::info!("🎯 Test probe reached client for session {}", session.id);
             } else {
                 tracing::warn!("Received echoed test probe test_seq {} but couldn't find matching sent test probe", testprobe.test_seq);
             }
