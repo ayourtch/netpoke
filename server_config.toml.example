@@ -119,3 +119,20 @@ magic_keys = []
 # Cookie name for survey sessions (different from regular auth sessions)
 survey_cookie_name = "survey_session_id"
 survey_timeout_seconds = 28800  # 8 hours
+
+# Packet Capture Configuration
+[capture]
+# Enable packet capture for traffic analysis
+# Requires CAP_NET_RAW capability or root privileges
+enabled = false
+
+# Maximum number of packets to store in the ring buffer
+max_packets = 10000
+
+# Maximum bytes per packet to capture (packets larger than this are truncated)
+# 65535 = full packet capture
+snaplen = 65535
+
+# Network interface to capture on (empty string means all interfaces)
+# Currently interface filtering is not implemented - captures from all interfaces
+interface = ""

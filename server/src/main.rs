@@ -12,6 +12,8 @@ mod packet_tracker;
 mod icmp_listener;
 mod packet_tracking_api;
 mod tracking_channel;
+mod packet_capture;
+mod capture_api;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -34,8 +36,14 @@ use axum_server::tls_rustls::RustlsConfig;
 
 use axum::routing::IntoMakeService;
 
+use packet_capture::PacketCaptureService;
 
-fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthService>>) -> IntoMakeService<axum::Router> {
+
+fn get_make_service(
+    app_state: state::AppState, 
+    auth_service: Option<Arc<AuthService>>,
+    capture_service: Arc<PacketCaptureService>,
+) -> IntoMakeService<axum::Router> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
         .route("/api/signaling/start", post(signaling::signaling_start))
@@ -53,6 +61,13 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
         .route("/api/tracking/stats", get(packet_tracking_api::get_tracked_stats))
         .with_state(app_state);
     
+    // Capture API routes - accessible with hybrid auth (both user and magic key)
+    let capture_routes = Router::new()
+        .route("/api/capture/download", get(capture_api::download_pcap))
+        .route("/api/capture/stats", get(capture_api::capture_stats))
+        .route("/api/capture/clear", post(capture_api::clear_capture))
+        .with_state(capture_service);
+    
     // Add authentication if enabled
     let app = if let Some(auth_svc) = auth_service {
         if auth_svc.is_enabled() && auth_svc.has_enabled_providers() {
@@ -69,6 +84,13 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
             
             // Signaling routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
             let hybrid_signaling = signaling_routes
+                .route_layer(middleware::from_fn_with_state(
+                    auth_svc.clone(),
+                    survey_middleware::require_auth_or_survey_session
+                ));
+            
+            // Capture routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_capture = capture_routes
                 .route_layer(middleware::from_fn_with_state(
                     auth_svc.clone(),
                     survey_middleware::require_auth_or_survey_session
@@ -98,7 +120,7 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
                     survey_middleware::require_auth_or_survey_session
                 ));
             
-            // Combine: auth routes (public) + public API + public static files + nettest (hybrid auth) + signaling (hybrid auth) + dashboard (protected) + static (protected)
+            // Combine: auth routes (public) + public API + public static files + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + dashboard (protected) + static (protected)
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
@@ -107,6 +129,7 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
                 .route("/health", get(health_check))
                 .merge(nettest_route)
                 .merge(hybrid_signaling)
+                .merge(hybrid_capture)
                 .merge(protected_dashboard)
                 .merge(protected_static)
                 .layer(TraceLayer::new_for_http())
@@ -116,6 +139,7 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
                 .route("/health", get(health_check))
                 .merge(signaling_routes)
                 .merge(dashboard_routes)
+                .merge(capture_routes)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
                 .nest_service("/static", ServeDir::new("server/static"))
@@ -127,6 +151,7 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
             .route("/health", get(health_check))
             .merge(signaling_routes)
             .merge(dashboard_routes)
+            .merge(capture_routes)
             .route_service("/", ServeFile::new("server/static/public/index.html"))
             .nest_service("/public", ServeDir::new("server/static/public"))
             .nest_service("/static", ServeDir::new("server/static"))
@@ -136,8 +161,13 @@ fn get_make_service(app_state: state::AppState, auth_service: Option<Arc<AuthSer
     app.into_make_service()
 }
 
-async fn http_server(config: config::ServerConfig, app_state: state::AppState, auth_service: Option<Arc<AuthService>>) {
-    let srv = get_make_service(app_state, auth_service);
+async fn http_server(
+    config: config::ServerConfig, 
+    app_state: state::AppState, 
+    auth_service: Option<Arc<AuthService>>,
+    capture_service: Arc<PacketCaptureService>,
+) {
+    let srv = get_make_service(app_state, auth_service, capture_service);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -158,8 +188,13 @@ async fn http_handler(uri: Uri) -> Redirect {
     Redirect::temporary(&uri)
 }
 
-async fn https_server(config: config::ServerConfig, app_state: state::AppState, auth_service: Option<Arc<AuthService>>) {
-    let srv = get_make_service(app_state, auth_service);
+async fn https_server(
+    config: config::ServerConfig, 
+    app_state: state::AppState, 
+    auth_service: Option<Arc<AuthService>>,
+    capture_service: Arc<PacketCaptureService>,
+) {
+    let srv = get_make_service(app_state, auth_service, capture_service);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -370,6 +405,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     icmp_listener::start_icmp_listener(app_state.packet_tracker.clone());
     tracing::info!("Packet tracking and ICMP listener initialized");
     
+    // Initialize packet capture service
+    let capture_config = packet_capture::CaptureConfig {
+        enabled: config.capture.enabled,
+        max_packets: config.capture.max_packets,
+        snaplen: config.capture.snaplen,
+        interface: config.capture.interface.clone(),
+    };
+    let capture_service = packet_capture::PacketCaptureService::new(capture_config);
+    
+    // Start packet capture if enabled
+    if config.capture.enabled {
+        tracing::info!("Packet capture enabled:");
+        tracing::info!("  Max packets: {}", config.capture.max_packets);
+        tracing::info!("  Snaplen: {}", config.capture.snaplen);
+        tracing::info!("  Interface: {}", if config.capture.interface.is_empty() { "all" } else { &config.capture.interface });
+        packet_capture::start_packet_capture(capture_service.clone());
+    } else {
+        tracing::info!("Packet capture disabled");
+    }
+    
     // Initialize authentication service if enabled
     let auth_service = if config.auth.enable_auth {
         tracing::info!("Authentication enabled:");
@@ -400,8 +455,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let http_config = config.server.clone();
         let auth_svc = auth_service.clone();
         let app_state_clone = app_state.clone();
+        let capture_svc = capture_service.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, app_state_clone, auth_svc).await
+            http_server(http_config, app_state_clone, auth_svc, capture_svc).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -411,8 +467,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let https_config = config.server.clone();
         let auth_svc = auth_service.clone();
         let app_state_clone = app_state.clone();
+        let capture_svc = capture_service.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, app_state_clone, auth_svc).await
+            https_server(https_config, app_state_clone, auth_svc, capture_svc).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

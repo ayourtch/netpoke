@@ -29,3 +29,7 @@ config = { version = "*", features = ["toml"] }
 socket2 = { version = "0.5", features = ["all"] }
 libc = "0.2"
 base64 = "0.22"
+pcap-file = "3.0.0-rc1"
+memmap2 = "0.9.9"
+parking_lot = "0.12"
+chrono = "0.4"

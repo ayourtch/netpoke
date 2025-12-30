@@ -145,6 +145,20 @@
         <textarea id="server-messages" readonly style="width: 100%; height: 150px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ddd; background-color: #f5f5f5;"></textarea>
     </div>
 
+    <div id="packet-capture-container" style="margin-top: 20px;">
+        <h2>Packet Capture</h2>
+        <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+            <em>Download captured network traffic as a PCAP file for analysis with Wireshark or tcpdump.</em>
+        </p>
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <a id="download-pcap-btn" href="/api/capture/download" 
+               style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                📥 Download PCAP
+            </a>
+            <span id="capture-status" style="color: #666; font-size: 14px;">Checking capture status...</span>
+        </div>
+    </div>
+
     <div id="chart-container">
         <h2>Live Metrics Graph</h2>
         <div class="chart-controls">
@@ -947,6 +961,46 @@
 
         // Call on page load
         checkWakeLockSupport();
+        
+        // Check capture status and update UI
+        async function checkCaptureStatus() {
+            const captureStatusEl = document.getElementById('capture-status');
+            const downloadBtn = document.getElementById('download-pcap-btn');
+            
+            try {
+                const response = await fetch('/api/capture/stats');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.enabled && data.stats) {
+                        const stats = data.stats;
+                        captureStatusEl.textContent = `Capture active: ${stats.packets_in_buffer} packets buffered (${stats.total_captured} total captured)`;
+                        captureStatusEl.style.color = '#4CAF50';
+                        downloadBtn.style.backgroundColor = '#4CAF50';
+                        downloadBtn.style.pointerEvents = 'auto';
+                        downloadBtn.style.opacity = '1';
+                    } else {
+                        captureStatusEl.textContent = 'Capture disabled (enable in server config)';
+                        captureStatusEl.style.color = '#999';
+                        downloadBtn.style.backgroundColor = '#ccc';
+                        downloadBtn.style.pointerEvents = 'none';
+                        downloadBtn.style.opacity = '0.6';
+                    }
+                } else {
+                    captureStatusEl.textContent = 'Unable to check capture status';
+                    captureStatusEl.style.color = '#f44336';
+                }
+            } catch (e) {
+                captureStatusEl.textContent = 'Error checking capture status';
+                captureStatusEl.style.color = '#f44336';
+                console.error('Capture status check failed:', e);
+            }
+        }
+        
+        // Check capture status on page load
+        checkCaptureStatus();
+        
+        // Periodically update capture status (every 5 seconds)
+        setInterval(checkCaptureStatus, 5000);
 
         // Wrap in async IIFE for better Safari compatibility
         (async () => {

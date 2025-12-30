@@ -10,6 +10,44 @@ pub struct Config {
     pub security: SecurityConfig,
     #[serde(default)]
     pub auth: AuthConfig,
+    #[serde(default)]
+    pub capture: CaptureConfig,
+}
+
+/// Packet capture configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureConfig {
+    /// Enable packet capture
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum number of packets to store in the ring buffer
+    #[serde(default = "default_max_packets")]
+    pub max_packets: usize,
+    /// Maximum bytes per packet to capture (packets larger than this are truncated)
+    #[serde(default = "default_snaplen")]
+    pub snaplen: u32,
+    /// Network interface to capture on (empty string means all interfaces)
+    #[serde(default)]
+    pub interface: String,
+}
+
+fn default_max_packets() -> usize {
+    10000
+}
+
+fn default_snaplen() -> u32 {
+    65535
+}
+
+impl Default for CaptureConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_packets: default_max_packets(),
+            snaplen: default_snaplen(),
+            interface: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +126,7 @@ impl Default for Config {
             logging: LoggingConfig::default(),
             security: SecurityConfig::default(),
             auth: AuthConfig::default(),
+            capture: CaptureConfig::default(),
         }
     }
 }
