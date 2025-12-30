@@ -324,8 +324,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Register ICMP error callback for session-based error tracking and cleanup
     {
         let clients = app_state.clients.clone();
-        let icmp_error_callback = Arc::new(move |dest_addr: std::net::SocketAddr| {
+        let icmp_error_callback = Arc::new(move |embedded_info: packet_tracker::EmbeddedUdpInfo| {
             let clients = clients.clone();
+            let dest_addr = embedded_info.dest_addr;
+            let udp_checksum = embedded_info.udp_checksum;
+            let udp_length = embedded_info.udp_length;
+            let src_port = embedded_info.src_port;
             tokio::spawn(async move {
                 let clients_guard = clients.read().await;
                 
@@ -382,8 +386,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     drop(last_error);
                     
                     tracing::warn!(
-                        "Unmatched ICMP error for session {} at address {} (count: {}/5)",
-                        session_id, dest_addr, count
+                        "Unmatched ICMP error for session {} at address {} (count: {}/5) - ICMP embedded UDP: src_port={}, dest={}, udp_length={}, udp_checksum={:#06x}",
+                        session_id, dest_addr, count, src_port, dest_addr, udp_length, udp_checksum
                     );
                     
                     // Cleanup if threshold reached

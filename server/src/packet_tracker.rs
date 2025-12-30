@@ -82,8 +82,8 @@ pub struct TrackedPacket {
 }
 
 /// Callback type for handling unmatched ICMP errors
-/// Passes the full destination socket address (IP + port) for session lookup and cleanup
-pub type IcmpErrorCallback = Arc<dyn Fn(SocketAddr) + Send + Sync>;
+/// Passes the full EmbeddedUdpInfo for session lookup, cleanup, and enhanced logging
+pub type IcmpErrorCallback = Arc<dyn Fn(EmbeddedUdpInfo) + Send + Sync>;
 
 /// Key for payload-based matching (uses first N bytes of UDP payload)
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -408,7 +408,7 @@ impl PacketTracker {
             // Pass unmatched ICMP error to callback for session state to handle
             let callback = self.icmp_error_callback.read().await;
             if let Some(ref cb) = *callback {
-                cb(embedded_udp_info.dest_addr);
+                cb(embedded_udp_info);
             }
         }
     }
@@ -754,12 +754,12 @@ mod tests {
         let (tracker, _tx) = PacketTracker::new();
         
         // Setup a callback to track if it was invoked
-        let callback_invoked = Arc::new(tokio::sync::RwLock::new(Vec::<SocketAddr>::new()));
+        let callback_invoked = Arc::new(tokio::sync::RwLock::new(Vec::<EmbeddedUdpInfo>::new()));
         let callback_invoked_clone = callback_invoked.clone();
-        let callback = Arc::new(move |dest_addr: SocketAddr| {
+        let callback = Arc::new(move |embedded_info: EmbeddedUdpInfo| {
             let invoked = callback_invoked_clone.clone();
             tokio::spawn(async move {
-                invoked.write().await.push(dest_addr);
+                invoked.write().await.push(embedded_info);
             });
         });
         
@@ -774,7 +774,7 @@ mod tests {
                 dest_addr: dest,
                 udp_length: 100 + i, // Different UDP lengths so no packet is tracked
                 payload_prefix: Vec::new(),
-                udp_checksum: 0,
+                udp_checksum: 0xABCD + i,
             };
             
             let fake_icmp = vec![0u8; 56];
@@ -787,9 +787,15 @@ mod tests {
         // Callback should have been invoked 3 times
         let invocations = callback_invoked.read().await;
         assert_eq!(invocations.len(), 3, "Callback should be invoked for each unmatched error");
-        assert_eq!(invocations[0], dest);
-        assert_eq!(invocations[1], dest);
-        assert_eq!(invocations[2], dest);
+        assert_eq!(invocations[0].dest_addr, dest);
+        assert_eq!(invocations[0].udp_length, 100);
+        assert_eq!(invocations[0].udp_checksum, 0xABCD);
+        assert_eq!(invocations[1].dest_addr, dest);
+        assert_eq!(invocations[1].udp_length, 101);
+        assert_eq!(invocations[1].udp_checksum, 0xABCE);
+        assert_eq!(invocations[2].dest_addr, dest);
+        assert_eq!(invocations[2].udp_length, 102);
+        assert_eq!(invocations[2].udp_checksum, 0xABCF);
     }
     
     #[tokio::test]
@@ -798,7 +804,7 @@ mod tests {
         
         let callback_invoked = Arc::new(tokio::sync::RwLock::new(false));
         let callback_invoked_clone = callback_invoked.clone();
-        let callback = Arc::new(move |_dest_addr: SocketAddr| {
+        let callback = Arc::new(move |_embedded_info: EmbeddedUdpInfo| {
             let invoked = callback_invoked_clone.clone();
             tokio::spawn(async move {
                 *invoked.write().await = true;
