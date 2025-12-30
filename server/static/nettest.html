@@ -28,18 +28,6 @@
             color: white; 
             margin-left: 10px;
         }
-        #survey-test-btn { 
-            background-color: #9C27B0; 
-            color: white; 
-            margin-left: 10px;
-        }
-        #survey-test-btn:hover:not(:disabled) { 
-            background-color: #7B1FA2; 
-        }
-        #survey-test-btn:disabled {
-            background-color: #ccc;
-            color: #666;
-        }
         #stop-testing-btn:hover:not(:disabled) { 
             background-color: #d32f2f; 
         }
@@ -73,9 +61,6 @@
     </style>
 </head>
 <body>
-    <!-- Hidden video element for camera stream during survey+test -->
-    <video id="survey-video" playsinline autoplay aria-hidden="true" style="position:fixed; top:0; left:0; width:1px; height:1px; opacity:0.01; pointer-events:none;"></video>
-    
     <h1>Network Measurement Client</h1>
     <div style="margin-bottom: 15px;">
         <label for="conn-count" style="font-weight: bold; margin-right: 10px;">Connections per Address Family (ECMP):</label>
@@ -88,10 +73,8 @@
         </select>
     </div>
     <button id="analyze-network-btn" onclick="analyzeNetwork()">Analyze Network</button>
-    <button id="survey-test-btn" onclick="surveyTest()">Survey+Test</button>
     <button id="stop-testing-btn" onclick="stopTesting()" disabled>Stop Testing</button>
     <span id="wake-lock-status">Wake Lock: Checking...</span>
-    <span id="survey-status" style="display:none; margin-left: 15px; padding: 5px 10px; border-radius: 4px; font-size: 14px; background-color: #4CAF50; color: white;"></span>
     <div id="status">Loading WASM module...</div>
     <div id="ayxx"></div>
     <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
@@ -942,33 +925,12 @@
         const errorEl = document.getElementById('error');
         const statusEl = document.getElementById('status');
         const analyzeNetworkBtn = document.getElementById('analyze-network-btn');
-        const surveyTestBtn = document.getElementById('survey-test-btn');
         const stopTestingBtn = document.getElementById('stop-testing-btn');
         const wakeLockStatusEl = document.getElementById('wake-lock-status');
-        const surveyStatusEl = document.getElementById('survey-status');
-        const surveyVideoEl = document.getElementById('survey-video');
-
-        // Survey+Test state variables
-        let surveyStream = null;
-        let surveyMediaRecorder = null;
-        let surveyRecordedChunks = [];
-        let surveyMotionData = [];
-        let surveyFrameCount = 0;
-        let surveyStartTime = 0;
-        let surveyStartTimeUTC = null;
-        let surveyTrackingInterval = null;
-        let surveyGpsWatchId = null;
-        let surveyCurrentGPS = null;
-        let surveyLastMagnetometer = null;
-        let surveyLastOrientation = null;
-        let surveyLastAcceleration = null;
-        let surveyActive = false;
-        let surveySensorDataCollected = 0;
 
         // Update button states based on testing status
         function updateButtonStates(isTesting) {
             analyzeNetworkBtn.disabled = isTesting;
-            surveyTestBtn.disabled = isTesting;
             stopTestingBtn.disabled = !isTesting;
         }
 
@@ -985,288 +947,6 @@
 
         // Call on page load
         checkWakeLockSupport();
-
-        // Request device motion permission (iOS 13+)
-        async function requestMotionPermission() {
-            if (typeof DeviceMotionEvent !== 'undefined' && 
-                typeof DeviceMotionEvent.requestPermission === 'function') {
-                try {
-                    const permission = await DeviceMotionEvent.requestPermission();
-                    if (permission !== 'granted') {
-                        statusEl.textContent = 'Motion permission denied';
-                        return false;
-                    }
-                } catch (error) {
-                    statusEl.textContent = 'Error requesting motion permission';
-                    console.error('Motion permission error:', error);
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        // Request device orientation permission (iOS 13+)
-        async function requestOrientationPermission() {
-            if (typeof DeviceOrientationEvent !== 'undefined' && 
-                typeof DeviceOrientationEvent.requestPermission === 'function') {
-                try {
-                    const permission = await DeviceOrientationEvent.requestPermission();
-                    if (permission !== 'granted') {
-                        statusEl.textContent = 'Orientation permission denied';
-                        return false;
-                    }
-                } catch (error) {
-                    statusEl.textContent = 'Error requesting orientation permission';
-                    console.error('Orientation permission error:', error);
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        // Handle orientation events during survey
-        function handleSurveyOrientation(event) {
-            surveyLastOrientation = {
-                alpha: event.alpha,
-                beta: event.beta,
-                gamma: event.gamma,
-                absolute: event.absolute
-            };
-        }
-
-        // Handle magnetometer events during survey
-        function handleSurveyMagnetometer(event) {
-            surveyLastMagnetometer = {
-                alpha: event.alpha,
-                beta: event.beta,
-                gamma: event.gamma,
-                absolute: true
-            };
-        }
-
-        // Handle motion events during survey
-        function handleSurveyMotion(event) {
-            if (!surveyActive) return;
-            
-            const timestampRelative = Date.now() - surveyStartTime;
-            const timestampUTC = new Date().toISOString();
-            
-            surveyLastAcceleration = {
-                x: event.acceleration?.x || 0,
-                y: event.acceleration?.y || 0,
-                z: event.acceleration?.z || 0
-            };
-
-            surveyMotionData.push({
-                timestampRelative,
-                timestampUTC,
-                gps: surveyCurrentGPS ? { ...surveyCurrentGPS } : null,
-                magnetometer: surveyLastMagnetometer ? { ...surveyLastMagnetometer } : null,
-                acceleration: surveyLastAcceleration,
-                accelerationIncludingGravity: {
-                    x: event.accelerationIncludingGravity?.x || 0,
-                    y: event.accelerationIncludingGravity?.y || 0,
-                    z: event.accelerationIncludingGravity?.z || 0
-                },
-                rotationRate: {
-                    alpha: event.rotationRate?.alpha || 0,
-                    beta: event.rotationRate?.beta || 0,
-                    gamma: event.rotationRate?.gamma || 0
-                },
-                orientation: surveyLastOrientation
-            });
-
-            surveyFrameCount++;
-            surveySensorDataCollected++;
-        }
-
-        // Update survey status display
-        function updateSurveyStatus() {
-            const elapsed = (Date.now() - surveyStartTime) / 1000;
-            surveyStatusEl.textContent = `📷 Survey: ${elapsed.toFixed(0)}s | ${surveySensorDataCollected} samples`;
-        }
-
-        // Start camera and sensor capture for survey
-        async function startSurveyCapture() {
-            try {
-                // Request permissions
-                const motionOk = await requestMotionPermission();
-                const orientationOk = await requestOrientationPermission();
-                
-                if (!motionOk || !orientationOk) {
-                    return false;
-                }
-
-                // Reset state
-                surveyRecordedChunks = [];
-                surveyMotionData = [];
-                surveyFrameCount = 0;
-                surveyStartTime = Date.now();
-                surveyStartTimeUTC = new Date().toISOString();
-                surveyCurrentGPS = null;
-                surveySensorDataCollected = 0;
-                surveyActive = true;
-
-                // Start GPS tracking
-                if (navigator.geolocation) {
-                    surveyGpsWatchId = navigator.geolocation.watchPosition(
-                        (position) => {
-                            surveyCurrentGPS = {
-                                latitude: position.coords.latitude,
-                                longitude: position.coords.longitude,
-                                altitude: position.coords.altitude,
-                                accuracy: position.coords.accuracy,
-                                altitudeAccuracy: position.coords.altitudeAccuracy,
-                                heading: position.coords.heading,
-                                speed: position.coords.speed,
-                                timestamp: new Date(position.timestamp).toISOString()
-                            };
-                        },
-                        (error) => {
-                            console.error('GPS error:', error);
-                        },
-                        {
-                            enableHighAccuracy: true,
-                            maximumAge: 0,
-                            timeout: 5000
-                        }
-                    );
-                }
-
-                // Get camera stream
-                surveyStream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: 'environment',
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
-                    audio: false
-                });
-
-                surveyVideoEl.srcObject = surveyStream;
-                
-                // Start recording - prefer mp4 if available, fall back to webm
-                const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
-                
-                surveyMediaRecorder = new MediaRecorder(surveyStream, {
-                    mimeType: mimeType,
-                    videoBitsPerSecond: 1500000 // 1.5 Mbps - lower bitrate to reduce impact
-                });
-                
-                // Collect video chunks for potential future upload functionality
-                surveyMediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        surveyRecordedChunks.push(event.data);
-                    }
-                };
-
-                surveyMediaRecorder.start(1000); // Record in 1s chunks
-
-                // Setup motion tracking
-                window.addEventListener('devicemotion', handleSurveyMotion);
-                window.addEventListener('deviceorientation', handleSurveyOrientation);
-                window.addEventListener('deviceorientationabsolute', handleSurveyMagnetometer);
-
-                // Update survey status periodically
-                surveyTrackingInterval = setInterval(updateSurveyStatus, 1000);
-
-                // Show survey status
-                surveyStatusEl.style.display = 'inline-block';
-                surveyStatusEl.textContent = '📷 Survey: Starting...';
-
-                console.log('Survey capture started');
-                return true;
-
-            } catch (error) {
-                console.error('Failed to start survey capture:', error);
-                statusEl.textContent = 'Survey Error: ' + error.message;
-                surveyActive = false;
-                return false;
-            }
-        }
-
-        // Stop survey capture and save to localStorage
-        async function stopSurveyCapture() {
-            if (!surveyActive) return;
-            
-            surveyActive = false;
-
-            // Stop GPS tracking
-            if (surveyGpsWatchId !== null) {
-                navigator.geolocation.clearWatch(surveyGpsWatchId);
-                surveyGpsWatchId = null;
-            }
-
-            // Stop recording
-            if (surveyMediaRecorder && surveyMediaRecorder.state !== 'inactive') {
-                surveyMediaRecorder.stop();
-            }
-
-            // Stop camera
-            if (surveyStream) {
-                surveyStream.getTracks().forEach(track => track.stop());
-                surveyStream = null;
-            }
-
-            // Stop motion tracking
-            window.removeEventListener('devicemotion', handleSurveyMotion);
-            window.removeEventListener('deviceorientation', handleSurveyOrientation);
-            window.removeEventListener('deviceorientationabsolute', handleSurveyMagnetometer);
-            clearInterval(surveyTrackingInterval);
-
-            // Wait for MediaRecorder to finish processing final video chunks
-            const MEDIARECORDER_FINALIZE_DELAY_MS = 500;
-            await new Promise(resolve => setTimeout(resolve, MEDIARECORDER_FINALIZE_DELAY_MS));
-
-            // Save survey data to localStorage
-            const surveyId = Date.now().toString();
-            const metadata = {
-                id: surveyId,
-                frameCount: surveyFrameCount,
-                duration: (Date.now() - surveyStartTime) / 1000,
-                mimeType: surveyMediaRecorder ? surveyMediaRecorder.mimeType : 'unknown',
-                startTimeUTC: surveyStartTimeUTC,
-                endTimeUTC: new Date().toISOString(),
-                sensorDataPoints: surveyMotionData.length,
-                videoChunks: surveyRecordedChunks.length
-            };
-
-            // Note: Video blobs cannot be stored in localStorage (binary data too large).
-            // Video chunks are collected for future upload functionality.
-            // Currently we only store the sensor/motion data and metadata.
-            const surveyData = {
-                metadata,
-                motionData: surveyMotionData
-            };
-
-            // Maximum number of surveys to keep in localStorage to avoid storage limits
-            const MAX_STORED_SURVEYS = 10;
-
-            try {
-                // Get existing surveys from localStorage
-                const existingSurveys = JSON.parse(localStorage.getItem('surveyTestData') || '[]');
-                existingSurveys.push(surveyData);
-                
-                // Keep only the last N surveys to avoid localStorage limits
-                if (existingSurveys.length > MAX_STORED_SURVEYS) {
-                    existingSurveys.shift();
-                }
-                
-                localStorage.setItem('surveyTestData', JSON.stringify(existingSurveys));
-                console.log('Survey data saved to localStorage:', metadata);
-                
-                surveyStatusEl.textContent = `📷 Survey saved: ${surveyMotionData.length} samples`;
-                
-            } catch (e) {
-                console.error('Failed to save survey data to localStorage:', e);
-                surveyStatusEl.textContent = '📷 Survey: Save failed';
-            }
-
-            // Hide survey status after a delay
-            setTimeout(() => {
-                surveyStatusEl.style.display = 'none';
-            }, 3000);
-        }
 
         // Wrap in async IIFE for better Safari compatibility
         (async () => {
@@ -1359,98 +1039,11 @@
                     }
                 };
                 
-                // Survey+Test function - combines network testing with camera/sensor capture
-                window.surveyTest = async function() {
-                    statusEl.textContent = 'Requesting camera and sensor permissions...';
-                    statusEl.className = '';
-                    errorEl.textContent = '';
-                    
-                    // First, request camera/accelerometer permissions at the beginning
-                    const captureStarted = await startSurveyCapture();
-                    if (!captureStarted) {
-                        errorEl.textContent = 'Failed to start camera/sensor capture. Please check permissions.';
-                        return;
-                    }
-                    
-                    // Update button states - disable analyze/survey, enable stop
-                    updateButtonStates(true);
-                    
-                    // Clear the server messages textarea
-                    const serverMessagesEl = document.getElementById('server-messages');
-                    if (serverMessagesEl) {
-                        serverMessagesEl.value = '';
-                    }
-                    
-                    // Clear traceroute visualization
-                    if (window.clearTracerouteData) {
-                        window.clearTracerouteData();
-                    }
-                    
-                    // Clear peer connections data
-                    if (window.clearPeerConnectionsData) {
-                        window.clearPeerConnectionsData();
-                    }
-                    
-                    const connCount = getConnCount();
-                    console.log(`Starting survey+test with ${connCount} connections per address family`);
-                    
-                    // Generate dynamic tables for multi-connection display
-                    if (window.generateMultiConnectionTables) {
-                        window.generateMultiConnectionTables(connCount);
-                    }
-
-                    try {
-                        // Update status to show phase 1 (traceroute)
-                        statusEl.textContent = `Phase 1: Analyzing network paths (traceroute) with ${connCount} connection(s)...`;
-                        statusEl.className = 'running';
-                        
-                        // Update wake lock status
-                        if ('wakeLock' in navigator) {
-                            wakeLockStatusEl.textContent = '🔒 Wake Lock: Active';
-                            wakeLockStatusEl.className = 'active';
-                        }
-                        
-                        // Start the combined analysis
-                        await analyze_network_with_count(connCount);
-                        
-                        // Update UI to show measurements are now running (Phase 2 with survey)
-                        statusEl.textContent = `Phase 2: Running network measurements + survey with ${connCount} connection(s)...`;
-                        statusEl.className = 'running';
-                        
-                        // Note: Survey capture continues running during Phase 2
-                        // It will be stopped when stopTesting is called
-                        
-                    } catch (e) {
-                        const errMsg = 'Survey+Test error: ' + (e.message || e);
-                        statusEl.textContent = 'Error';
-                        statusEl.className = 'error';
-                        errorEl.textContent = errMsg;
-                        console.error('Survey+Test error:', e);
-                        
-                        // Stop survey capture on error
-                        await stopSurveyCapture();
-                        
-                        // Update button states - enable analyze/survey, disable stop
-                        updateButtonStates(false);
-                        
-                        // Update wake lock status
-                        if ('wakeLock' in navigator) {
-                            wakeLockStatusEl.textContent = '🔓 Wake Lock: Ready';
-                            wakeLockStatusEl.className = '';
-                        }
-                    }
-                };
-                
                 // Stop testing function
-                window.stopTesting = async function() {
+                window.stopTesting = function() {
                     console.log('Stopping network testing...');
                     
                     try {
-                        // Stop survey capture if active
-                        if (surveyActive) {
-                            await stopSurveyCapture();
-                        }
-                        
                         // Call the WASM stop_testing function
                         stop_testing();
                         
@@ -1482,9 +1075,6 @@
                 console.error('Full error:', e.stack);
 
                 window.analyzeNetwork = function() {
-                    alert('WASM module failed to load. Please refresh the page.');
-                };
-                window.surveyTest = function() {
                     alert('WASM module failed to load. Please refresh the page.');
                 };
             }
