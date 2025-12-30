@@ -182,7 +182,9 @@ fn get_local_addr(fd: std::os::unix::io::RawFd) -> Result<SocketAddr> {
         // Parse the address based on family
         if addr.ss_family == libc::AF_INET as libc::sa_family_t {
             let addr_in = &addr as *const libc::sockaddr_storage as *const libc::sockaddr_in;
-            let ip = std::net::Ipv4Addr::from(u32::from_be((*addr_in).sin_addr.s_addr));
+            // s_addr is in network byte order, convert to octets for Ipv4Addr
+            let s_addr_bytes = (*addr_in).sin_addr.s_addr.to_ne_bytes();
+            let ip = std::net::Ipv4Addr::new(s_addr_bytes[0], s_addr_bytes[1], s_addr_bytes[2], s_addr_bytes[3]);
             let port = u16::from_be((*addr_in).sin_port);
             Ok(SocketAddr::V4(std::net::SocketAddrV4::new(ip, port)))
         } else if addr.ss_family == libc::AF_INET6 as libc::sa_family_t {

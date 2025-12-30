@@ -165,8 +165,11 @@ impl PacketTracker {
         *cb = Some(callback);
     }
     
-    /// Track a packet for ICMP correlation (test-only helper)
-    /// In production, packets are tracked via the UDP layer FFI callback
+    /// Track a packet for ICMP correlation (test-only helper, no checksum)
+    /// 
+    /// In production, packets are tracked via the UDP layer FFI callback which
+    /// calculates the checksum. This helper is for tests that don't need checksum
+    /// matching (e.g., tests for payload or length-based matching).
     #[cfg(test)]
     pub async fn track_packet(
         &self,
@@ -178,11 +181,14 @@ impl PacketTracker {
         send_options: SendOptions,
         conn_id: String,
     ) {
+        // Pass 0 checksum - will not match via checksum, only via payload or length
         self.track_packet_with_checksum(cleartext, udp_packet, src_port, dest_addr, udp_length, send_options, conn_id, 0).await;
     }
     
     /// Track a packet for ICMP correlation with explicit checksum (test-only helper)
-    /// In production, packets are tracked via the UDP layer FFI callback
+    /// 
+    /// Use this for testing checksum-based matching specifically.
+    /// In production, packets are tracked via the UDP layer FFI callback.
     #[cfg(test)]
     pub async fn track_packet_with_checksum(
         &self,

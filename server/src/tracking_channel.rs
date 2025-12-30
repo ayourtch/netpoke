@@ -5,7 +5,7 @@
 /// to pass context through multiple layers or create circular dependencies.
 
 use std::sync::OnceLock;
-use std::net::{SocketAddr, IpAddr};
+use std::net::SocketAddr;
 use std::time::Instant;
 
 /// Callback type for tracking UDP packets
@@ -87,7 +87,8 @@ pub fn calculate_udp_checksum_v4(
     // Calculate one's complement sum
     let mut sum: u32 = 0;
     for chunk in data.chunks(2) {
-        let word = u16::from_be_bytes([chunk[0], chunk[1]]);
+        // Safe indexing: chunk is guaranteed to have 2 bytes after padding
+        let word = u16::from_be_bytes([chunk[0], chunk.get(1).copied().unwrap_or(0)]);
         sum = sum.wrapping_add(word as u32);
     }
     
@@ -99,7 +100,9 @@ pub fn calculate_udp_checksum_v4(
     // One's complement
     let checksum = !(sum as u16);
     
-    // If checksum is 0, return 0xFFFF (UDP uses 0 to indicate no checksum)
+    // If calculated checksum is 0, return 0xFFFF instead.
+    // In UDP, a checksum field of 0 means "no checksum computed" (IPv4 only),
+    // so we use 0xFFFF to represent a valid computed checksum that happens to be 0.
     if checksum == 0 {
         0xFFFF
     } else {
@@ -153,7 +156,8 @@ pub fn calculate_udp_checksum_v6(
     // Calculate one's complement sum
     let mut sum: u32 = 0;
     for chunk in data.chunks(2) {
-        let word = u16::from_be_bytes([chunk[0], chunk[1]]);
+        // Safe indexing: chunk is guaranteed to have 2 bytes after padding
+        let word = u16::from_be_bytes([chunk[0], chunk.get(1).copied().unwrap_or(0)]);
         sum = sum.wrapping_add(word as u32);
     }
     
@@ -165,7 +169,8 @@ pub fn calculate_udp_checksum_v6(
     // One's complement
     let checksum = !(sum as u16);
     
-    // If checksum is 0, return 0xFFFF (UDP uses 0 to indicate no checksum)
+    // For IPv6, UDP checksum is mandatory and a computed value of 0 must be
+    // transmitted as 0xFFFF (RFC 2460). Unlike IPv4, there's no "no checksum" option.
     if checksum == 0 {
         0xFFFF
     } else {
