@@ -411,6 +411,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_packets: config.capture.max_packets,
         snaplen: config.capture.snaplen,
         interface: config.capture.interface.clone(),
+        promiscuous: config.capture.promiscuous,
     };
     let capture_service = packet_capture::PacketCaptureService::new(capture_config);
     
@@ -419,7 +420,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Packet capture enabled:");
         tracing::info!("  Max packets: {}", config.capture.max_packets);
         tracing::info!("  Snaplen: {}", config.capture.snaplen);
-        tracing::info!("  Interface: {}", if config.capture.interface.is_empty() { "all" } else { &config.capture.interface });
+        tracing::info!("  Interface: {}", if config.capture.interface.is_empty() { "default" } else { &config.capture.interface });
+        tracing::info!("  Promiscuous: {}", config.capture.promiscuous);
         packet_capture::start_packet_capture(capture_service.clone());
     } else {
         tracing::info!("Packet capture disabled");

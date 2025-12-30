@@ -1,46 +1,52 @@
-/// Packet capture module for continuous traffic capture into a ring buffer
+/// Packet capture module using libpcap for tcpdump-like traffic capture
 ///
-/// This module provides tcpdump-like packet capture functionality with:
-/// - Configurable ring buffer size
+/// This module provides packet capture functionality using libpcap, the same
+/// library used by tcpdump, Wireshark, and other network analysis tools.
+/// Features:
+/// - Configurable ring buffer size for storing captured packets
 /// - Thread-safe access via parking_lot RwLock
-/// - PCAP file export capability
+/// - PCAP file export using libpcap's native format
+/// - Support for interface selection and promiscuous mode
 
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use parking_lot::RwLock;
 
-/// Captured packet with timestamp
+/// Captured packet with timestamp and metadata from libpcap
 #[derive(Clone)]
 pub struct CapturedPacket {
-    /// Timestamp when the packet was captured (microseconds since Unix epoch)
-    pub timestamp_us: u64,
-    /// Original packet length (may be larger than stored data if truncated)
-    pub original_len: u32,
-    /// Captured packet data (may be truncated)
+    /// Timestamp when the packet was captured (seconds since Unix epoch)
+    pub ts_sec: i64,
+    /// Microseconds part of the timestamp
+    pub ts_usec: i64,
+    /// Original packet length on the wire
+    pub orig_len: u32,
+    /// Captured packet data (may be truncated to snaplen)
     pub data: Vec<u8>,
 }
 
 /// Configuration for packet capture
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub struct CaptureConfig {
     /// Maximum number of packets to store in the ring buffer
     pub max_packets: usize,
     /// Maximum bytes per packet to capture (packets larger than this are truncated)
-    pub snaplen: u32,
-    /// Network interface to capture on (empty string means all interfaces)
+    pub snaplen: i32,
+    /// Network interface to capture on (empty string means first available, "any" for all)
     pub interface: String,
     /// Enable packet capture
     pub enabled: bool,
+    /// Enable promiscuous mode
+    pub promiscuous: bool,
 }
 
 impl Default for CaptureConfig {
     fn default() -> Self {
         Self {
-            max_packets: 10000,  // Store up to 10k packets
-            snaplen: 65535,      // Full packet capture by default
-            interface: String::new(), // All interfaces
-            enabled: false,      // Disabled by default
+            max_packets: 10000,   // Store up to 10k packets
+            snaplen: 65535,       // Full packet capture by default
+            interface: String::new(), // First available interface
+            enabled: false,       // Disabled by default
+            promiscuous: true,    // Promiscuous mode by default
         }
     }
 }
@@ -55,6 +61,8 @@ pub struct PacketRingBuffer {
     write_pos: usize,
     /// Total number of packets captured (may be > max_packets if wrapped)
     total_captured: u64,
+    /// Data link type from pcap (needed for PCAP file header)
+    datalink: i32,
 }
 
 impl PacketRingBuffer {
@@ -65,27 +73,22 @@ impl PacketRingBuffer {
             packets: Vec::new(),
             write_pos: 0,
             total_captured: 0,
+            datalink: 1, // DLT_EN10MB (Ethernet) as default
         }
     }
 
+    /// Set the data link type (called when capture starts)
+    pub fn set_datalink(&mut self, datalink: i32) {
+        self.datalink = datalink;
+    }
+
     /// Add a packet to the ring buffer
-    pub fn add_packet(&mut self, data: Vec<u8>, original_len: u32) {
-        let timestamp_us = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or(Duration::ZERO)
-            .as_micros() as u64;
-
-        // Truncate data if necessary
-        let truncated_data = if data.len() > self.config.snaplen as usize {
-            data[..self.config.snaplen as usize].to_vec()
-        } else {
-            data
-        };
-
+    pub fn add_packet(&mut self, ts_sec: i64, ts_usec: i64, orig_len: u32, data: Vec<u8>) {
         let packet = CapturedPacket {
-            timestamp_us,
-            original_len,
-            data: truncated_data,
+            ts_sec,
+            ts_usec,
+            orig_len,
+            data,
         };
 
         if self.packets.len() < self.config.max_packets {
@@ -120,7 +123,7 @@ impl PacketRingBuffer {
             packets_in_buffer: self.packets.len(),
             max_packets: self.config.max_packets,
             total_captured: self.total_captured,
-            snaplen: self.config.snaplen,
+            snaplen: self.config.snaplen as u32,
         }
     }
 
@@ -128,6 +131,11 @@ impl PacketRingBuffer {
     pub fn clear(&mut self) {
         self.packets.clear();
         self.write_pos = 0;
+    }
+
+    /// Get datalink type
+    pub fn datalink(&self) -> i32 {
+        self.datalink
     }
 }
 
@@ -166,10 +174,30 @@ impl PacketCaptureService {
         self.config.enabled
     }
 
-    /// Add a captured packet
-    pub fn add_packet(&self, data: Vec<u8>, original_len: u32) {
+    /// Get the configured interface
+    pub fn interface(&self) -> &str {
+        &self.config.interface
+    }
+
+    /// Get the snaplen
+    pub fn snaplen(&self) -> i32 {
+        self.config.snaplen
+    }
+
+    /// Get promiscuous mode setting
+    pub fn promiscuous(&self) -> bool {
+        self.config.promiscuous
+    }
+
+    /// Set the data link type (called when capture starts)
+    pub fn set_datalink(&self, datalink: i32) {
+        self.buffer.write().set_datalink(datalink);
+    }
+
+    /// Add a captured packet (called from capture thread)
+    pub fn add_packet(&self, ts_sec: i64, ts_usec: i64, orig_len: u32, data: Vec<u8>) {
         if self.config.enabled {
-            self.buffer.write().add_packet(data, original_len);
+            self.buffer.write().add_packet(ts_sec, ts_usec, orig_len, data);
         }
     }
 
@@ -191,38 +219,37 @@ impl PacketCaptureService {
     /// Generate PCAP file contents from captured packets
     /// Returns the raw bytes of a valid PCAP file
     pub fn generate_pcap(&self) -> Vec<u8> {
-        let packets = self.get_packets();
+        let buffer = self.buffer.read();
+        let packets = buffer.get_packets();
+        let datalink = buffer.datalink();
+        let snaplen = self.config.snaplen as u32;
+        drop(buffer);
+
         let mut output = Vec::new();
 
-        // PCAP file header (24 bytes)
-        // Magic number: 0xa1b2c3d4 (microsecond timestamps)
+        // PCAP file header (24 bytes) - same format as tcpdump/libpcap
+        // Magic number: 0xa1b2c3d4 (microsecond timestamps, little-endian)
         output.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
         // Version major: 2
         output.extend_from_slice(&2u16.to_le_bytes());
         // Version minor: 4
         output.extend_from_slice(&4u16.to_le_bytes());
-        // Timezone offset (GMT)
+        // Timezone offset (GMT) - always 0 for modern captures
         output.extend_from_slice(&0i32.to_le_bytes());
-        // Timestamp accuracy
+        // Timestamp accuracy - always 0
         output.extend_from_slice(&0u32.to_le_bytes());
         // Snapshot length
-        output.extend_from_slice(&self.config.snaplen.to_le_bytes());
-        // Link-layer header type: DLT_RAW (101) - raw IP packets
-        // Using DLT_EN10MB (1) for Ethernet frames
-        output.extend_from_slice(&1u32.to_le_bytes());
+        output.extend_from_slice(&snaplen.to_le_bytes());
+        // Link-layer header type (from libpcap)
+        output.extend_from_slice(&(datalink as u32).to_le_bytes());
 
-        // Write each packet
+        // Write each packet record
         for packet in packets {
-            // Packet header (16 bytes)
-            let ts_sec = (packet.timestamp_us / 1_000_000) as u32;
-            let ts_usec = (packet.timestamp_us % 1_000_000) as u32;
-            let incl_len = packet.data.len() as u32;
-            let orig_len = packet.original_len;
-
-            output.extend_from_slice(&ts_sec.to_le_bytes());
-            output.extend_from_slice(&ts_usec.to_le_bytes());
-            output.extend_from_slice(&incl_len.to_le_bytes());
-            output.extend_from_slice(&orig_len.to_le_bytes());
+            // Packet record header (16 bytes)
+            output.extend_from_slice(&(packet.ts_sec as u32).to_le_bytes());
+            output.extend_from_slice(&(packet.ts_usec as u32).to_le_bytes());
+            output.extend_from_slice(&(packet.data.len() as u32).to_le_bytes());
+            output.extend_from_slice(&packet.orig_len.to_le_bytes());
             
             // Packet data
             output.extend_from_slice(&packet.data);
@@ -232,136 +259,87 @@ impl PacketCaptureService {
     }
 }
 
-/// Start the packet capture background thread
-/// This uses raw sockets to capture all traffic
-#[cfg(target_os = "linux")]
+/// Start the packet capture using libpcap
+/// This captures packets exactly like tcpdump does
 pub fn start_packet_capture(service: Arc<PacketCaptureService>) {
     if !service.is_enabled() {
         tracing::info!("Packet capture is disabled");
         return;
     }
 
-    tracing::info!("Starting packet capture service...");
+    tracing::info!("Starting packet capture service with libpcap...");
 
-    // Start IPv4 capture thread
-    let service_v4 = service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = capture_loop_v4(service_v4).await {
-            tracing::error!("IPv4 packet capture error: {}", e);
+    // Spawn blocking task for pcap capture (pcap is not async-friendly)
+    let service_clone = service.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = run_pcap_capture(service_clone) {
+            tracing::error!("Packet capture error: {}", e);
         }
     });
-
-    // Start IPv6 capture thread  
-    let service_v6 = service.clone();
-    tokio::spawn(async move {
-        if let Err(e) = capture_loop_v6(service_v6).await {
-            tracing::error!("IPv6 packet capture error: {}", e);
-        }
-    });
-
-    tracing::info!("Packet capture service started");
 }
 
-#[cfg(target_os = "linux")]
-async fn capture_loop_v4(service: Arc<PacketCaptureService>) -> std::io::Result<()> {
-    use socket2::{Socket, Domain, Type};
+/// Run the libpcap capture loop in a blocking thread
+fn run_pcap_capture(service: Arc<PacketCaptureService>) -> Result<(), pcap::Error> {
+    use pcap::{Capture, Device};
 
-    // Create raw socket for all IP traffic
-    // ETH_P_IP = 0x0800 in network byte order
-    let socket = match Socket::new(
-        Domain::PACKET,
-        Type::RAW,
-        Some(socket2::Protocol::from(libc::ETH_P_IP.to_be() as i32)),
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Failed to create packet capture socket (requires CAP_NET_RAW): {}", e);
-            return Err(e);
+    // Determine which device to capture on
+    let device = if service.interface().is_empty() {
+        // Use the default device
+        Device::lookup()?.ok_or_else(|| pcap::Error::PcapError("No capture device found".into()))?
+    } else if service.interface() == "any" {
+        // Use the "any" pseudo-device on Linux
+        Device {
+            name: "any".to_string(),
+            desc: Some("Pseudo-device that captures on all interfaces".to_string()),
+            addresses: vec![],
+            flags: pcap::DeviceFlags::empty(),
+        }
+    } else {
+        // Use the specified interface
+        Device {
+            name: service.interface().to_string(),
+            desc: None,
+            addresses: vec![],
+            flags: pcap::DeviceFlags::empty(),
         }
     };
 
-    socket.set_nonblocking(true)?;
+    tracing::info!("Opening capture on device: {} ({:?})", device.name, device.desc);
 
-    // Convert to tokio socket
-    let std_socket: std::net::UdpSocket = socket.into();
-    let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
+    // Open the capture with libpcap
+    let mut cap = Capture::from_device(device)?
+        .snaplen(service.snaplen())
+        .promisc(service.promiscuous())
+        .timeout(1000) // 1 second timeout for periodic checking
+        .open()?;
 
-    tracing::info!("IPv4 packet capture started");
+    // Get the data link type and store it for PCAP file generation
+    let datalink = cap.get_datalink();
+    service.set_datalink(datalink.0);
+    tracing::info!("Capture started with datalink type: {:?}", datalink);
 
-    let mut buf = vec![0u8; 65536];
-    
+    // Capture loop
     loop {
-        match tokio_socket.recv(&mut buf).await {
-            Ok(size) => {
-                if size > 0 {
-                    let packet_data = buf[..size].to_vec();
-                    service.add_packet(packet_data, size as u32);
-                }
+        match cap.next_packet() {
+            Ok(packet) => {
+                // Extract timestamp from pcap packet header
+                let ts_sec = packet.header.ts.tv_sec;
+                let ts_usec = packet.header.ts.tv_usec;
+                let orig_len = packet.header.len;
+                let data = packet.data.to_vec();
+
+                service.add_packet(ts_sec, ts_usec, orig_len, data);
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No data available, continue
-                tokio::time::sleep(Duration::from_millis(1)).await;
+            Err(pcap::Error::TimeoutExpired) => {
+                // Timeout is normal, just continue
+                continue;
             }
             Err(e) => {
-                tracing::error!("IPv4 capture recv error: {}", e);
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                tracing::error!("Capture error: {}", e);
+                // Sleep briefly before retrying on error
+                std::thread::sleep(std::time::Duration::from_secs(1));
             }
         }
-    }
-}
-
-#[cfg(target_os = "linux")]
-async fn capture_loop_v6(service: Arc<PacketCaptureService>) -> std::io::Result<()> {
-    use socket2::{Socket, Domain, Type};
-
-    // Create raw socket for all IPv6 traffic
-    // ETH_P_IPV6 = 0x86DD in network byte order
-    let socket = match Socket::new(
-        Domain::PACKET,
-        Type::RAW,
-        Some(socket2::Protocol::from(libc::ETH_P_IPV6.to_be() as i32)),
-    ) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Failed to create IPv6 packet capture socket (requires CAP_NET_RAW): {}", e);
-            return Err(e);
-        }
-    };
-
-    socket.set_nonblocking(true)?;
-
-    // Convert to tokio socket
-    let std_socket: std::net::UdpSocket = socket.into();
-    let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
-
-    tracing::info!("IPv6 packet capture started");
-
-    let mut buf = vec![0u8; 65536];
-    
-    loop {
-        match tokio_socket.recv(&mut buf).await {
-            Ok(size) => {
-                if size > 0 {
-                    let packet_data = buf[..size].to_vec();
-                    service.add_packet(packet_data, size as u32);
-                }
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // No data available, continue
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
-            Err(e) => {
-                tracing::error!("IPv6 capture recv error: {}", e);
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-        }
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn start_packet_capture(service: Arc<PacketCaptureService>) {
-    if service.is_enabled() {
-        tracing::warn!("Packet capture is not implemented for this platform");
     }
 }
 
@@ -379,9 +357,9 @@ mod tests {
         let mut buffer = PacketRingBuffer::new(config);
 
         // Add 3 packets
-        buffer.add_packet(vec![1, 2, 3], 3);
-        buffer.add_packet(vec![4, 5, 6], 3);
-        buffer.add_packet(vec![7, 8, 9], 3);
+        buffer.add_packet(1000, 0, 3, vec![1, 2, 3]);
+        buffer.add_packet(1001, 0, 3, vec![4, 5, 6]);
+        buffer.add_packet(1002, 0, 3, vec![7, 8, 9]);
 
         let packets = buffer.get_packets();
         assert_eq!(packets.len(), 3);
@@ -400,11 +378,11 @@ mod tests {
         let mut buffer = PacketRingBuffer::new(config);
 
         // Add 5 packets (wraps around)
-        buffer.add_packet(vec![1], 1);
-        buffer.add_packet(vec![2], 1);
-        buffer.add_packet(vec![3], 1);
-        buffer.add_packet(vec![4], 1);
-        buffer.add_packet(vec![5], 1);
+        buffer.add_packet(1000, 0, 1, vec![1]);
+        buffer.add_packet(1001, 0, 1, vec![2]);
+        buffer.add_packet(1002, 0, 1, vec![3]);
+        buffer.add_packet(1003, 0, 1, vec![4]);
+        buffer.add_packet(1004, 0, 1, vec![5]);
 
         let packets = buffer.get_packets();
         assert_eq!(packets.len(), 3);
@@ -412,21 +390,6 @@ mod tests {
         assert_eq!(packets[0].data, vec![3]);
         assert_eq!(packets[1].data, vec![4]);
         assert_eq!(packets[2].data, vec![5]);
-    }
-
-    #[test]
-    fn test_truncation() {
-        let config = CaptureConfig {
-            max_packets: 10,
-            snaplen: 5,
-            ..Default::default()
-        };
-        let mut buffer = PacketRingBuffer::new(config);
-
-        buffer.add_packet(vec![1, 2, 3, 4, 5, 6, 7, 8], 8);
-        let packets = buffer.get_packets();
-        assert_eq!(packets[0].data, vec![1, 2, 3, 4, 5]);
-        assert_eq!(packets[0].original_len, 8);
     }
 
     #[test]
@@ -439,8 +402,11 @@ mod tests {
         };
         let service = PacketCaptureService::new(config);
 
+        // Set datalink type (Ethernet)
+        service.set_datalink(1);
+
         // Add a test packet
-        service.add_packet(vec![0x45, 0x00, 0x00, 0x20], 4);
+        service.add_packet(1700000000, 123456, 4, vec![0x45, 0x00, 0x00, 0x20]);
 
         let pcap = service.generate_pcap();
         
@@ -450,5 +416,15 @@ mod tests {
         // Check magic number
         let magic = u32::from_le_bytes([pcap[0], pcap[1], pcap[2], pcap[3]]);
         assert_eq!(magic, 0xa1b2c3d4);
+
+        // Check version
+        let version_major = u16::from_le_bytes([pcap[4], pcap[5]]);
+        let version_minor = u16::from_le_bytes([pcap[6], pcap[7]]);
+        assert_eq!(version_major, 2);
+        assert_eq!(version_minor, 4);
+
+        // Check datalink type
+        let datalink = u32::from_le_bytes([pcap[20], pcap[21], pcap[22], pcap[23]]);
+        assert_eq!(datalink, 1); // DLT_EN10MB
     }
 }

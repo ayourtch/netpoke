@@ -25,18 +25,25 @@ pub struct CaptureConfig {
     pub max_packets: usize,
     /// Maximum bytes per packet to capture (packets larger than this are truncated)
     #[serde(default = "default_snaplen")]
-    pub snaplen: u32,
-    /// Network interface to capture on (empty string means all interfaces)
+    pub snaplen: i32,
+    /// Network interface to capture on (empty string means first available, "any" for all)
     #[serde(default)]
     pub interface: String,
+    /// Enable promiscuous mode
+    #[serde(default = "default_promiscuous")]
+    pub promiscuous: bool,
 }
 
 fn default_max_packets() -> usize {
     10000
 }
 
-fn default_snaplen() -> u32 {
+fn default_snaplen() -> i32 {
     65535
+}
+
+fn default_promiscuous() -> bool {
+    true
 }
 
 impl Default for CaptureConfig {
@@ -46,6 +53,7 @@ impl Default for CaptureConfig {
             max_packets: default_max_packets(),
             snaplen: default_snaplen(),
             interface: String::new(),
+            promiscuous: default_promiscuous(),
         }
     }
 }

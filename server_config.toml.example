@@ -120,7 +120,7 @@ magic_keys = []
 survey_cookie_name = "survey_session_id"
 survey_timeout_seconds = 28800  # 8 hours
 
-# Packet Capture Configuration
+# Packet Capture Configuration (uses libpcap - same as tcpdump)
 [capture]
 # Enable packet capture for traffic analysis
 # Requires CAP_NET_RAW capability or root privileges
@@ -133,6 +133,11 @@ max_packets = 10000
 # 65535 = full packet capture
 snaplen = 65535
 
-# Network interface to capture on (empty string means all interfaces)
-# Currently interface filtering is not implemented - captures from all interfaces
+# Network interface to capture on
+# Empty string = use first available interface (like tcpdump default)
+# "any" = capture on all interfaces (Linux only)
+# "eth0", "wlan0", etc. = capture on specific interface
 interface = ""
+
+# Enable promiscuous mode (capture all packets, not just those addressed to this host)
+promiscuous = true
