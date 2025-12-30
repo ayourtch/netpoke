@@ -36,14 +36,6 @@ pub struct UdpPacketInfo {
     pub udp_checksum: u16,
 }
 
-/// Key for matching UDP packets in ICMP errors
-/// Uses destination address and UDP packet length for unique identification
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
-pub struct UdpPacketKey {
-    pub dest_addr: SocketAddr,
-    pub udp_length: u16,  // UDP packet length (includes 8-byte UDP header + payload)
-}
-
 /// Maximum payload prefix size to store for matching (64 bytes)
 pub const MAX_PAYLOAD_PREFIX_SIZE: usize = 64;
 
@@ -97,20 +89,16 @@ pub struct PayloadPrefixKey {
 pub struct ChecksumKey {
     /// Destination address (IP + port)
     pub dest_addr: SocketAddr,
+    /// UDP packet length (includes 8-byte UDP header + payload)
+    pub udp_length: u16,
     /// UDP checksum
     pub udp_checksum: u16,
 }
 
 /// Manages tracked packets and provides lookup for ICMP correlation
 pub struct PacketTracker {
-    /// Maps packet key to tracked packet info (primary index using 5-tuple + length)
-    tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
-    
-    /// Secondary index: maps payload prefix to UdpPacketKey for faster payload-based lookup
-    payload_index: Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
-    
-    /// Tertiary index: maps (dest_addr, udp_checksum) to UdpPacketKey for checksum-based lookup
-    checksum_index: Arc<RwLock<HashMap<ChecksumKey, UdpPacketKey>>>,
+    /// Index: maps (dest_addr, udp_length, udp_checksum) for checksum-based lookup
+    checksum_index: Arc<RwLock<HashMap<ChecksumKey, TrackedPacket>>>,
     
     /// Queue of matched ICMP events
     pub(crate) event_queue: Arc<RwLock<Vec<TrackedPacketEvent>>>,
@@ -127,8 +115,6 @@ impl PacketTracker {
         let (tx, rx) = mpsc::unbounded_channel();
         
         let tracker = Self {
-            tracked_packets: Arc::new(RwLock::new(HashMap::new())),
-            payload_index: Arc::new(RwLock::new(HashMap::new())),
             checksum_index: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
             tracking_rx: Arc::new(tokio::sync::Mutex::new(rx)),
@@ -136,24 +122,20 @@ impl PacketTracker {
         };
         
         // Start cleanup task for expired tracked packets
-        let tracked_packets = tracker.tracked_packets.clone();
-        let payload_index = tracker.payload_index.clone();
         let checksum_index = tracker.checksum_index.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
-                Self::cleanup_expired(&tracked_packets, &payload_index, &checksum_index).await;
+                Self::cleanup_expired(&checksum_index).await;
             }
         });
         
         // Start tracking receiver task
         let tracking_rx = tracker.tracking_rx.clone();
-        let tracked_packets = tracker.tracked_packets.clone();
-        let payload_index = tracker.payload_index.clone();
         let checksum_index = tracker.checksum_index.clone();
         tokio::spawn(async move {
-            Self::tracking_receiver_task(tracking_rx, tracked_packets, payload_index, checksum_index).await;
+            Self::tracking_receiver_task(tracking_rx, checksum_index).await;
         });
         
         (tracker, tx)
@@ -208,11 +190,6 @@ impl PacketTracker {
         let now = Instant::now();
         let expires_at = now + std::time::Duration::from_millis(send_options.track_for_ms as u64);
         
-        let key = UdpPacketKey {
-            dest_addr,
-            udp_length,
-        };
-        
         // Extract first 64 bytes of UDP payload for payload-based matching
         let payload_prefix = if udp_packet.len() > 8 {
             let payload_start = 8;
@@ -235,21 +212,10 @@ impl PacketTracker {
             udp_checksum,
         };
         
-        let mut packets = self.tracked_packets.write().await;
-        packets.insert(key.clone(), tracked);
-        
-        if !payload_prefix.is_empty() {
-            let payload_key = PayloadPrefixKey { payload_prefix };
-            let mut payload_idx = self.payload_index.write().await;
-            payload_idx.insert(payload_key, key.clone());
-        }
-        
-        // Add to checksum index if checksum is non-zero
-        if udp_checksum != 0 {
-            let checksum_key = ChecksumKey { dest_addr, udp_checksum };
-            let mut checksum_idx = self.checksum_index.write().await;
-            checksum_idx.insert(checksum_key, key);
-        }
+        // Add to checksum index
+        let checksum_key = ChecksumKey { dest_addr, udp_length, udp_checksum };
+        let mut checksum_idx = self.checksum_index.write().await;
+        checksum_idx.insert(checksum_key, key);
     }
     
     /// Try to match an ICMP error packet with a tracked UDP packet
@@ -264,113 +230,32 @@ impl PacketTracker {
             embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
             embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len());
         
-        let mut packets = self.tracked_packets.write().await;
-        let mut payload_idx = self.payload_index.write().await;
         let mut checksum_idx = self.checksum_index.write().await;
-        tracing::debug!("Current tracked packets count: {}", packets.len());
+        tracing::debug!("Current tracked packets count: {}", checksum_idx.len());
         
         let mut matched: Option<TrackedPacket> = None;
         let mut match_type = "none";
         
-        // First, try checksum-based matching (most reliable since checksum includes all packet data)
+        // try checksum-based matching (most reliable since checksum includes all packet data)
         if embedded_udp_info.udp_checksum != 0 {
             let checksum_key = ChecksumKey {
                 dest_addr: embedded_udp_info.dest_addr,
+                udp_length: embedded_udp_info.udp_length,
                 udp_checksum: embedded_udp_info.udp_checksum,
             };
             
-            if let Some(key) = checksum_idx.remove(&checksum_key) {
-                if let Some(tracked) = packets.remove(&key) {
-                    tracing::debug!("CHECKSUM MATCH FOUND! checksum={:#06x}, dest={}, udp_length={}, tracked: {:?}",
-                        embedded_udp_info.udp_checksum, key.dest_addr, key.udp_length, &tracked);
-                    
-                    // Also remove from payload index if present
-                    if !tracked.payload_prefix.is_empty() {
-                        let payload_key = PayloadPrefixKey {
-                            payload_prefix: tracked.payload_prefix.clone(),
-                        };
-                        payload_idx.remove(&payload_key);
-                    }
-                    
-                    matched = Some(tracked);
-                    match_type = "checksum";
-                } else {
-                    tracing::debug!("Checksum index pointed to non-existent packet key");
-                }
+            if let Some(tracked) = checksum_idx.remove(&checksum_key) {
+		tracing::debug!("CHECKSUM MATCH FOUND! checksum={:#06x}, dest={}, udp_length={}, tracked: {:?}",
+		    embedded_udp_info.udp_checksum, tracked.dest_addr, checksum_key.udp_length, &tracked);
+		
+		matched = Some(tracked);
+		match_type = "checksum";
             } else {
                 tracing::debug!("No checksum match found");
             }
         }
 
-        let mut do_payload_match = false;
-        let mut do_fallback_match = false;
-        
-        // Second, try payload-based matching if we have payload data from the ICMP packet
-        if matched.is_none() && do_payload_match && !embedded_udp_info.payload_prefix.is_empty() {
-            let payload_key = PayloadPrefixKey {
-                payload_prefix: embedded_udp_info.payload_prefix.clone(),
-            };
-            
-            if let Some(key) = payload_idx.remove(&payload_key) {
-                if let Some(tracked) = packets.remove(&key) {
-                    tracing::debug!("PAYLOAD MATCH FOUND! payload_prefix_len={}, dest={}, udp_length={}",
-                        embedded_udp_info.payload_prefix.len(), key.dest_addr, key.udp_length);
-                    
-                    // Also remove from checksum index if present
-                    if tracked.udp_checksum != 0 {
-                        let checksum_key = ChecksumKey {
-                            dest_addr: tracked.dest_addr,
-                            udp_checksum: tracked.udp_checksum,
-                        };
-                        checksum_idx.remove(&checksum_key);
-                    }
-                    
-                    matched = Some(tracked);
-                    match_type = "payload";
-                } else {
-                    tracing::debug!("Payload index pointed to non-existent packet key");
-                }
-            } else {
-                tracing::debug!("No payload match found, trying fallback to destination + length");
-            }
-        }
-        
-        // Fallback: Match based on destination address and UDP length
-        if matched.is_none() && do_fallback_match {
-            let key = UdpPacketKey {
-                dest_addr: embedded_udp_info.dest_addr,
-                udp_length: embedded_udp_info.udp_length,
-            };
-            
-            if let Some(tracked) = packets.remove(&key) {
-                tracing::debug!("FALLBACK MATCH FOUND! dest={}, udp_length={}",
-                    embedded_udp_info.dest_addr, embedded_udp_info.udp_length);
-                
-                // Also remove from payload index if present
-                if !tracked.payload_prefix.is_empty() {
-                    let payload_key = PayloadPrefixKey {
-                        payload_prefix: tracked.payload_prefix.clone(),
-                    };
-                    payload_idx.remove(&payload_key);
-                }
-                
-                // Also remove from checksum index if present
-                if tracked.udp_checksum != 0 {
-                    let checksum_key = ChecksumKey {
-                        dest_addr: tracked.dest_addr,
-                        udp_checksum: tracked.udp_checksum,
-                    };
-                    checksum_idx.remove(&checksum_key);
-                }
-                
-                matched = Some(tracked);
-                match_type = "fallback";
-            }
-        }
-        
         // Release locks early to avoid holding them during callback
-        drop(packets);
-        drop(payload_idx);
         drop(checksum_idx);
         
         if let Some(tracked) = matched {
@@ -447,15 +332,13 @@ impl PacketTracker {
     
     /// Get current number of tracked packets
     pub async fn tracked_count(&self) -> usize {
-        self.tracked_packets.read().await.len()
+        self.checksum_index.read().await.len()
     }
     
     /// Task that receives tracking data from UDP layer and stores it
     async fn tracking_receiver_task(
         tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
-        tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
-        payload_index: Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
-        checksum_index: Arc<RwLock<HashMap<ChecksumKey, UdpPacketKey>>>,
+        checksum_index: Arc<RwLock<HashMap<ChecksumKey, TrackedPacket>>>,
     ) {
         let mut rx = tracking_rx.lock().await;
         
@@ -471,11 +354,6 @@ impl PacketTracker {
                 info.dest_addr, info.udp_length, info.udp_checksum, info.send_options.ttl, conn_id);
             
             let expires_at = info.sent_at + std::time::Duration::from_millis(info.send_options.track_for_ms as u64);
-            
-            let key = UdpPacketKey {
-                dest_addr: info.dest_addr,
-                udp_length: info.udp_length,
-            };
             
             // Extract first 64 bytes of cleartext for payload-based matching
             let payload_prefix: Vec<u8> = info.cleartext.iter()
@@ -498,29 +376,21 @@ impl PacketTracker {
                 udp_checksum: info.udp_checksum,
             };
             
-            let mut packets = tracked_packets.write().await;
-            packets.insert(key.clone(), tracked);
-            
-            // Add to payload index if we have a non-empty payload prefix
-            if !payload_prefix.is_empty() {
-                let payload_key = PayloadPrefixKey { payload_prefix };
-                let mut payload_idx = payload_index.write().await;
-                payload_idx.insert(payload_key, key.clone());
-            }
-            
             // Add to checksum index if we have a non-zero checksum
             if info.udp_checksum != 0 {
                 let checksum_key = ChecksumKey {
                     dest_addr: info.dest_addr,
+                    udp_length: info.udp_length,
                     udp_checksum: info.udp_checksum,
                 };
                 let mut checksum_idx = checksum_index.write().await;
-                tracing::debug!("Inserting CHECKSUM value: key {:?} = val {:?}", &checksum_key, &key);
-                checksum_idx.insert(checksum_key, key);
+                tracing::debug!("Inserting CHECKSUM value: key {:?} = val {:?}", &checksum_key, &tracked);
+                checksum_idx.insert(checksum_key, tracked);
+                let count = checksum_idx.len();
+                tracing::debug!("Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
+            } else {
+                tracing::debug!("Packet not tracked because UDP checksum is zero");
             }
-            
-            let count = packets.len();
-            tracing::debug!("Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
             
             tracing::debug!(
                 "Tracked packet from UDP layer: dest={}, udp_length={}, udp_checksum={:#06x}, ttl={:?}",
@@ -534,17 +404,13 @@ impl PacketTracker {
     
     /// Clean up expired tracking entries
     async fn cleanup_expired(
-        tracked_packets: &Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
-        payload_index: &Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
-        checksum_index: &Arc<RwLock<HashMap<ChecksumKey, UdpPacketKey>>>,
+        checksum_index: &Arc<RwLock<HashMap<ChecksumKey, TrackedPacket>>>,
     ) {
         let now = Instant::now();
-        let mut packets = tracked_packets.write().await;
-        let mut payload_idx = payload_index.write().await;
         let mut checksum_idx = checksum_index.write().await;
         
         // Collect expired entries and their payload prefixes and checksums
-        let expired_keys: Vec<(UdpPacketKey, Vec<u8>, SocketAddr, u16)> = packets
+        let expired_keys: Vec<(ChecksumKey, Vec<u8>, SocketAddr, u16)> = checksum_idx 
             .iter()
             .filter(|(_, tracked)| tracked.expires_at <= now)
             .map(|(key, tracked)| (key.clone(), tracked.payload_prefix.clone(), tracked.dest_addr, tracked.udp_checksum))
@@ -554,15 +420,7 @@ impl PacketTracker {
         
         // Remove from all indexes
         for (key, payload_prefix, dest_addr, udp_checksum) in expired_keys {
-            packets.remove(&key);
-            if !payload_prefix.is_empty() {
-                let payload_key = PayloadPrefixKey { payload_prefix };
-                payload_idx.remove(&payload_key);
-            }
-            if udp_checksum != 0 {
-                let checksum_key = ChecksumKey { dest_addr, udp_checksum };
-                checksum_idx.remove(&checksum_key);
-            }
+            checksum_idx.remove(&key);
         }
         
         if removed_count > 0 {

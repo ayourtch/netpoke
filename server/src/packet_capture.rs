@@ -332,7 +332,7 @@ fn run_pcap_capture(service: Arc<PacketCaptureService>) -> Result<(), pcap::Erro
                 let orig_len = packet.header.len;
                 let data = packet.data.to_vec();
 
-                service.add_packet(ts_sec, ts_usec, orig_len, data);
+                service.add_packet(ts_sec, ts_usec.into(), orig_len, data);
             }
             Err(pcap::Error::TimeoutExpired) => {
                 // Timeout is normal, just continue
