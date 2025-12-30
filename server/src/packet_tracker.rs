@@ -281,8 +281,8 @@ impl PacketTracker {
             
             if let Some(key) = checksum_idx.remove(&checksum_key) {
                 if let Some(tracked) = packets.remove(&key) {
-                    tracing::debug!("CHECKSUM MATCH FOUND! checksum={:#06x}, dest={}, udp_length={}",
-                        embedded_udp_info.udp_checksum, key.dest_addr, key.udp_length);
+                    tracing::debug!("CHECKSUM MATCH FOUND! checksum={:#06x}, dest={}, udp_length={}, tracked: {:?}",
+                        embedded_udp_info.udp_checksum, key.dest_addr, key.udp_length, &tracked);
                     
                     // Also remove from payload index if present
                     if !tracked.payload_prefix.is_empty() {
