@@ -386,8 +386,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     drop(last_error);
                     
                     tracing::warn!(
-                        "Unmatched ICMP error for session {} at address {} (count: {}/5) - ICMP embedded UDP: src_port={}, dest={}, udp_length={}, udp_checksum={:#06x}",
-                        session_id, dest_addr, count, src_port, dest_addr, udp_length, udp_checksum
+                        "Unmatched ICMP error for session {} at address {} (count: {}/5) - ICMP embedded UDP: src_port={}, udp_length={}, udp_checksum={:#06x}",
+                        session_id, dest_addr, count, src_port, udp_length, udp_checksum
                     );
                     
                     // Cleanup if threshold reached
