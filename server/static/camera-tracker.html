@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera + Motion Tracking</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            background: #000;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #video {
+            width: 100%;
+            height: 100vh;
+            object-fit: cover;
+        }
+        button {
+            display: block;
+            margin: 10px 0;
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:disabled {
+            background: #ccc;
+        }
+        button.danger {
+            background: #FF3B30;
+        }
+        .data {
+            font-family: monospace;
+            font-size: 11px;
+            margin: 5px 0;
+        }
+        .recording-item {
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .recording-item button {
+            margin: 5px 0;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+    </style>
+</head>
+<body>
+    <video id="video" playsinline autoplay></video>
+    
+    <div id="info">
+        <div id="status">Ready to start</div>
+        <button id="startBtn">Start Camera & Tracking</button>
+        <button id="stopBtn" style="display:none;">Stop Recording</button>
+        
+        <div id="metrics" style="display:none; margin-top:10px;">
+            <div class="data">Frames: <span id="frames">0</span></div>
+            <div class="data">GPS: <span id="gps">acquiring...</span></div>
+            <div class="data">Magnetometer: <span id="magnetometer">-</span></div>
+            <div class="data">Orientation: <span id="orientation">-</span></div>
+            <div class="data">Acceleration: <span id="acceleration">-</span></div>
+            <div class="data">Recording: <span id="duration">0.0s</span></div>
+            <div class="data">Video size: <span id="videoSize">0 MB</span></div>
+        </div>
+
+        <div id="recordings" style="margin-top: 20px;">
+            <h3 style="margin: 10px 0;">Saved Recordings</h3>
+            <div id="recordingsList"></div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const statusEl = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const metricsDiv = document.getElementById('metrics');
+        const framesEl = document.getElementById('frames');
+        const gpsEl = document.getElementById('gps');
+        const magnetometerEl = document.getElementById('magnetometer');
+        const orientationEl = document.getElementById('orientation');
+        const accelerationEl = document.getElementById('acceleration');
+        const durationEl = document.getElementById('duration');
+        const videoSizeEl = document.getElementById('videoSize');
+        const recordingsListEl = document.getElementById('recordingsList');
+
+        let stream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let motionData = [];
+        let frameCount = 0;
+        let startTime = 0;
+        let startTimeUTC = null;
+        let trackingInterval = null;
+        let currentRecordingId = null;
+        let gpsWatchId = null;
+        let currentGPS = null;
+        let lastMagnetometer = null;
+
+        // IndexedDB setup
+        let db = null;
+
+        function openDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('CameraTrackingDB', 1);
+                
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('recordings')) {
+                        db.createObjectStore('recordings', { keyPath: 'id' });
+                    }
+                };
+            });
+        }
+
+        async function saveRecording(id, videoBlob, motionData, metadata) {
+            const recording = {
+                id,
+                videoBlob,
+                motionData,
+                metadata,
+                timestamp: Date.now()
+            };
+            
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['recordings'], 'readwrite');
+                const store = transaction.objectStore('recordings');
+                const request = store.put(recording);
+                
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function getAllRecordings() {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['recordings'], 'readonly');
+                const store = transaction.objectStore('recordings');
+                const request = store.getAll();
+                
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function deleteRecording(id) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['recordings'], 'readwrite');
+                const store = transaction.objectStore('recordings');
+                const request = store.delete(id);
+                
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function updateRecordingsList() {
+            const recordings = await getAllRecordings();
+            
+            if (recordings.length === 0) {
+                recordingsListEl.innerHTML = '<p style="color:#888;">No recordings yet</p>';
+                return;
+            }
+
+            recordingsListEl.innerHTML = recordings.map(rec => {
+                const date = new Date(rec.timestamp);
+                const sizeInMB = (rec.videoBlob.size / (1024 * 1024)).toFixed(2);
+                return `
+                    <div class="recording-item">
+                        <div class="data">ID: ${rec.id}</div>
+                        <div class="data">Date: ${date.toLocaleString()}</div>
+                        <div class="data">Duration: ${rec.metadata.duration.toFixed(1)}s</div>
+                        <div class="data">Frames: ${rec.metadata.frameCount}</div>
+                        <div class="data">Size: ${sizeInMB} MB</div>
+                        <button onclick="downloadVideo('${rec.id}')">Download Video</button>
+                        <button onclick="downloadMotionData('${rec.id}')">Download Motion Data</button>
+                        <button class="danger" onclick="deleteRecordingById('${rec.id}')">Delete</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.downloadVideo = async function(id) {
+            const transaction = db.transaction(['recordings'], 'readonly');
+            const store = transaction.objectStore('recordings');
+            const request = store.get(id);
+            
+            request.onsuccess = () => {
+                const recording = request.result;
+                const videoUrl = URL.createObjectURL(recording.videoBlob);
+                const videoLink = document.createElement('a');
+                videoLink.href = videoUrl;
+                const extension = recording.metadata.mimeType.includes('mp4') ? 'mp4' : 'webm';
+                videoLink.download = `video_${id}.${extension}`;
+                videoLink.click();
+                setTimeout(() => URL.revokeObjectURL(videoUrl), 1000);
+            };
+        };
+
+        window.downloadMotionData = async function(id) {
+            const transaction = db.transaction(['recordings'], 'readonly');
+            const store = transaction.objectStore('recordings');
+            const request = store.get(id);
+            
+            request.onsuccess = () => {
+                const recording = request.result;
+                const motionJson = JSON.stringify({
+                    id,
+                    ...recording.metadata,
+                    motionData: recording.motionData
+                }, null, 2);
+                
+                const jsonBlob = new Blob([motionJson], { type: 'application/json' });
+                const jsonUrl = URL.createObjectURL(jsonBlob);
+                const jsonLink = document.createElement('a');
+                jsonLink.href = jsonUrl;
+                jsonLink.download = `motion_${id}.json`;
+                jsonLink.click();
+                setTimeout(() => URL.revokeObjectURL(jsonUrl), 1000);
+            };
+        };
+
+        window.deleteRecordingById = async function(id) {
+            if (confirm('Delete this recording?')) {
+                await deleteRecording(id);
+                await updateRecordingsList();
+            }
+        };
+
+        // Request device motion permission (iOS 13+)
+        async function requestMotionPermission() {
+            if (typeof DeviceMotionEvent !== 'undefined' && 
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        statusEl.textContent = 'Motion permission denied';
+                        return false;
+                    }
+                } catch (error) {
+                    statusEl.textContent = 'Error requesting motion permission';
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Request device orientation permission (iOS 13+)
+        async function requestOrientationPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        statusEl.textContent = 'Orientation permission denied';
+                        return false;
+                    }
+                } catch (error) {
+                    statusEl.textContent = 'Error requesting orientation permission';
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        async function startTracking() {
+            try {
+                // Request permissions
+                const motionOk = await requestMotionPermission();
+                const orientationOk = await requestOrientationPermission();
+                
+                if (!motionOk || !orientationOk) {
+                    return;
+                }
+
+                // Reset state
+                recordedChunks = [];
+                motionData = [];
+                frameCount = 0;
+                currentRecordingId = Date.now().toString();
+                startTime = Date.now();
+                startTimeUTC = new Date().toISOString();
+                currentGPS = null;
+
+                // Start GPS tracking
+                if (navigator.geolocation) {
+                    gpsWatchId = navigator.geolocation.watchPosition(
+                        (position) => {
+                            currentGPS = {
+                                latitude: position.coords.latitude,
+                                longitude: position.coords.longitude,
+                                altitude: position.coords.altitude,
+                                accuracy: position.coords.accuracy,
+                                altitudeAccuracy: position.coords.altitudeAccuracy,
+                                heading: position.coords.heading,
+                                speed: position.coords.speed,
+                                timestamp: new Date(position.timestamp).toISOString()
+                            };
+                        },
+                        (error) => {
+                            console.error('GPS error:', error);
+                        },
+                        {
+                            enableHighAccuracy: true,
+                            maximumAge: 0,
+                            timeout: 5000
+                        }
+                    );
+                }
+
+                // Get camera stream
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
+                    },
+                    audio: false
+                });
+
+                video.srcObject = stream;
+                
+                // Start recording - use webm for better iOS compatibility
+                const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+                
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: mimeType,
+                    videoBitsPerSecond: 2500000 // 2.5 Mbps
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.start(1000); // Record in 1s chunks
+
+                // Setup motion tracking
+                window.addEventListener('devicemotion', handleMotion);
+                window.addEventListener('deviceorientation', handleOrientation);
+
+                // Setup magnetometer if available (absolute orientation)
+                window.addEventListener('deviceorientationabsolute', handleMagnetometer);
+
+                // Update UI periodically
+                trackingInterval = setInterval(updateMetrics, 100);
+
+                statusEl.textContent = 'Recording...';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+                metricsDiv.style.display = 'block';
+
+            } catch (error) {
+                statusEl.textContent = 'Error: ' + error.message;
+                console.error(error);
+            }
+        }
+
+        let lastOrientation = null;
+        let lastAcceleration = null;
+
+        function handleOrientation(event) {
+            lastOrientation = {
+                alpha: event.alpha,
+                beta: event.beta,
+                gamma: event.gamma,
+                absolute: event.absolute
+            };
+        }
+
+        function handleMagnetometer(event) {
+            // This event provides compass-calibrated orientation
+            lastMagnetometer = {
+                alpha: event.alpha,  // Compass heading (0-360)
+                beta: event.beta,
+                gamma: event.gamma,
+                absolute: true
+            };
+        }
+
+        function handleMotion(event) {
+            const timestampRelative = Date.now() - startTime;
+            const timestampUTC = new Date().toISOString();
+            
+            lastAcceleration = {
+                x: event.acceleration?.x || 0,
+                y: event.acceleration?.y || 0,
+                z: event.acceleration?.z || 0
+            };
+
+            motionData.push({
+                timestampRelative,
+                timestampUTC,
+                gps: currentGPS ? { ...currentGPS } : null,
+                magnetometer: lastMagnetometer ? { ...lastMagnetometer } : null,
+                acceleration: lastAcceleration,
+                accelerationIncludingGravity: {
+                    x: event.accelerationIncludingGravity?.x || 0,
+                    y: event.accelerationIncludingGravity?.y || 0,
+                    z: event.accelerationIncludingGravity?.z || 0
+                },
+                rotationRate: {
+                    alpha: event.rotationRate?.alpha || 0,
+                    beta: event.rotationRate?.beta || 0,
+                    gamma: event.rotationRate?.gamma || 0
+                },
+                orientation: lastOrientation
+            });
+
+            frameCount++;
+        }
+
+        function updateMetrics() {
+            const elapsed = (Date.now() - startTime) / 1000;
+            framesEl.textContent = frameCount;
+            durationEl.textContent = elapsed.toFixed(1) + 's';
+
+            // Calculate approximate video size
+            const totalSize = recordedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
+            videoSizeEl.textContent = (totalSize / (1024 * 1024)).toFixed(2) + ' MB';
+
+            if (currentGPS) {
+                gpsEl.textContent = 
+                    `${currentGPS.latitude.toFixed(6)}, ${currentGPS.longitude.toFixed(6)} ` +
+                    `±${currentGPS.accuracy.toFixed(1)}m`;
+            } else {
+                gpsEl.textContent = 'acquiring...';
+            }
+
+            if (lastMagnetometer) {
+                magnetometerEl.textContent = 
+                    `heading:${lastMagnetometer.alpha?.toFixed(0) || '-'}° ` +
+                    `β:${lastMagnetometer.beta?.toFixed(0) || '-'}° ` +
+                    `γ:${lastMagnetometer.gamma?.toFixed(0) || '-'}°`;
+            } else {
+                magnetometerEl.textContent = 'not available';
+            }
+
+            if (lastOrientation) {
+                orientationEl.textContent = 
+                    `α:${lastOrientation.alpha?.toFixed(0) || '-'}° ` +
+                    `β:${lastOrientation.beta?.toFixed(0) || '-'}° ` +
+                    `γ:${lastOrientation.gamma?.toFixed(0) || '-'}°`;
+            }
+
+            if (lastAcceleration) {
+                accelerationEl.textContent = 
+                    `x:${lastAcceleration.x.toFixed(2)} ` +
+                    `y:${lastAcceleration.y.toFixed(2)} ` +
+                    `z:${lastAcceleration.z.toFixed(2)}`;
+            }
+        }
+
+        async function stopTracking() {
+            // Stop GPS tracking
+            if (gpsWatchId !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+                gpsWatchId = null;
+            }
+
+            // Stop recording
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            // Stop camera
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+
+            // Stop motion tracking
+            window.removeEventListener('devicemotion', handleMotion);
+            window.removeEventListener('deviceorientation', handleOrientation);
+            window.removeEventListener('deviceorientationabsolute', handleMagnetometer);
+            clearInterval(trackingInterval);
+
+            statusEl.textContent = 'Saving recording...';
+
+            // Wait for final chunks
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            // Create blob and save
+            const videoBlob = new Blob(recordedChunks, { 
+                type: mediaRecorder.mimeType 
+            });
+
+            const metadata = {
+                frameCount,
+                duration: (Date.now() - startTime) / 1000,
+                mimeType: mediaRecorder.mimeType,
+                startTimeUTC,
+                endTimeUTC: new Date().toISOString()
+            };
+
+            await saveRecording(currentRecordingId, videoBlob, motionData, metadata);
+            
+            statusEl.textContent = 'Recording saved!';
+            stopBtn.style.display = 'none';
+            startBtn.style.display = 'block';
+            metricsDiv.style.display = 'none';
+
+            await updateRecordingsList();
+        }
+
+        startBtn.addEventListener('click', startTracking);
+        stopBtn.addEventListener('click', stopTracking);
+
+        // Initialize
+        (async () => {
+            try {
+                db = await openDatabase();
+                await updateRecordingsList();
+            } catch (error) {
+                statusEl.textContent = 'Database error: ' + error.message;
+                console.error(error);
+            }
+        })();
+    </script>
+</body>
+</html>
