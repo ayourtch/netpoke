@@ -131,6 +131,9 @@ impl PacketRingBuffer {
     pub fn clear(&mut self) {
         self.packets.clear();
         self.write_pos = 0;
+        // Note: total_captured is intentionally NOT reset, as it represents
+        // the total packets captured since the service started, not since last clear.
+        // This is useful for monitoring packet throughput over the lifetime of the service.
     }
 
     /// Get datalink type
@@ -202,6 +205,7 @@ impl PacketCaptureService {
     }
 
     /// Get all captured packets in chronological order
+    #[allow(dead_code)]
     pub fn get_packets(&self) -> Vec<CapturedPacket> {
         self.buffer.read().get_packets()
     }
