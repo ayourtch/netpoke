@@ -271,3 +271,91 @@ pub fn init_tracing_with_buffer(
     tracing::subscriber::set_global_default(subscriber)
         .expect("Failed to set tracing subscriber");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_circular_buffer_basic() {
+        let buffer = TracingBuffer::new(3, true);
+        
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
+        buffer.add_entry(Level::WARN, "test".to_string(), "message 2".to_string());
+        buffer.add_entry(Level::ERROR, "test".to_string(), "message 3".to_string());
+        
+        let entries = buffer.get_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].message, "message 1");
+        assert_eq!(entries[1].message, "message 2");
+        assert_eq!(entries[2].message, "message 3");
+    }
+
+    #[test]
+    fn test_circular_buffer_overflow() {
+        let buffer = TracingBuffer::new(3, true);
+        
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 2".to_string());
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 3".to_string());
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 4".to_string());
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 5".to_string());
+        
+        let entries = buffer.get_entries();
+        assert_eq!(entries.len(), 3);
+        // Should contain the 3 most recent messages
+        assert_eq!(entries[0].message, "message 3");
+        assert_eq!(entries[1].message, "message 4");
+        assert_eq!(entries[2].message, "message 5");
+    }
+
+    #[test]
+    fn test_disabled_buffer() {
+        let buffer = TracingBuffer::new(3, false);
+        
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 2".to_string());
+        
+        let entries = buffer.get_entries();
+        assert_eq!(entries.len(), 0, "Disabled buffer should not store entries");
+    }
+
+    #[test]
+    fn test_clear_buffer() {
+        let buffer = TracingBuffer::new(3, true);
+        
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 2".to_string());
+        
+        assert_eq!(buffer.len(), 2);
+        
+        buffer.clear();
+        
+        assert_eq!(buffer.len(), 0);
+    }
+
+    #[test]
+    fn test_export_as_text() {
+        let buffer = TracingBuffer::new(3, true);
+        
+        buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
+        buffer.add_entry(Level::WARN, "test".to_string(), "message 2".to_string());
+        
+        let text = buffer.export_as_text();
+        assert!(text.contains("INFO"));
+        assert!(text.contains("WARN"));
+        assert!(text.contains("message 1"));
+        assert!(text.contains("message 2"));
+    }
+
+    #[test]
+    fn test_tracing_service() {
+        let service = TracingService::new(10, true);
+        
+        let stats = service.stats();
+        assert_eq!(stats.max_entries, 10);
+        assert_eq!(stats.entries_in_buffer, 0);
+        assert!(stats.enabled);
+        assert!(service.is_enabled());
+    }
+}
