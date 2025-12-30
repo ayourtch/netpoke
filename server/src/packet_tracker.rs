@@ -515,6 +515,7 @@ impl PacketTracker {
                     udp_checksum: info.udp_checksum,
                 };
                 let mut checksum_idx = checksum_index.write().await;
+                tracing::debug!("Inserting CHECKSUM value: key {:?} = val {:?}", &checksum_key, &key);
                 checksum_idx.insert(checksum_key, key);
             }
             
