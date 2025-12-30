@@ -120,18 +120,28 @@ impl TracingBuffer {
     }
 
     /// Export entries as formatted text with microsecond timestamps
+    /// 
+    /// Format includes both human-readable datetime (like Wireshark) and Unix epoch
+    /// for easy correlation with PCAP files
     pub fn export_as_text(&self) -> String {
         let entries = self.get_entries();
         let mut output = String::new();
 
         for entry in entries {
-            // Convert microseconds to human readable format
+            // Convert microseconds to seconds and microseconds parts
             let secs = entry.timestamp_us / 1_000_000;
             let micros = entry.timestamp_us % 1_000_000;
             
-            // Format: timestamp level target - message
+            // Convert to human-readable datetime (like Wireshark shows)
+            let datetime = chrono::DateTime::from_timestamp(secs as i64, (micros * 1000) as u32)
+                .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
+            
+            // Format: [human_datetime] (epoch.microseconds) LEVEL target - message
+            // Example: [2024-01-07 12:34:56.456789 UTC] (1704646496.456789) INFO server::main - Starting server
             output.push_str(&format!(
-                "{}.{:06} {} {} - {}\n",
+                "[{}.{:06} UTC] ({}.{:06}) {} {} - {}\n",
+                datetime.format("%Y-%m-%d %H:%M:%S"),
+                micros,
                 secs,
                 micros,
                 entry.level,
