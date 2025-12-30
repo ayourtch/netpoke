@@ -263,25 +263,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.tracing.enabled,
     ));
     
-    // Initialize logging with configured level and optional buffer
-    let log_level = config.logging.level.to_lowercase();
-    let env_filter = match log_level.as_str() {
-        "trace" => tracing::Level::TRACE,
-        "debug" => tracing::Level::DEBUG,
-        "info" => tracing::Level::INFO,
-        "warn" => tracing::Level::WARN,
-        "error" => tracing::Level::ERROR,
-        _ => tracing::Level::INFO,
-    };
-    
-    if config.tracing.enabled {
-        // Initialize with both console output and buffer
-        tracing_buffer::init_tracing_with_buffer(env_filter, &tracing_service);
+    // Initialize logging with configured level/filter and optional buffer
+    // If a filter directive is provided, use it for fine-grained control
+    // Otherwise, fall back to the simple level setting
+    if let Some(ref filter_directive) = config.logging.filter {
+        // Use EnvFilter for fine-grained log level control
+        if config.tracing.enabled {
+            if let Err(e) = tracing_buffer::init_tracing_with_filter(filter_directive, &tracing_service) {
+                eprintln!("Warning: Failed to initialize tracing with filter: {}. Using default.", e);
+                tracing_buffer::init_tracing_with_buffer(tracing::Level::INFO, &tracing_service);
+            }
+        } else {
+            // Standard console-only tracing with EnvFilter
+            use tracing_subscriber::EnvFilter;
+            match EnvFilter::try_new(filter_directive) {
+                Ok(env_filter) => {
+                    tracing_subscriber::fmt()
+                        .with_env_filter(env_filter)
+                        .init();
+                }
+                Err(e) => {
+                    eprintln!("Warning: Invalid filter directive '{}': {}. Using default.", filter_directive, e);
+                    tracing_subscriber::fmt()
+                        .with_max_level(tracing::Level::INFO)
+                        .init();
+                }
+            }
+        }
     } else {
-        // Standard console-only tracing
-        tracing_subscriber::fmt()
-            .with_max_level(env_filter)
-            .init();
+        // Use simple level-based filtering (backward compatible)
+        let log_level = config.logging.level.to_lowercase();
+        let level = match log_level.as_str() {
+            "trace" => tracing::Level::TRACE,
+            "debug" => tracing::Level::DEBUG,
+            "info" => tracing::Level::INFO,
+            "warn" => tracing::Level::WARN,
+            "error" => tracing::Level::ERROR,
+            _ => tracing::Level::INFO,
+        };
+        
+        if config.tracing.enabled {
+            // Initialize with both console output and buffer
+            tracing_buffer::init_tracing_with_buffer(level, &tracing_service);
+        } else {
+            // Standard console-only tracing
+            tracing_subscriber::fmt()
+                .with_max_level(level)
+                .init();
+        }
     }
 
     tracing::info!("Starting WiFi Verify Server");
@@ -289,7 +318,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  HTTP enabled: {}, port: {}", config.server.enable_http, config.server.http_port);
     tracing::info!("  HTTPS enabled: {}, port: {}", config.server.enable_https, config.server.https_port);
     tracing::info!("  Host: {}", config.server.host);
-    tracing::info!("  Log level: {}", config.logging.level);
+    if let Some(ref filter) = config.logging.filter {
+        tracing::info!("  Log filter: {}", filter);
+    } else {
+        tracing::info!("  Log level: {}", config.logging.level);
+    }
     tracing::info!("  CORS enabled: {}", config.security.enable_cors);
     
     // Log tracing buffer status

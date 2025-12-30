@@ -24,6 +24,15 @@ enable_https = false
 # Log level: trace, debug, info, warn, error
 level = "info"
 
+# Optional: Fine-grained log filter using tracing-subscriber's EnvFilter syntax
+# When specified, this takes precedence over the `level` setting above.
+# Examples:
+#   filter = "debug"                           # Set all targets to debug
+#   filter = "info,wifi_verify_server=debug"   # Default to info, server at debug
+#   filter = "debug,hyper=info,tokio=info"     # Debug all except hyper/tokio
+#   filter = "trace,webrtc=info"               # Trace all except webrtc crate
+# filter = "debug"
+
 [security]
 # Enable CORS (cross-origin resource sharing)
 enable_cors = true

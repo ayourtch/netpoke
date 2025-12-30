@@ -23,7 +23,7 @@ webrtc-util = { path = "../vendored/webrtc-util" }
 tokio-tungstenite = "*"
 futures = "*"
 tracing = "*"
-tracing-subscriber = "*"
+tracing-subscriber = { version = "*", features = ["env-filter"] }
 uuid = { version = "*", features = ["v4", "serde"] }
 config = { version = "*", features = ["toml"] }
 socket2 = { version = "0.5", features = ["all"] }

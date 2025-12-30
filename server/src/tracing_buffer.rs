@@ -282,6 +282,39 @@ pub fn init_tracing_with_buffer(
         .expect("Failed to set tracing subscriber");
 }
 
+/// Initialize the tracing subscriber with an EnvFilter directive for fine-grained control
+/// 
+/// The filter_directive follows tracing-subscriber's EnvFilter syntax:
+/// - "debug" - set all targets to debug level
+/// - "info,server=debug" - default to info, but set server crate to debug
+/// - "trace,tokio=info,hyper=info" - trace everything except tokio and hyper
+pub fn init_tracing_with_filter(
+    filter_directive: &str,
+    tracing_service: &TracingService,
+) -> Result<(), String> {
+    use tracing_subscriber::EnvFilter;
+    
+    let buffer_layer = TracingBufferLayer::new(tracing_service.buffer());
+    
+    // Parse the filter directive
+    let env_filter = EnvFilter::try_new(filter_directive)
+        .map_err(|e| format!("Invalid filter directive '{}': {}", filter_directive, e))?;
+    
+    // Clone the filter for the buffer layer (EnvFilter doesn't implement Clone, 
+    // so we need to parse it again)
+    let buffer_filter = EnvFilter::try_new(filter_directive)
+        .map_err(|e| format!("Invalid filter directive '{}': {}", filter_directive, e))?;
+    
+    let subscriber = Registry::default()
+        .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
+        .with(buffer_layer.with_filter(buffer_filter));
+    
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set tracing subscriber");
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

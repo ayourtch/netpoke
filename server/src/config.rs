@@ -102,6 +102,11 @@ pub struct ServerConfig {
 pub struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
+    /// Optional filter directive for fine-grained log level control.
+    /// Uses tracing-subscriber's EnvFilter syntax (e.g., "debug", "server=trace,auth=debug").
+    /// When specified, this takes precedence over the `level` setting.
+    #[serde(default)]
+    pub filter: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -124,6 +129,7 @@ impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
             level: default_log_level(),
+            filter: None,
         }
     }
 }
