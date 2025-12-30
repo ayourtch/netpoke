@@ -14,6 +14,8 @@ mod packet_tracking_api;
 mod tracking_channel;
 mod packet_capture;
 mod capture_api;
+mod tracing_buffer;
+mod tracing_api;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -37,12 +39,14 @@ use axum_server::tls_rustls::RustlsConfig;
 use axum::routing::IntoMakeService;
 
 use packet_capture::PacketCaptureService;
+use tracing_buffer::TracingService;
 
 
 fn get_make_service(
     app_state: state::AppState, 
     auth_service: Option<Arc<AuthService>>,
     capture_service: Arc<PacketCaptureService>,
+    tracing_service: Arc<TracingService>,
 ) -> IntoMakeService<axum::Router> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
@@ -67,6 +71,13 @@ fn get_make_service(
         .route("/api/capture/stats", get(capture_api::capture_stats))
         .route("/api/capture/clear", post(capture_api::clear_capture))
         .with_state(capture_service);
+    
+    // Tracing API routes - accessible with hybrid auth (both user and magic key)
+    let tracing_routes = Router::new()
+        .route("/api/tracing/download", get(tracing_api::download_tracing_buffer))
+        .route("/api/tracing/stats", get(tracing_api::tracing_stats))
+        .route("/api/tracing/clear", post(tracing_api::clear_tracing))
+        .with_state(tracing_service);
     
     // Add authentication if enabled
     let app = if let Some(auth_svc) = auth_service {
@@ -96,6 +107,13 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session
                 ));
             
+            // Tracing routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_tracing = tracing_routes
+                .route_layer(middleware::from_fn_with_state(
+                    auth_svc.clone(),
+                    survey_middleware::require_auth_or_survey_session
+                ));
+            
             // Protected dashboard routes - require full authentication
             let protected_dashboard = dashboard_routes
                 .route_layer(middleware::from_fn_with_state(
@@ -120,7 +138,7 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session
                 ));
             
-            // Combine: auth routes (public) + public API + public static files + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + dashboard (protected) + static (protected)
+            // Combine: auth routes (public) + public API + public static files + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + tracing (hybrid auth) + dashboard (protected) + static (protected)
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
@@ -130,6 +148,7 @@ fn get_make_service(
                 .merge(nettest_route)
                 .merge(hybrid_signaling)
                 .merge(hybrid_capture)
+                .merge(hybrid_tracing)
                 .merge(protected_dashboard)
                 .merge(protected_static)
                 .layer(TraceLayer::new_for_http())
@@ -140,6 +159,7 @@ fn get_make_service(
                 .merge(signaling_routes)
                 .merge(dashboard_routes)
                 .merge(capture_routes)
+                .merge(tracing_routes)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
                 .nest_service("/static", ServeDir::new("server/static"))
@@ -152,6 +172,7 @@ fn get_make_service(
             .merge(signaling_routes)
             .merge(dashboard_routes)
             .merge(capture_routes)
+            .merge(tracing_routes)
             .route_service("/", ServeFile::new("server/static/public/index.html"))
             .nest_service("/public", ServeDir::new("server/static/public"))
             .nest_service("/static", ServeDir::new("server/static"))
@@ -166,8 +187,9 @@ async fn http_server(
     app_state: state::AppState, 
     auth_service: Option<Arc<AuthService>>,
     capture_service: Arc<PacketCaptureService>,
+    tracing_service: Arc<TracingService>,
 ) {
-    let srv = get_make_service(app_state, auth_service, capture_service);
+    let srv = get_make_service(app_state, auth_service, capture_service, tracing_service);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -193,8 +215,9 @@ async fn https_server(
     app_state: state::AppState, 
     auth_service: Option<Arc<AuthService>>,
     capture_service: Arc<PacketCaptureService>,
+    tracing_service: Arc<TracingService>,
 ) {
-    let srv = get_make_service(app_state, auth_service, capture_service);
+    let srv = get_make_service(app_state, auth_service, capture_service, tracing_service);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -234,7 +257,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load configuration
     let config = config::Config::load_or_default();
     
-    // Initialize logging with configured level
+    // Initialize tracing service first
+    let tracing_service = Arc::new(TracingService::new(
+        config.tracing.max_log_entries,
+        config.tracing.enabled,
+    ));
+    
+    // Initialize logging with configured level and optional buffer
     let log_level = config.logging.level.to_lowercase();
     let env_filter = match log_level.as_str() {
         "trace" => tracing::Level::TRACE,
@@ -245,9 +274,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => tracing::Level::INFO,
     };
     
-    tracing_subscriber::fmt()
-        .with_max_level(env_filter)
-        .init();
+    if config.tracing.enabled {
+        // Initialize with both console output and buffer
+        tracing_buffer::init_tracing_with_buffer(env_filter, &tracing_service);
+    } else {
+        // Standard console-only tracing
+        tracing_subscriber::fmt()
+            .with_max_level(env_filter)
+            .init();
+    }
 
     tracing::info!("Starting WiFi Verify Server");
     tracing::info!("Configuration loaded:");
@@ -256,6 +291,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("  Host: {}", config.server.host);
     tracing::info!("  Log level: {}", config.logging.level);
     tracing::info!("  CORS enabled: {}", config.security.enable_cors);
+    
+    // Log tracing buffer status
+    if config.tracing.enabled {
+        tracing::info!("Tracing buffer enabled:");
+        tracing::info!("  Max log entries: {}", config.tracing.max_log_entries);
+    } else {
+        tracing::info!("Tracing buffer disabled");
+    }
     
     // Initialize packet tracker and ICMP listener
     let (app_state, peer_cleanup_rx) = state::AppState::new();
@@ -458,8 +501,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let auth_svc = auth_service.clone();
         let app_state_clone = app_state.clone();
         let capture_svc = capture_service.clone();
+        let tracing_svc = tracing_service.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, app_state_clone, auth_svc, capture_svc).await
+            http_server(http_config, app_state_clone, auth_svc, capture_svc, tracing_svc).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -470,8 +514,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let auth_svc = auth_service.clone();
         let app_state_clone = app_state.clone();
         let capture_svc = capture_service.clone();
+        let tracing_svc = tracing_service.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, app_state_clone, auth_svc, capture_svc).await
+            https_server(https_config, app_state_clone, auth_svc, capture_svc, tracing_svc).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

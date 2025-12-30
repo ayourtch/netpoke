@@ -12,6 +12,32 @@ pub struct Config {
     pub auth: AuthConfig,
     #[serde(default)]
     pub capture: CaptureConfig,
+    #[serde(default)]
+    pub tracing: TracingConfig,
+}
+
+/// Tracing buffer configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TracingConfig {
+    /// Enable tracing to circular buffer
+    #[serde(default)]
+    pub enabled: bool,
+    /// Maximum number of log entries to store in the ring buffer
+    #[serde(default = "default_max_log_entries")]
+    pub max_log_entries: usize,
+}
+
+fn default_max_log_entries() -> usize {
+    10000
+}
+
+impl Default for TracingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_log_entries: default_max_log_entries(),
+        }
+    }
 }
 
 /// Packet capture configuration
@@ -135,6 +161,7 @@ impl Default for Config {
             security: SecurityConfig::default(),
             auth: AuthConfig::default(),
             capture: CaptureConfig::default(),
+            tracing: TracingConfig::default(),
         }
     }
 }

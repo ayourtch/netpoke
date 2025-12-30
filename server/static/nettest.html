@@ -146,16 +146,25 @@
     </div>
 
     <div id="packet-capture-container" style="margin-top: 20px;">
-        <h2>Packet Capture</h2>
+        <h2>Packet Capture & Tracing</h2>
         <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
-            <em>Download captured network traffic as a PCAP file for analysis with Wireshark or tcpdump.</em>
+            <em>Download captured network traffic (PCAP) or server logs (tracing buffer) for analysis.</em>
         </p>
         <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-            <a id="download-pcap-btn" href="/api/capture/download" 
-               style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; font-weight: bold;">
-                📥 Download PCAP
-            </a>
-            <span id="capture-status" style="color: #666; font-size: 14px;">Checking capture status...</span>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <a id="download-pcap-btn" href="/api/capture/download" 
+                   style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-align: center;">
+                    📥 Download PCAP
+                </a>
+                <span id="capture-status" style="color: #666; font-size: 14px;">Checking capture status...</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
+                <a id="download-tracing-btn" href="/api/tracing/download" 
+                   style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-align: center;">
+                    📋 Download Tracing Log
+                </a>
+                <span id="tracing-status" style="color: #666; font-size: 14px;">Checking tracing status...</span>
+            </div>
         </div>
     </div>
 
@@ -996,11 +1005,48 @@
             }
         }
         
+        // Check tracing status and update UI
+        async function checkTracingStatus() {
+            const tracingStatusEl = document.getElementById('tracing-status');
+            const downloadBtn = document.getElementById('download-tracing-btn');
+            
+            try {
+                const response = await fetch('/api/tracing/stats');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.enabled) {
+                        tracingStatusEl.textContent = `Tracing active: ${data.entries_in_buffer} entries buffered (max: ${data.max_entries})`;
+                        tracingStatusEl.style.color = '#2196F3';
+                        downloadBtn.style.backgroundColor = '#2196F3';
+                        downloadBtn.style.pointerEvents = 'auto';
+                        downloadBtn.style.opacity = '1';
+                    } else {
+                        tracingStatusEl.textContent = 'Tracing disabled (enable in server config)';
+                        tracingStatusEl.style.color = '#999';
+                        downloadBtn.style.backgroundColor = '#ccc';
+                        downloadBtn.style.pointerEvents = 'none';
+                        downloadBtn.style.opacity = '0.6';
+                    }
+                } else {
+                    tracingStatusEl.textContent = 'Unable to check tracing status';
+                    tracingStatusEl.style.color = '#f44336';
+                }
+            } catch (e) {
+                tracingStatusEl.textContent = 'Error checking tracing status';
+                tracingStatusEl.style.color = '#f44336';
+                console.error('Tracing status check failed:', e);
+            }
+        }
+        
         // Check capture status on page load
         checkCaptureStatus();
         
-        // Periodically update capture status (every 5 seconds)
+        // Check tracing status on page load
+        checkTracingStatus();
+        
+        // Periodically update capture and tracing status (every 5 seconds)
         setInterval(checkCaptureStatus, 5000);
+        setInterval(checkTracingStatus, 5000);
 
         // Wrap in async IIFE for better Safari compatibility
         (async () => {

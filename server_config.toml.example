@@ -141,3 +141,13 @@ interface = ""
 
 # Enable promiscuous mode (capture all packets, not just those addressed to this host)
 promiscuous = true
+
+# Tracing Buffer Configuration (logs with microsecond timestamps)
+[tracing]
+# Enable tracing to circular buffer
+# When enabled, all log messages are stored in a circular buffer with microsecond timestamps
+# and can be downloaded via the web interface (next to PCAP download)
+enabled = false
+
+# Maximum number of log entries to store in the ring buffer
+max_log_entries = 10000
