@@ -11,6 +11,9 @@ use gloo_timers::callback::Interval;
 // Path analysis timeout in milliseconds (30 seconds)
 const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
 
+// Delay in milliseconds before starting chart data collection after Phase 1 finishes (10 seconds)
+const CHART_COLLECTION_DELAY_MS: u64 = 10000;
+
 // Mode constants for measurement type
 const MODE_TRACEROUTE: &str = "traceroute";
 const MODE_MEASUREMENT: &str = "measurement";
@@ -24,6 +27,8 @@ thread_local! {
     static ACTIVE_PEERS: RefCell<Vec<RtcPeerConnection>> = RefCell::new(Vec::new());
     static ACTIVE_INTERVALS: RefCell<Vec<Interval>> = RefCell::new(Vec::new());
     static IS_TESTING_ACTIVE: RefCell<bool> = RefCell::new(false);
+    // Timestamp (in ms) when chart data collection should begin (after delay period)
+    static CHART_COLLECTION_START_MS: RefCell<Option<u64>> = RefCell::new(None);
 }
 
 #[wasm_bindgen(start)]
@@ -122,6 +127,11 @@ fn clear_active_resources() {
     ACTIVE_INTERVALS.with(|intervals| {
         let mut intervals_mut = intervals.borrow_mut();
         intervals_mut.clear();
+    });
+    
+    // Reset chart collection start time
+    CHART_COLLECTION_START_MS.with(|start| {
+        *start.borrow_mut() = None;
     });
 }
 
@@ -501,6 +511,14 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
     log::info!("Client-side metrics cleared");
 
+    // Set the chart collection start time to now + delay
+    // This ensures the Live Metrics Graph only starts collecting data 10 seconds after Phase 1 finishes
+    let chart_start_time = current_time_ms() + CHART_COLLECTION_DELAY_MS;
+    CHART_COLLECTION_START_MS.with(|start| {
+        *start.borrow_mut() = Some(chart_start_time);
+    });
+    log::info!("Chart data collection will begin in {} seconds", CHART_COLLECTION_DELAY_MS / 1000);
+
     // PHASE 2: Start measurement loops on the same connections
     // Collect states for calculation and UI updates
     let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();
@@ -740,6 +758,18 @@ fn update_ui_connection(ip_version: &str, conn_index: usize, metrics: &common::C
 fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
     use wasm_bindgen::JsValue;
     use wasm_bindgen::JsCast;
+    
+    // Check if chart data collection should begin (after the delay period)
+    let should_collect = CHART_COLLECTION_START_MS.with(|start| {
+        match *start.borrow() {
+            Some(start_time) => current_time_ms() >= start_time,
+            None => true, // If no start time is set, allow collection (e.g., for start_measurement)
+        }
+    });
+    
+    if !should_collect {
+        return;
+    }
     
     let window = match window() {
         Some(w) => w,
