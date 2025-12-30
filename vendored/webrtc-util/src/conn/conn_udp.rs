@@ -154,6 +154,49 @@ fn get_socket_family(fd: std::os::unix::io::RawFd) -> Result<libc::sa_family_t> 
 }
 
 #[cfg(target_os = "linux")]
+/// Get the local address (source IP and port) bound to a socket
+/// 
+/// This is used to calculate the UDP checksum which requires the source address.
+/// 
+/// # Arguments
+/// * `fd` - The raw file descriptor of the socket
+/// 
+/// # Returns
+/// * `Ok(SocketAddr)` - The local socket address
+/// * `Err(Error)` - If getsockname() fails
+fn get_local_addr(fd: std::os::unix::io::RawFd) -> Result<SocketAddr> {
+    unsafe {
+        let mut addr: libc::sockaddr_storage = std::mem::zeroed();
+        let mut addr_len: libc::socklen_t = std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+        
+        let result = libc::getsockname(
+            fd,
+            &mut addr as *mut libc::sockaddr_storage as *mut libc::sockaddr,
+            &mut addr_len,
+        );
+        
+        if result < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        
+        // Parse the address based on family
+        if addr.ss_family == libc::AF_INET as libc::sa_family_t {
+            let addr_in = &addr as *const libc::sockaddr_storage as *const libc::sockaddr_in;
+            let ip = std::net::Ipv4Addr::from(u32::from_be((*addr_in).sin_addr.s_addr));
+            let port = u16::from_be((*addr_in).sin_port);
+            Ok(SocketAddr::V4(std::net::SocketAddrV4::new(ip, port)))
+        } else if addr.ss_family == libc::AF_INET6 as libc::sa_family_t {
+            let addr_in6 = &addr as *const libc::sockaddr_storage as *const libc::sockaddr_in6;
+            let ip = std::net::Ipv6Addr::from((*addr_in6).sin6_addr.s6_addr);
+            let port = u16::from_be((*addr_in6).sin6_port);
+            Ok(SocketAddr::V6(std::net::SocketAddrV6::new(ip, port, 0, 0)))
+        } else {
+            Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Unknown address family").into())
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
 fn sendmsg_with_options(
     fd: std::os::unix::io::RawFd,
     buf: &[u8],
@@ -325,9 +368,14 @@ fn sendmsg_with_options(
         // Track this packet for ICMP/ICMPv6 correlation if TTL/Hop Limit is set
         // Call the extern function from wifi-verify-server
         if let Some(ttl_value) = options.ttl {
+            // Get the local address (source IP and port) from the socket
+            let local_addr = get_local_addr(fd);
+            
             // Declare extern functions once
             extern "C" {
                 fn wifi_verify_track_udp_packet(
+                    src_ip_v4: u32,
+                    src_port: u16,
                     dest_ip_v4: u32,
                     dest_port: u16,
                     udp_length: u16,
@@ -339,6 +387,8 @@ fn sendmsg_with_options(
                 );
                 
                 fn wifi_verify_track_udp_packet_v6(
+                    src_ip_v6_ptr: *const u8,
+                    src_port: u16,
                     dest_ip_v6_ptr: *const u8,
                     dest_port: u16,
                     udp_length: u16,
@@ -356,11 +406,28 @@ fn sendmsg_with_options(
                     let dest_ip = u32::from_be_bytes(addr_v4.ip().octets());
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    log::debug!("Calling wifi_verify_track_udp_packet (IPv4): dest={}:{}, udp_length={}, ttl={}, conn_id={}",
+                    // Get source IP and port (use 0.0.0.0:0 if we can't get local addr)
+                    let (src_ip, src_port) = match local_addr {
+                        Ok(SocketAddr::V4(src)) => (u32::from_be_bytes(src.ip().octets()), src.port()),
+                        Ok(SocketAddr::V6(src)) => {
+                            // IPv6 socket sending to IPv4 - extract IPv4 from v6 if possible
+                            if let Some(v4) = src.ip().to_ipv4_mapped() {
+                                (u32::from_be_bytes(v4.octets()), src.port())
+                            } else {
+                                (0, src.port())
+                            }
+                        }
+                        Err(_) => (0, 0),
+                    };
+                    
+                    log::debug!("Calling wifi_verify_track_udp_packet (IPv4): src={}:{}, dest={}:{}, udp_length={}, ttl={}, conn_id={}",
+                        std::net::Ipv4Addr::from(src_ip), src_port,
                         addr_v4.ip(), addr_v4.port(), udp_length, ttl_value, options.conn_id);
                     
                     unsafe {
                         wifi_verify_track_udp_packet(
+                            src_ip,
+                            src_port,
                             dest_ip,
                             addr_v4.port(),
                             udp_length,
@@ -377,11 +444,25 @@ fn sendmsg_with_options(
                     let dest_ip = addr_v6.ip().octets();
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    log::debug!("Calling wifi_verify_track_udp_packet_v6 (IPv6): dest=[{}]:{}, udp_length={}, hop_limit={}, conn_id={}",
+                    // Get source IP and port
+                    let (src_ip, src_port): ([u8; 16], u16) = match local_addr {
+                        Ok(SocketAddr::V6(src)) => (src.ip().octets(), src.port()),
+                        Ok(SocketAddr::V4(src)) => {
+                            // IPv4 socket sending to IPv6 (unusual) - convert to IPv4-mapped IPv6
+                            let v6 = src.ip().to_ipv6_mapped();
+                            (v6.octets(), src.port())
+                        }
+                        Err(_) => ([0u8; 16], 0),
+                    };
+                    
+                    log::debug!("Calling wifi_verify_track_udp_packet_v6 (IPv6): src=[{}]:{}, dest=[{}]:{}, udp_length={}, hop_limit={}, conn_id={}",
+                        std::net::Ipv6Addr::from(src_ip), src_port,
                         addr_v6.ip(), addr_v6.port(), udp_length, ttl_value, options.conn_id);
                     
                     unsafe {
                         wifi_verify_track_udp_packet_v6(
+                            src_ip.as_ptr(),
+                            src_port,
                             dest_ip.as_ptr(),
                             addr_v6.port(),
                             udp_length,

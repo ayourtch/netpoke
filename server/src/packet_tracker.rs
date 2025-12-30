@@ -31,6 +31,9 @@ pub struct UdpPacketInfo {
     
     /// Connection ID for per-session event routing
     pub conn_id: String,
+    
+    /// UDP checksum for matching with ICMP errors
+    pub udp_checksum: u16,
 }
 
 /// Key for matching UDP packets in ICMP errors
@@ -73,6 +76,9 @@ pub struct TrackedPacket {
     
     /// Connection ID for per-session event routing
     pub conn_id: String,
+    
+    /// UDP checksum for matching with ICMP errors
+    pub udp_checksum: u16,
 }
 
 /// Callback type for handling unmatched ICMP errors
@@ -86,6 +92,15 @@ pub struct PayloadPrefixKey {
     pub payload_prefix: Vec<u8>,
 }
 
+/// Key for checksum-based matching (uses destination address + UDP checksum)
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+pub struct ChecksumKey {
+    /// Destination address (IP + port)
+    pub dest_addr: SocketAddr,
+    /// UDP checksum
+    pub udp_checksum: u16,
+}
+
 /// Manages tracked packets and provides lookup for ICMP correlation
 pub struct PacketTracker {
     /// Maps packet key to tracked packet info (primary index using 5-tuple + length)
@@ -93,6 +108,9 @@ pub struct PacketTracker {
     
     /// Secondary index: maps payload prefix to UdpPacketKey for faster payload-based lookup
     payload_index: Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
+    
+    /// Tertiary index: maps (dest_addr, udp_checksum) to UdpPacketKey for checksum-based lookup
+    checksum_index: Arc<RwLock<HashMap<ChecksumKey, UdpPacketKey>>>,
     
     /// Queue of matched ICMP events
     pub(crate) event_queue: Arc<RwLock<Vec<TrackedPacketEvent>>>,
@@ -111,6 +129,7 @@ impl PacketTracker {
         let tracker = Self {
             tracked_packets: Arc::new(RwLock::new(HashMap::new())),
             payload_index: Arc::new(RwLock::new(HashMap::new())),
+            checksum_index: Arc::new(RwLock::new(HashMap::new())),
             event_queue: Arc::new(RwLock::new(Vec::new())),
             tracking_rx: Arc::new(tokio::sync::Mutex::new(rx)),
             icmp_error_callback: Arc::new(RwLock::new(None)),
@@ -119,11 +138,12 @@ impl PacketTracker {
         // Start cleanup task for expired tracked packets
         let tracked_packets = tracker.tracked_packets.clone();
         let payload_index = tracker.payload_index.clone();
+        let checksum_index = tracker.checksum_index.clone();
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
             loop {
                 interval.tick().await;
-                Self::cleanup_expired(&tracked_packets, &payload_index).await;
+                Self::cleanup_expired(&tracked_packets, &payload_index, &checksum_index).await;
             }
         });
         
@@ -131,8 +151,9 @@ impl PacketTracker {
         let tracking_rx = tracker.tracking_rx.clone();
         let tracked_packets = tracker.tracked_packets.clone();
         let payload_index = tracker.payload_index.clone();
+        let checksum_index = tracker.checksum_index.clone();
         tokio::spawn(async move {
-            Self::tracking_receiver_task(tracking_rx, tracked_packets, payload_index).await;
+            Self::tracking_receiver_task(tracking_rx, tracked_packets, payload_index, checksum_index).await;
         });
         
         (tracker, tx)
@@ -156,6 +177,23 @@ impl PacketTracker {
         udp_length: u16,
         send_options: SendOptions,
         conn_id: String,
+    ) {
+        self.track_packet_with_checksum(cleartext, udp_packet, src_port, dest_addr, udp_length, send_options, conn_id, 0).await;
+    }
+    
+    /// Track a packet for ICMP correlation with explicit checksum (test-only helper)
+    /// In production, packets are tracked via the UDP layer FFI callback
+    #[cfg(test)]
+    pub async fn track_packet_with_checksum(
+        &self,
+        cleartext: Vec<u8>,
+        udp_packet: Vec<u8>,
+        src_port: u16,
+        dest_addr: SocketAddr,
+        udp_length: u16,
+        send_options: SendOptions,
+        conn_id: String,
+        udp_checksum: u16,
     ) {
         if send_options.track_for_ms == 0 {
             return;
@@ -188,6 +226,7 @@ impl PacketTracker {
             src_port,
             payload_prefix: payload_prefix.clone(),
             conn_id,
+            udp_checksum,
         };
         
         let mut packets = self.tracked_packets.write().await;
@@ -196,31 +235,69 @@ impl PacketTracker {
         if !payload_prefix.is_empty() {
             let payload_key = PayloadPrefixKey { payload_prefix };
             let mut payload_idx = self.payload_index.write().await;
-            payload_idx.insert(payload_key, key);
+            payload_idx.insert(payload_key, key.clone());
+        }
+        
+        // Add to checksum index if checksum is non-zero
+        if udp_checksum != 0 {
+            let checksum_key = ChecksumKey { dest_addr, udp_checksum };
+            let mut checksum_idx = self.checksum_index.write().await;
+            checksum_idx.insert(checksum_key, key);
         }
     }
     
     /// Try to match an ICMP error packet with a tracked UDP packet
-    /// First attempts payload-based matching (more reliable), then falls back to 5-tuple + length
+    /// Matching order: 1) checksum-based (most reliable), 2) payload-based, 3) destination + length fallback
     pub async fn match_icmp_error(
         &self,
         icmp_packet: Vec<u8>,
         embedded_udp_info: EmbeddedUdpInfo,
         router_ip: Option<String>,
     ) {
-        tracing::debug!("match_icmp_error called: src_port={}, dest={}, udp_length={}, payload_prefix_len={}", 
+        tracing::debug!("match_icmp_error called: src_port={}, dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}", 
             embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
-            embedded_udp_info.payload_prefix.len());
+            embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len());
         
         let mut packets = self.tracked_packets.write().await;
         let mut payload_idx = self.payload_index.write().await;
+        let mut checksum_idx = self.checksum_index.write().await;
         tracing::debug!("Current tracked packets count: {}", packets.len());
         
-        // First, try payload-based matching if we have payload data from the ICMP packet
         let mut matched: Option<TrackedPacket> = None;
         let mut match_type = "none";
         
-        if !embedded_udp_info.payload_prefix.is_empty() {
+        // First, try checksum-based matching (most reliable since checksum includes all packet data)
+        if embedded_udp_info.udp_checksum != 0 {
+            let checksum_key = ChecksumKey {
+                dest_addr: embedded_udp_info.dest_addr,
+                udp_checksum: embedded_udp_info.udp_checksum,
+            };
+            
+            if let Some(key) = checksum_idx.remove(&checksum_key) {
+                if let Some(tracked) = packets.remove(&key) {
+                    tracing::debug!("CHECKSUM MATCH FOUND! checksum={:#06x}, dest={}, udp_length={}",
+                        embedded_udp_info.udp_checksum, key.dest_addr, key.udp_length);
+                    
+                    // Also remove from payload index if present
+                    if !tracked.payload_prefix.is_empty() {
+                        let payload_key = PayloadPrefixKey {
+                            payload_prefix: tracked.payload_prefix.clone(),
+                        };
+                        payload_idx.remove(&payload_key);
+                    }
+                    
+                    matched = Some(tracked);
+                    match_type = "checksum";
+                } else {
+                    tracing::debug!("Checksum index pointed to non-existent packet key");
+                }
+            } else {
+                tracing::debug!("No checksum match found, trying payload-based matching");
+            }
+        }
+        
+        // Second, try payload-based matching if we have payload data from the ICMP packet
+        if matched.is_none() && !embedded_udp_info.payload_prefix.is_empty() {
             let payload_key = PayloadPrefixKey {
                 payload_prefix: embedded_udp_info.payload_prefix.clone(),
             };
@@ -229,17 +306,27 @@ impl PacketTracker {
                 if let Some(tracked) = packets.remove(&key) {
                     tracing::debug!("PAYLOAD MATCH FOUND! payload_prefix_len={}, dest={}, udp_length={}",
                         embedded_udp_info.payload_prefix.len(), key.dest_addr, key.udp_length);
+                    
+                    // Also remove from checksum index if present
+                    if tracked.udp_checksum != 0 {
+                        let checksum_key = ChecksumKey {
+                            dest_addr: tracked.dest_addr,
+                            udp_checksum: tracked.udp_checksum,
+                        };
+                        checksum_idx.remove(&checksum_key);
+                    }
+                    
                     matched = Some(tracked);
                     match_type = "payload";
                 } else {
                     tracing::debug!("Payload index pointed to non-existent packet key");
                 }
             } else {
-                tracing::debug!("No payload match found, trying fallback to 5-tuple + length");
+                tracing::debug!("No payload match found, trying fallback to destination + length");
             }
         }
         
-        // Fallback: Match based on destination address and UDP length (5-tuple + length)
+        // Fallback: Match based on destination address and UDP length
         if matched.is_none() {
             let key = UdpPacketKey {
                 dest_addr: embedded_udp_info.dest_addr,
@@ -258,6 +345,15 @@ impl PacketTracker {
                     payload_idx.remove(&payload_key);
                 }
                 
+                // Also remove from checksum index if present
+                if tracked.udp_checksum != 0 {
+                    let checksum_key = ChecksumKey {
+                        dest_addr: tracked.dest_addr,
+                        udp_checksum: tracked.udp_checksum,
+                    };
+                    checksum_idx.remove(&checksum_key);
+                }
+                
                 matched = Some(tracked);
                 match_type = "fallback";
             }
@@ -266,6 +362,7 @@ impl PacketTracker {
         // Release locks early to avoid holding them during callback
         drop(packets);
         drop(payload_idx);
+        drop(checksum_idx);
         
         if let Some(tracked) = matched {
             tracing::debug!("MATCH FOUND via {}: dest={}, udp_length={}, conn_id={}", 
@@ -295,9 +392,9 @@ impl PacketTracker {
                 embedded_udp_info.udp_length
             );
         } else {
-            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}, payload_prefix_len={}", 
+            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
-                embedded_udp_info.payload_prefix.len());
+                embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len());
             
             // Pass unmatched ICMP error to callback for session state to handle
             let callback = self.icmp_error_callback.read().await;
@@ -347,6 +444,7 @@ impl PacketTracker {
         tracking_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<UdpPacketInfo>>>,
         tracked_packets: Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
         payload_index: Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
+        checksum_index: Arc<RwLock<HashMap<ChecksumKey, UdpPacketKey>>>,
     ) {
         let mut rx = tracking_rx.lock().await;
         
@@ -358,8 +456,8 @@ impl PacketTracker {
             // Use conn_id directly from UdpPacketInfo (passed through from UdpSendOptions)
             let conn_id = info.conn_id.clone();
             
-            tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, ttl={:?}, conn_id={}", 
-                info.dest_addr, info.udp_length, info.send_options.ttl, conn_id);
+            tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, udp_checksum={:#06x}, ttl={:?}, conn_id={}", 
+                info.dest_addr, info.udp_length, info.udp_checksum, info.send_options.ttl, conn_id);
             
             let expires_at = info.sent_at + std::time::Duration::from_millis(info.send_options.track_for_ms as u64);
             
@@ -386,6 +484,7 @@ impl PacketTracker {
                 src_port: 0, // Not available at this layer
                 payload_prefix: payload_prefix.clone(),
                 conn_id,
+                udp_checksum: info.udp_checksum,
             };
             
             let mut packets = tracked_packets.write().await;
@@ -395,16 +494,27 @@ impl PacketTracker {
             if !payload_prefix.is_empty() {
                 let payload_key = PayloadPrefixKey { payload_prefix };
                 let mut payload_idx = payload_index.write().await;
-                payload_idx.insert(payload_key, key);
+                payload_idx.insert(payload_key, key.clone());
+            }
+            
+            // Add to checksum index if we have a non-zero checksum
+            if info.udp_checksum != 0 {
+                let checksum_key = ChecksumKey {
+                    dest_addr: info.dest_addr,
+                    udp_checksum: info.udp_checksum,
+                };
+                let mut checksum_idx = checksum_index.write().await;
+                checksum_idx.insert(checksum_key, key);
             }
             
             let count = packets.len();
             tracing::debug!("Packet tracked successfully (from UDP layer), total tracked packets: {}", count);
             
             tracing::debug!(
-                "Tracked packet from UDP layer: dest={}, udp_length={}, ttl={:?}",
+                "Tracked packet from UDP layer: dest={}, udp_length={}, udp_checksum={:#06x}, ttl={:?}",
                 info.dest_addr,
                 info.udp_length,
+                info.udp_checksum,
                 info.send_options.ttl
             );
         }
@@ -414,26 +524,32 @@ impl PacketTracker {
     async fn cleanup_expired(
         tracked_packets: &Arc<RwLock<HashMap<UdpPacketKey, TrackedPacket>>>,
         payload_index: &Arc<RwLock<HashMap<PayloadPrefixKey, UdpPacketKey>>>,
+        checksum_index: &Arc<RwLock<HashMap<ChecksumKey, UdpPacketKey>>>,
     ) {
         let now = Instant::now();
         let mut packets = tracked_packets.write().await;
         let mut payload_idx = payload_index.write().await;
+        let mut checksum_idx = checksum_index.write().await;
         
-        // Collect expired entries and their payload prefixes
-        let expired_keys: Vec<(UdpPacketKey, Vec<u8>)> = packets
+        // Collect expired entries and their payload prefixes and checksums
+        let expired_keys: Vec<(UdpPacketKey, Vec<u8>, SocketAddr, u16)> = packets
             .iter()
             .filter(|(_, tracked)| tracked.expires_at <= now)
-            .map(|(key, tracked)| (key.clone(), tracked.payload_prefix.clone()))
+            .map(|(key, tracked)| (key.clone(), tracked.payload_prefix.clone(), tracked.dest_addr, tracked.udp_checksum))
             .collect();
         
         let removed_count = expired_keys.len();
         
-        // Remove from both indexes
-        for (key, payload_prefix) in expired_keys {
+        // Remove from all indexes
+        for (key, payload_prefix, dest_addr, udp_checksum) in expired_keys {
             packets.remove(&key);
             if !payload_prefix.is_empty() {
                 let payload_key = PayloadPrefixKey { payload_prefix };
                 payload_idx.remove(&payload_key);
+            }
+            if udp_checksum != 0 {
+                let checksum_key = ChecksumKey { dest_addr, udp_checksum };
+                checksum_idx.remove(&checksum_key);
             }
         }
         
@@ -457,6 +573,7 @@ pub struct EmbeddedUdpInfo {
     pub dest_addr: SocketAddr,
     pub udp_length: u16,  // UDP packet length from UDP header
     pub payload_prefix: Vec<u8>,
+    pub udp_checksum: u16, // UDP checksum for matching
 }
 
 #[cfg(test)]
@@ -526,6 +643,7 @@ mod tests {
             dest_addr: dest,
             udp_length,
             payload_prefix: Vec::new(), // Empty payload (ICMP Time Exceeded)
+            udp_checksum: 0,
         };
         
         let fake_icmp = vec![0u8; 56]; // Fake ICMP packet
@@ -573,6 +691,7 @@ mod tests {
             dest_addr: dest,
             udp_length: 200,  // Different length!
             payload_prefix: Vec::new(),
+            udp_checksum: 0,
         };
         
         let fake_icmp = vec![0u8; 56];
@@ -646,6 +765,7 @@ mod tests {
                 dest_addr: dest,
                 udp_length: 100 + i, // Different UDP lengths so no packet is tracked
                 payload_prefix: Vec::new(),
+                udp_checksum: 0,
             };
             
             let fake_icmp = vec![0u8; 56];
@@ -704,6 +824,7 @@ mod tests {
             dest_addr: dest,
             udp_length: 200,
             payload_prefix: Vec::new(),
+            udp_checksum: 0,
         };
         
         let fake_icmp = vec![0u8; 56];
@@ -759,6 +880,7 @@ mod tests {
             dest_addr: dest,
             udp_length: 999, // Wrong UDP length
             payload_prefix: payload.clone(), // But matching payload!
+            udp_checksum: 0,
         };
         
         let fake_icmp = vec![0u8; 56];
@@ -807,6 +929,7 @@ mod tests {
             dest_addr: dest,
             udp_length,
             payload_prefix: Vec::new(), // No payload available
+            udp_checksum: 0,
         };
         
         let fake_icmp = vec![0u8; 56];
@@ -865,12 +988,14 @@ mod tests {
             dest_addr: dest1,
             udp_length: 100,
             payload_prefix: Vec::new(),
+            udp_checksum: 0,
         };
         let embedded_info2 = EmbeddedUdpInfo {
             src_port: 12345,
             dest_addr: dest2,
             udp_length: 200,
             payload_prefix: Vec::new(),
+            udp_checksum: 0,
         };
         
         tracker.match_icmp_error(vec![0u8; 56], embedded_info1, Some("10.0.0.1".to_string())).await;
@@ -894,5 +1019,159 @@ mod tests {
         
         // Queue should be empty now
         assert_eq!(tracker.drain_events().await.len(), 0);
+    }
+    
+    #[tokio::test]
+    async fn test_checksum_based_matching() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let udp_checksum = 0xABCD; // Specific checksum value
+        
+        // Track a packet with a specific checksum
+        tracker.track_packet_with_checksum(
+            vec![1, 2, 3, 4],  // cleartext
+            vec![0; 50],       // udp packet
+            12345,             // src port
+            dest,
+            150,               // udp_length
+            options,
+            "test-session".to_string(),
+            udp_checksum,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with WRONG UDP length but MATCHING checksum
+        // This tests that checksum matching takes priority over length matching
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 9999,     // Wrong length!
+            payload_prefix: Vec::new(), // No payload
+            udp_checksum,         // But matching checksum!
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, Some("router.example.com".to_string())).await;
+        
+        // Packet should have been matched via checksum
+        assert_eq!(tracker.tracked_count().await, 0);
+        
+        let events = tracker.drain_events().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].conn_id, "test-session");
+        assert_eq!(events[0].router_ip, Some("router.example.com".to_string()));
+    }
+    
+    #[tokio::test]
+    async fn test_checksum_no_match_wrong_checksum() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        
+        // Track a packet with checksum 0xABCD
+        tracker.track_packet_with_checksum(
+            vec![1, 2, 3, 4],
+            vec![0; 50],
+            12345,
+            dest,
+            150,
+            options,
+            String::new(),
+            0xABCD,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with DIFFERENT checksum and DIFFERENT length
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 9999,     // Wrong length
+            payload_prefix: Vec::new(),
+            udp_checksum: 0x1234, // Wrong checksum!
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, None).await;
+        
+        // Packet should NOT have been matched (wrong checksum and wrong length)
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Should have no events in the queue
+        let events = tracker.drain_events().await;
+        assert_eq!(events.len(), 0);
+    }
+    
+    #[tokio::test]
+    async fn test_checksum_takes_priority_over_payload() {
+        let (tracker, _tx) = PacketTracker::new();
+        
+        let options = SendOptions {
+            ttl: Some(1),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+        
+        let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
+        let payload = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let udp_checksum = 0xCAFE;
+        
+        // Create a fake UDP packet with payload
+        let mut udp_packet = vec![0u8; 8];
+        udp_packet.extend_from_slice(&payload);
+        
+        // Track a packet with both payload and checksum
+        tracker.track_packet_with_checksum(
+            payload.clone(),
+            udp_packet,
+            12345,
+            dest,
+            (8 + payload.len()) as u16,
+            options,
+            "checksum-priority".to_string(),
+            udp_checksum,
+        ).await;
+        
+        assert_eq!(tracker.tracked_count().await, 1);
+        
+        // Simulate ICMP error with matching checksum but no payload
+        // This tests that checksum matching is tried first
+        let embedded_info = EmbeddedUdpInfo {
+            src_port: 12345,
+            dest_addr: dest,
+            udp_length: 9999,     // Wrong length
+            payload_prefix: Vec::new(), // No payload (checksum should still match)
+            udp_checksum,         // Matching checksum
+        };
+        
+        let fake_icmp = vec![0u8; 56];
+        tracker.match_icmp_error(fake_icmp, embedded_info, Some("10.0.0.1".to_string())).await;
+        
+        // Packet should have been matched via checksum (not payload since payload is empty)
+        assert_eq!(tracker.tracked_count().await, 0);
+        
+        let events = tracker.drain_events().await;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].conn_id, "checksum-priority");
     }
 }

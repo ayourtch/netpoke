@@ -239,6 +239,12 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         packet[embedded_udp_start + 5],
     ]);
     
+    // Extract UDP checksum (offset 6-7 in UDP header)
+    let udp_checksum = u16::from_be_bytes([
+        packet[embedded_udp_start + 6],
+        packet[embedded_udp_start + 7],
+    ]);
+    
     // Extract first 64 bytes of UDP payload (for matching)
     // RFC 792 requires at least 8 bytes of original datagram to be included,
     // but many routers include more. We try to extract up to MAX_PAYLOAD_PREFIX_SIZE bytes.
@@ -249,16 +255,17 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     tracing::debug!("Parsed ICMP error successfully:");
     tracing::debug!("  ICMP type={}, code={}", icmp_type, icmp_code);
     tracing::debug!("  src_port={}, dest={}:{}", src_port, dest_ip, dest_port);
-    tracing::debug!("  udp_length={}", udp_length);
+    tracing::debug!("  udp_length={}, udp_checksum={:#06x}", udp_length, udp_checksum);
     tracing::debug!("  payload_prefix len={}", payload_prefix.len());
     
     tracing::debug!(
-        "Parsed ICMP error: type={}, src_port={}, dest={}:{}, udp_length={}, payload_bytes={}",
+        "Parsed ICMP error: type={}, src_port={}, dest={}:{}, udp_length={}, udp_checksum={:#06x}, payload_bytes={}",
         icmp_type,
         src_port,
         dest_ip,
         dest_port,
         udp_length,
+        udp_checksum,
         payload_prefix.len()
     );
     
@@ -267,6 +274,7 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         dest_addr: SocketAddr::new(IpAddr::V4(dest_ip), dest_port),
         udp_length,
         payload_prefix,
+        udp_checksum,
     })
 }
 
@@ -365,6 +373,12 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         packet[embedded_udp_start + 5],
     ]);
     
+    // Extract UDP checksum (offset 6-7 in UDP header)
+    let udp_checksum = u16::from_be_bytes([
+        packet[embedded_udp_start + 6],
+        packet[embedded_udp_start + 7],
+    ]);
+    
     // Extract first 64 bytes of UDP payload (for matching)
     // RFC 4443 requires at least 1280 bytes of the original packet to be included,
     // so we should have enough data to extract the full payload prefix.
@@ -375,16 +389,17 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
     tracing::debug!("Parsed ICMPv6 error successfully:");
     tracing::debug!("  ICMPv6 type={}, code={}", icmpv6_type, icmpv6_code);
     tracing::debug!("  src_port={}, dest=[{}]:{}", src_port, dest_ip, dest_port);
-    tracing::debug!("  udp_length={}", udp_length);
+    tracing::debug!("  udp_length={}, udp_checksum={:#06x}", udp_length, udp_checksum);
     tracing::debug!("  payload_prefix len={}", payload_prefix.len());
     
     tracing::debug!(
-        "Parsed ICMPv6 error: type={}, src_port={}, dest=[{}]:{}, udp_length={}, payload_bytes={}",
+        "Parsed ICMPv6 error: type={}, src_port={}, dest=[{}]:{}, udp_length={}, udp_checksum={:#06x}, payload_bytes={}",
         icmpv6_type,
         src_port,
         dest_ip,
         dest_port,
         udp_length,
+        udp_checksum,
         payload_prefix.len()
     );
     
@@ -393,6 +408,7 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         dest_addr: SocketAddr::new(IpAddr::V6(dest_ip), dest_port),
         udp_length,
         payload_prefix,
+        udp_checksum,
     })
 }
 
