@@ -124,17 +124,18 @@
         <h2>Traceroute Path Visualization</h2>
         <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</em></p>
         
-        <div style="margin-bottom: 20px;">
-            <h3 style="color: #2196F3;">IPv4 Path</h3>
-            <div id="traceroute-graph-ipv4" style="border: 1px solid #2196F3; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
-                <div style="text-align: center; color: #999; padding: 40px;">No IPv4 traceroute data available.</div>
+        <div class="dual-stack-container">
+            <div class="stack-column">
+                <h3 style="color: #2196F3;">IPv4 Path</h3>
+                <div id="traceroute-graph-ipv4" style="border: 1px solid #2196F3; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
+                    <div style="text-align: center; color: #999; padding: 40px;">No IPv4 traceroute data available.</div>
+                </div>
             </div>
-        </div>
-        
-        <div>
-            <h3 style="color: #FF9800;">IPv6 Path</h3>
-            <div id="traceroute-graph-ipv6" style="border: 1px solid #FF9800; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
-                <div style="text-align: center; color: #999; padding: 40px;">No IPv6 traceroute data available.</div>
+            <div class="stack-column">
+                <h3 style="color: #FF9800;">IPv6 Path</h3>
+                <div id="traceroute-graph-ipv6" style="border: 1px solid #FF9800; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
+                    <div style="text-align: center; color: #999; padding: 40px;">No IPv6 traceroute data available.</div>
+                </div>
             </div>
         </div>
     </div>
