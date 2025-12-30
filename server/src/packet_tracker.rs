@@ -298,12 +298,15 @@ impl PacketTracker {
                     tracing::debug!("Checksum index pointed to non-existent packet key");
                 }
             } else {
-                tracing::debug!("No checksum match found, trying payload-based matching");
+                tracing::debug!("No checksum match found");
             }
         }
+
+        let mut do_payload_match = false;
+        let mut do_fallback_match = false;
         
         // Second, try payload-based matching if we have payload data from the ICMP packet
-        if matched.is_none() && !embedded_udp_info.payload_prefix.is_empty() {
+        if matched.is_none() && do_payload_match && !embedded_udp_info.payload_prefix.is_empty() {
             let payload_key = PayloadPrefixKey {
                 payload_prefix: embedded_udp_info.payload_prefix.clone(),
             };
@@ -333,7 +336,7 @@ impl PacketTracker {
         }
         
         // Fallback: Match based on destination address and UDP length
-        if matched.is_none() {
+        if matched.is_none() && do_fallback_match {
             let key = UdpPacketKey {
                 dest_addr: embedded_udp_info.dest_addr,
                 udp_length: embedded_udp_info.udp_length,
