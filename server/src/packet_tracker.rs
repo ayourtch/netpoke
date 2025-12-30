@@ -390,10 +390,12 @@ impl PacketTracker {
                 original_dest_addr: embedded_udp_info.dest_addr.to_string(),
             };
             
+            tracing::debug!("Event added to queue for conn_id={}, event: {:?}", event.conn_id, event);
+            
             let mut queue = self.event_queue.write().await;
             queue.push(event);
             
-            tracing::debug!("Event added to queue, queue size: {}", queue.len());
+            tracing::debug!("Queue size after push: {}", queue.len());
             
             tracing::debug!(
                 "ICMP error matched to tracked packet: dest={}, udp_length={}",

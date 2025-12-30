@@ -559,6 +559,7 @@ pub async fn start_traceroute_sender(
                     tracing::debug!("Processing {} ICMP events for traceroute (conn_id={})", events.len(), session.conn_id);
                     
                     for event in events {
+                        tracing::debug!("Processing event from queue: {:?}", event);
                         
                         // Extract TTL from send options to determine hop number
                         // TTL should always be set in send_options for traceroute packets
