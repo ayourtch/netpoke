@@ -231,13 +231,19 @@ pub fn setup_bulk_channel(
 ) {
     let channel_clone = channel.clone();
 
+    let state_sender = state.clone();
     let onopen = Closure::wrap(Box::new(move || {
         log::info!("Bulk channel opened");
 
         // Start sending bulk data every 10ms
         let channel = channel_clone.clone();
+        let state_sender = state_sender.clone();
         
         let interval = gloo_timers::callback::Interval::new(10, move || {
+            if state_sender.borrow().traceroute_active {
+                /* do not send bulk data while traceroute is active */
+                return;
+            }
             let bulk = BulkPacket::new(1024);
             if let Ok(json) = serde_json::to_string(&bulk) {
                 if let Err(e) = channel.send_with_str(&json) {
