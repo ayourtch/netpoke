@@ -439,8 +439,9 @@ pub fn setup_testprobe_channel(channel: RtcDataChannel, state: Rc<RefCell<Measur
             }
             
             let now_ms = current_time_ms();
+            let ttl: i32 = testprobe.send_options.map(|so| so.ttl.map(|t| t as i32).unwrap_or(-1)).unwrap_or(-2);
             
-            log::debug!("Received test probe test_seq {} from server, echoing back", testprobe.test_seq);
+            log::debug!("conn {:?}: Received test probe test_seq {} ttl {} from server, echoing back", &testprobe.conn_id, testprobe.test_seq, ttl);
             
             // Echo test probe back to server with received timestamp
             testprobe.timestamp_ms = now_ms;
