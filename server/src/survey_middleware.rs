@@ -29,6 +29,9 @@ pub async fn require_auth_or_survey_session(
     if !auth_service.is_enabled() {
         return next.run(request).await;
     }
+
+    let headers = request.headers();
+    tracing::debug!("Request headers: {:?}", &headers);
     
     // Extract both session IDs from cookies
     let cookie_header = request
