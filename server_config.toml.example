@@ -114,6 +114,12 @@ cookie_name = "session_id"
 timeout_seconds = 86400  # 24 hours
 secure = false  # Set to true for HTTPS only cookies
 
+# Cookie secret for session encryption (base64 encoded, at least 64 bytes)
+# If not provided, a random secret is generated on startup
+# WARNING: Without a fixed secret, all sessions are invalidated on server restart!
+# To generate: openssl rand -base64 64
+# cookie_secret = "your-base64-encoded-secret-here"
+
 # Magic Key Authentication for Surveyors
 [auth.magic_keys]
 # Enable Magic Key authentication for field surveyors
