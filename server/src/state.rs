@@ -9,15 +9,65 @@ use common::ClientMetrics;
 use crate::packet_tracker::{PacketTracker, UdpPacketInfo};
 use tokio::sync::mpsc;
 
+
 #[derive(Clone)]
 pub struct AppState {
-    pub clients: Arc<RwLock<HashMap<String, Arc<ClientSession>>>>,
+    pub clients: Arc<InstrumentedRwLock<HashMap<String, Arc<ClientSession>>>>,
     pub packet_tracker: Arc<PacketTracker>,
     pub tracking_sender: mpsc::UnboundedSender<UdpPacketInfo>,
     pub server_start_time: Instant,
     /// Channel for sending peer connections that need to be closed
     /// This is used when signaling fails to prevent resource leaks
     pub peer_cleanup_sender: mpsc::UnboundedSender<Arc<RTCPeerConnection>>,
+}
+
+#[derive(Debug)]
+pub struct InstrumentedRwLock<T> {
+    inner: tokio::sync::RwLock<T>,
+    name: &'static str,
+    last_read_loc: Arc<std::sync::Mutex<Option<&'static str>>>,
+    last_write_loc: Arc<std::sync::Mutex<Option<&'static str>>>,
+}
+
+impl<T> InstrumentedRwLock<T> {
+    pub fn new(name: &'static str, d: T) -> Self {
+        Self { 
+            name, 
+            inner: RwLock::new(d),  
+            last_read_loc: Arc::new(std::sync::Mutex::new(None)),
+            last_write_loc: Arc::new(std::sync::Mutex::new(None)),
+
+        }
+    }
+
+    #[track_caller]
+    pub async fn read(&self, label: &'static str) -> tokio::sync::RwLockReadGuard<'_, T> {
+        // tracing::debug!("{}: waiting for read lock", self.name);
+        let guard = self.inner.read().await;
+        *self.last_read_loc.lock().unwrap() = Some(label);
+        // tracing::debug!("{}: acquired read lock", self.name);
+        guard
+    }
+
+    #[track_caller]
+    pub async fn write(&self, label: &'static str) -> tokio::sync::RwLockWriteGuard<'_, T> {
+        // tracing::debug!("{}: waiting for write lock", self.name);
+        let guard = self.inner.write().await;
+        *self.last_write_loc.lock().unwrap() = Some(label);
+        // tracing::debug!("{}: acquired write lock", self.name);
+        guard
+    }
+
+    pub fn dump_locations(&self) {
+        tracing::error!("=== Locations with locks: {} ===", self.name);
+        if let Some(loc) = *self.last_read_loc.lock().unwrap() {
+            tracing::error!("Last read: {}", loc);
+        }
+        if let Some(loc) = *self.last_write_loc.lock().unwrap() {
+            tracing::error!("Last write: {}", loc);
+        }
+    }
+
 }
 
 pub struct ClientSession {
@@ -104,7 +154,8 @@ impl AppState {
         let (tracker, tx) = PacketTracker::new();
         let (cleanup_tx, cleanup_rx) = mpsc::unbounded_channel();
         let state = Self {
-            clients: Arc::new(RwLock::new(HashMap::new())),
+            // clients: Arc::new(RwLock::new(HashMap::new())),
+            clients: Arc::new(InstrumentedRwLock::new("clients", HashMap::new())),
             packet_tracker: Arc::new(tracker),
             tracking_sender: tx,
             server_start_time: Instant::now(),

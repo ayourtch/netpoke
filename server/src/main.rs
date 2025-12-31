@@ -377,7 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let udp_length = embedded_info.udp_length;
             let src_port = embedded_info.src_port;
             tokio::spawn(async move {
-                let clients_guard = clients.read().await;
+                let clients_guard = clients.read("icmp_error_callback").await;
                 
                 tracing::debug!("ICMP error callback invoked for dest_addr: {}, total sessions: {}", 
                     dest_addr, clients_guard.len());
@@ -443,8 +443,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             session_id, dest_addr
                         );
                         
-                        let mut clients_write = clients.write().await;
-                        if let Some(session) = clients_write.get(&session_id) {
+                        let mut clients_write = clients.write("icmp cleanup write").await;
+                        if let Some(session) = clients_write.remove(&session_id) {
+                            // This is important - because we do not want to hold the lock across
+                            // .await boundary - this is prone to deadlocks
+                            drop(clients_write); 
                             // Close the WebRTC peer connection
                             if let Err(e) = session.peer_connection.close().await {
                                 tracing::warn!("Error closing peer connection for {}: {}", session_id, e);
@@ -452,7 +455,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 tracing::info!("Closed peer connection for {} due to ICMP errors", session_id);
                             }
                         }
-                        clients_write.remove(&session_id);
                     }
                 } else {
                     tracing::debug!("No session found for peer address {} (ICMP error dropped)", dest_addr);
@@ -599,7 +601,7 @@ async fn health_check() -> &'static str {
 }
 
 async fn dashboard_debug(State(state): State<AppState>) -> Json<DashboardMessage> {
-    let clients_lock = state.clients.read().await;
+    let clients_lock = state.clients.read("dashboard_debug").await;
     let mut clients_info = Vec::new();
 
     for (_, session) in clients_lock.iter() {
@@ -695,7 +697,7 @@ async fn dashboard_debug(State(state): State<AppState>) -> Json<DashboardMessage
 
 async fn server_diagnostics(State(state): State<AppState>) -> Json<common::ServerDiagnostics> {
     let server_uptime = state.server_start_time.elapsed().as_secs();
-    let clients_lock = state.clients.read().await;
+    let clients_lock = state.clients.read("server_diagnostics").await;
     
     let mut sessions = Vec::new();
     let mut connected_count = 0;

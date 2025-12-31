@@ -120,6 +120,8 @@ pub async fn signaling_start(
         req.conn_id.clone()
     };
 
+    tracing::info!("Created peer connection: {:?} ...", &peer);
+
     // Use provided parent_client_id or create a new one
     let parent_client_id = req.parent_client_id.unwrap_or_else(|| client_id.clone());
 
@@ -149,6 +151,7 @@ pub async fn signaling_start(
 
     // Set up data channel handlers
     data_channels::setup_data_channel_handlers(&peer, session.clone()).await;
+    tracing::info!("data channels setup done for {:?} ...", &peer);
 
     // Set up ICE candidate handler to send candidates back to client
     let client_id_for_ice = client_id.clone();
@@ -284,6 +287,7 @@ pub async fn signaling_start(
         }
     };
 
+    tracing::info!("start the filtering ...");
     // Filter SDP candidates based on IP version
     let filtered_sdp = filter_sdp_candidates(&answer_sdp, req.ip_version.as_ref());
     tracing::info!("Filtered SDP for {:?} connection, original candidates: {}, filtered candidates: {}",
@@ -291,7 +295,24 @@ pub async fn signaling_start(
         answer_sdp.matches("a=candidate:").count(),
         filtered_sdp.matches("a=candidate:").count());
 
-    state.clients.write().await.insert(client_id.clone(), session);
+    {
+        use tokio::time::{timeout, Duration};
+
+        tracing::info!("Inserting client....");
+        let mut clts = match timeout(Duration::from_secs(5), state.clients.write("signaling")).await {
+            Ok(g) => g,
+            Err(_) => {
+                state.clients.dump_locations();
+                tracing::error!("PANIC! Deadlock backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        };
+
+        // let mut clts = state.clients.write().await;
+        clts.insert(client_id.clone(), session);
+        drop(clts);
+        tracing::info!("Inserted client OK....");
+    }
 
     let response = SignalingStartResponse {
         client_id,
@@ -312,7 +333,7 @@ pub async fn ice_candidate(
     tracing::info!("Received ICE candidate for client {}", req.client_id);
     tracing::debug!("ICE candidate data: {}", &req.candidate);
 
-    let clients = state.clients.read().await;
+    let clients = state.clients.read("ice_candidate").await;
     let session = clients.get(&req.client_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 
@@ -375,7 +396,7 @@ pub async fn get_ice_candidates(
     State(state): State<AppState>,
     Json(req): Json<IceCandidateRequest>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
-    let clients = state.clients.read().await;
+    let clients = state.clients.read("get_ice_candidates").await;
     let session = clients.get(&req.client_id)
         .ok_or(StatusCode::NOT_FOUND)?;
 

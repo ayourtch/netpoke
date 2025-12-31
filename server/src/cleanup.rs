@@ -23,7 +23,7 @@ pub async fn cleanup_client_handler(
 ) -> impl IntoResponse {
     tracing::info!("Cleanup request for client: {}", client_id);
 
-    let mut clients = state.clients.write().await;
+    let clients = state.clients.read("cleanup_client_handler").await;
 
     tracing::info!("Current clients: {:?}", clients.keys().collect::<Vec<_>>());
 
@@ -70,6 +70,9 @@ pub async fn cleanup_client_handler(
             }
         }
     }
+
+    // Now get the clients in read-write mode
+    let mut clients = state.clients.write("cleanup_clients_write").await;
 
     // Now remove from the HashMap
     for id in to_remove {

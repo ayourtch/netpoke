@@ -54,6 +54,8 @@ pub async fn send_offer_with_mode(offer_sdp: String, parent_client_id: Option<St
     opts.set_mode(RequestMode::Cors);
     opts.set_body(&JsValue::from_str(&body_str));
 
+    log::debug!("JSON body: {}", &body_str);
+
     let url = format!("{}/api/signaling/start",
                      window.location().origin().map_err(|_| JsValue::from_str("No origin"))?);
 

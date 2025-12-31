@@ -29,7 +29,7 @@ async fn dashboard_ws(socket: WebSocket, state: AppState) {
             // Collect all client metrics
             // Clone Arc references first, then release lock to avoid blocking writes
             let sessions: Vec<_> = {
-                let clients_lock = state.clients.read().await;
+                let clients_lock = state.clients.read("dashboard").await;
                 let sessions = clients_lock.values().cloned().collect();
                 drop(clients_lock);
                 sessions
