@@ -67,7 +67,7 @@ impl GitHubProvider {
         let temp_state = OAuthTempState {
             auth_provider: AuthProvider::GitHub,
             handle: None,
-            access_token: None,
+            user_did: None,
             pkce_verifier: Some(pkce_verifier.secret().clone()),
             oauth_endpoints: None,
             dpop_private_key: None,

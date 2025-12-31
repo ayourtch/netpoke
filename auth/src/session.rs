@@ -46,8 +46,8 @@ pub struct OAuthTempState {
     /// User's handle/username (for Bluesky)
     pub handle: Option<String>,
     
-    /// Access token from OAuth provider (set after token exchange)
-    pub access_token: Option<String>,
+    /// User's DID (for Bluesky - resolved from handle)
+    pub user_did: Option<String>,
     
     /// PKCE verifier (temporary, cleared after token exchange)
     pub pkce_verifier: Option<String>,

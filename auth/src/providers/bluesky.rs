@@ -106,7 +106,7 @@ impl BlueskyProvider {
         let temp_state = OAuthTempState {
             auth_provider: AuthProvider::Bluesky,
             handle: Some(handle.to_string()),
-            access_token: Some(user_did), // Store user_did in access_token temporarily
+            user_did: Some(user_did),
             pkce_verifier: Some(pkce_verifier.secret().clone()),
             oauth_endpoints: Some(oauth_endpoints),
             dpop_private_key: Some(dpop_private_key),
@@ -128,7 +128,7 @@ impl BlueskyProvider {
             .ok_or_else(|| AuthError::InvalidSession)?;
         let oauth_endpoints = temp_state.oauth_endpoints.as_ref()
             .ok_or_else(|| AuthError::InvalidSession)?;
-        let user_did = temp_state.access_token.as_ref()
+        let user_did = temp_state.user_did.as_ref()
             .ok_or_else(|| AuthError::InvalidSession)?;
         let handle = temp_state.handle.as_ref()
             .ok_or_else(|| AuthError::InvalidSession)?;

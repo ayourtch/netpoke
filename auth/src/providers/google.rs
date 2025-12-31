@@ -67,7 +67,7 @@ impl GoogleProvider {
         let temp_state = OAuthTempState {
             auth_provider: AuthProvider::Google,
             handle: None,
-            access_token: None,
+            user_did: None,
             pkce_verifier: Some(pkce_verifier.secret().clone()),
             oauth_endpoints: None,
             dpop_private_key: None,

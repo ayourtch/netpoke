@@ -65,7 +65,7 @@ impl LinkedInProvider {
         let temp_state = OAuthTempState {
             auth_provider: AuthProvider::LinkedIn,
             handle: None,
-            access_token: None,
+            user_did: None,
             pkce_verifier: None,
             oauth_endpoints: None,
             dpop_private_key: None,

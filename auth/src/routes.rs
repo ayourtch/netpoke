@@ -64,8 +64,12 @@ async fn login_page(State(auth_state): State<AuthState>) -> Html<String> {
 }
 
 /// Helper to create session cookie
-fn create_session_cookie(auth_state: &AuthState, session_data: &SessionData) -> Cookie<'static> {
-    let session_json = serde_json::to_string(session_data).unwrap_or_default();
+fn create_session_cookie(auth_state: &AuthState, session_data: &SessionData) -> Result<Cookie<'static>, StatusCode> {
+    let session_json = serde_json::to_string(session_data)
+        .map_err(|e| {
+            tracing::error!("Failed to serialize session data: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     let cookie_name = auth_state.config.session.cookie_name.clone();
     let mut cookie = Cookie::new(cookie_name, session_json);
     cookie.set_path("/");
@@ -76,7 +80,7 @@ fn create_session_cookie(auth_state: &AuthState, session_data: &SessionData) -> 
     }
     // Set max age based on session timeout
     cookie.set_max_age(time::Duration::seconds(auth_state.config.session.timeout_seconds as i64));
-    cookie
+    Ok(cookie)
 }
 
 /// Helper to create OAuth state cookie (temporary, for OAuth flow)
@@ -108,7 +112,7 @@ async fn plain_login(
             StatusCode::UNAUTHORIZED
         })?;
     
-    let cookie = create_session_cookie(&auth_state, &session_data);
+    let cookie = create_session_cookie(&auth_state, &session_data)?;
     let updated_jar = jar.add(cookie);
     
     Ok((
@@ -189,7 +193,7 @@ async fn bluesky_callback(
     auth_state.remove_oauth_temp_state(&state_id).await;
     
     // Store session in private cookie
-    let session_cookie = create_session_cookie(&auth_state, &session_data);
+    let session_cookie = create_session_cookie(&auth_state, &session_data)?;
     let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
     
     Ok((updated_jar, Redirect::to("/").into_response()))
@@ -249,7 +253,7 @@ async fn github_callback(
     auth_state.remove_oauth_temp_state(&state_id).await;
     
     // Store session in private cookie
-    let session_cookie = create_session_cookie(&auth_state, &session_data);
+    let session_cookie = create_session_cookie(&auth_state, &session_data)?;
     let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
     
     Ok((updated_jar, Redirect::to("/").into_response()))
@@ -309,7 +313,7 @@ async fn google_callback(
     auth_state.remove_oauth_temp_state(&state_id).await;
     
     // Store session in private cookie
-    let session_cookie = create_session_cookie(&auth_state, &session_data);
+    let session_cookie = create_session_cookie(&auth_state, &session_data)?;
     let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
     
     Ok((updated_jar, Redirect::to("/").into_response()))
@@ -369,7 +373,7 @@ async fn linkedin_callback(
     auth_state.remove_oauth_temp_state(&state_id).await;
     
     // Store session in private cookie
-    let session_cookie = create_session_cookie(&auth_state, &session_data);
+    let session_cookie = create_session_cookie(&auth_state, &session_data)?;
     let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
     
     Ok((updated_jar, Redirect::to("/").into_response()))

@@ -105,8 +105,13 @@ fn collect_all_cookies(headers: &axum::http::HeaderMap) -> String {
         .get_all("cookie")
         .iter()
         .filter_map(|value| value.to_str().ok())
-        .collect::<Vec<_>>()
-        .join("; ")
+        .fold(String::new(), |mut acc, s| {
+            if !acc.is_empty() {
+                acc.push_str("; ");
+            }
+            acc.push_str(s);
+            acc
+        })
 }
 
 fn extract_session_id(cookie_str: &str, cookie_name: &str) -> Option<String> {
