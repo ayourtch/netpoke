@@ -10,7 +10,7 @@ pub enum AuthProvider {
     PlainLogin, // For future username/password auth
 }
 
-/// Session data stored for authenticated users
+/// Session data stored for authenticated users (stored in encrypted private cookie)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SessionData {
     /// Authentication provider used
@@ -25,8 +25,29 @@ pub struct SessionData {
     /// Display name
     pub display_name: Option<String>,
     
-    /// Access token from OAuth provider
-    pub access_token: String,
+    /// User's groups (for authorization)
+    #[serde(default)]
+    pub groups: Vec<String>,
+    
+    /// Session creation timestamp (Unix timestamp)
+    pub created_at: u64,
+}
+
+/// Temporary OAuth state stored during authentication flow
+/// This is stored server-side in memory (not in cookies) because:
+/// 1. It's only needed during the brief OAuth flow
+/// 2. It contains sensitive PKCE verifier
+/// 3. It's cleared after token exchange
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OAuthTempState {
+    /// Authentication provider used
+    pub auth_provider: AuthProvider,
+    
+    /// User's handle/username (for Bluesky)
+    pub handle: Option<String>,
+    
+    /// Access token from OAuth provider (set after token exchange)
+    pub access_token: Option<String>,
     
     /// PKCE verifier (temporary, cleared after token exchange)
     pub pkce_verifier: Option<String>,
@@ -37,7 +58,7 @@ pub struct SessionData {
     /// DPoP private key (for Bluesky)
     pub dpop_private_key: Option<String>,
     
-    /// Session creation timestamp (Unix timestamp)
+    /// State creation timestamp (Unix timestamp)
     pub created_at: u64,
 }
 
@@ -50,6 +71,17 @@ pub struct OAuthEndpoints {
 }
 
 impl SessionData {
+    pub fn is_expired(&self, timeout_seconds: u64) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        now - self.created_at > timeout_seconds
+    }
+}
+
+impl OAuthTempState {
     pub fn is_expired(&self, timeout_seconds: u64) -> bool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

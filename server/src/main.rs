@@ -31,7 +31,7 @@ use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
 use webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState;
 use rustls;
-use wifi_verify_auth::{AuthService, auth_routes, require_auth};
+use wifi_verify_auth::{AuthService, AuthState, auth_routes, require_auth};
 
 use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
@@ -44,7 +44,7 @@ use tracing_buffer::TracingService;
 
 fn get_make_service(
     app_state: state::AppState, 
-    auth_service: Option<Arc<AuthService>>,
+    auth_state: Option<AuthState>,
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
 ) -> IntoMakeService<axum::Router> {
@@ -80,44 +80,44 @@ fn get_make_service(
         .with_state(tracing_service);
     
     // Add authentication if enabled
-    let app = if let Some(auth_svc) = auth_service {
-        if auth_svc.is_enabled() && auth_svc.has_enabled_providers() {
+    let app = if let Some(auth_state) = auth_state {
+        if auth_state.is_enabled() && auth_state.has_enabled_providers() {
             tracing::info!("Authentication is enabled, adding auth routes and middleware");
             
             // Create auth routes with their own state
-            let auth_router = auth_routes().with_state(auth_svc.clone());
+            let auth_router = auth_routes().with_state(auth_state.clone());
             
             // Public API routes (auth status and magic key)
             let public_api = Router::new()
                 .route("/api/auth/status", get(auth_handlers::auth_status))
                 .route("/api/auth/magic-key", post(auth_handlers::magic_key_auth))
-                .with_state(auth_svc.clone());
+                .with_state(auth_state.clone());
             
             // Signaling routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
             let hybrid_signaling = signaling_routes
                 .route_layer(middleware::from_fn_with_state(
-                    auth_svc.clone(),
+                    auth_state.clone(),
                     survey_middleware::require_auth_or_survey_session
                 ));
             
             // Capture routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
             let hybrid_capture = capture_routes
                 .route_layer(middleware::from_fn_with_state(
-                    auth_svc.clone(),
+                    auth_state.clone(),
                     survey_middleware::require_auth_or_survey_session
                 ));
             
             // Tracing routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
             let hybrid_tracing = tracing_routes
                 .route_layer(middleware::from_fn_with_state(
-                    auth_svc.clone(),
+                    auth_state.clone(),
                     survey_middleware::require_auth_or_survey_session
                 ));
             
             // Protected dashboard routes - require full authentication
             let protected_dashboard = dashboard_routes
                 .route_layer(middleware::from_fn_with_state(
-                    auth_svc.clone(),
+                    auth_state.clone(),
                     require_auth
                 ));
             
@@ -125,7 +125,7 @@ fn get_make_service(
             let protected_static = Router::new()
                 .nest_service("/static", ServeDir::new("server/static"))
                 .route_layer(middleware::from_fn_with_state(
-                    auth_svc.clone(),
+                    auth_state.clone(),
                     require_auth
                 ));
             
@@ -134,7 +134,7 @@ fn get_make_service(
                 .route_service("/static/nettest.html", ServeFile::new("server/static/nettest.html"))
                 .nest_service("/static/lib", ServeDir::new("server/static/lib"))
                 .route_layer(middleware::from_fn_with_state(
-                    auth_svc.clone(),
+                    auth_state.clone(),
                     survey_middleware::require_auth_or_survey_session
                 ));
             
@@ -185,11 +185,11 @@ fn get_make_service(
 async fn http_server(
     config: config::ServerConfig, 
     app_state: state::AppState, 
-    auth_service: Option<Arc<AuthService>>,
+    auth_state: Option<AuthState>,
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
 ) {
-    let srv = get_make_service(app_state, auth_service, capture_service, tracing_service);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -213,11 +213,11 @@ async fn http_handler(uri: Uri) -> Redirect {
 async fn https_server(
     config: config::ServerConfig, 
     app_state: state::AppState, 
-    auth_service: Option<Arc<AuthService>>,
+    auth_state: Option<AuthState>,
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
 ) {
-    let srv = get_make_service(app_state, auth_service, capture_service, tracing_service);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -518,7 +518,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match AuthService::new(config.auth.clone()).await {
             Ok(svc) => {
                 tracing::info!("Authentication service initialized successfully");
-                Some(Arc::new(svc))
+                Some(AuthState::new(Arc::new(svc)))
             }
             Err(e) => {
                 tracing::error!("Failed to initialize authentication service: {}", e);
@@ -535,12 +535,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if config.server.enable_http {
         let http_config = config.server.clone();
-        let auth_svc = auth_service.clone();
+        let auth_state = auth_service.clone();
         let app_state_clone = app_state.clone();
         let capture_svc = capture_service.clone();
         let tracing_svc = tracing_service.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, app_state_clone, auth_svc, capture_svc, tracing_svc).await
+            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -548,12 +548,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if config.server.enable_https {
         let https_config = config.server.clone();
-        let auth_svc = auth_service.clone();
+        let auth_state = auth_service.clone();
         let app_state_clone = app_state.clone();
         let capture_svc = capture_service.clone();
         let tracing_svc = tracing_service.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, app_state_clone, auth_svc, capture_svc, tracing_svc).await
+            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

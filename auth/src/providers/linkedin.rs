@@ -1,8 +1,8 @@
 use crate::error::AuthError;
-use crate::session::{SessionData, AuthProvider};
+use crate::session::{SessionData, OAuthTempState, AuthProvider};
 use crate::config::OAuthConfig;
 use oauth2::{
-    basic::BasicClient, AuthUrl, ClientId, ClientSecret, CsrfToken,
+    basic::BasicClient, AuthUrl, ClientId, CsrfToken,
     RedirectUrl, Scope, TokenUrl,
 };
 use serde::Deserialize;
@@ -39,7 +39,7 @@ impl LinkedInProvider {
         })
     }
     
-    pub async fn start_auth(&self) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_auth(&self) -> Result<(String, OAuthTempState), AuthError> {
         let linkedin_client = BasicClient::new(
             ClientId::new(self.client_id.clone()),
             None,
@@ -62,25 +62,23 @@ impl LinkedInProvider {
             .unwrap()
             .as_secs();
         
-        let session_data = SessionData {
+        let temp_state = OAuthTempState {
             auth_provider: AuthProvider::LinkedIn,
-            user_id: String::new(),
-            handle: String::new(),
-            display_name: None,
-            access_token: String::new(),
+            handle: None,
+            access_token: None,
             pkce_verifier: None,
             oauth_endpoints: None,
             dpop_private_key: None,
             created_at: now,
         };
         
-        Ok((auth_url.to_string(), session_data))
+        Ok((auth_url.to_string(), temp_state))
     }
     
     pub async fn complete_auth(
         &self,
         code: &str,
-        _session_data: &SessionData,
+        _temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
         // LinkedIn requires manual token exchange
         let token_params = [
@@ -134,10 +132,7 @@ impl LinkedInProvider {
             user_id: format!("linkedin:{}", user_info.sub),
             handle: user_info.email.clone().unwrap_or_else(|| user_info.sub.clone()),
             display_name: user_info.name,
-            access_token,
-            pkce_verifier: None,
-            oauth_endpoints: None,
-            dpop_private_key: None,
+            groups: vec![],
             created_at: now,
         })
     }

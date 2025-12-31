@@ -4,10 +4,10 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use axum_extra::extract::cookie::PrivateCookieJar;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 use uuid::Uuid;
-use wifi_verify_auth::AuthService;
+use wifi_verify_auth::{AuthState, SessionData};
 
 #[derive(Deserialize)]
 pub struct MagicKeyRequest {
@@ -40,13 +40,21 @@ pub struct ErrorResponse {
     message: String,
 }
 
+/// Extract session data from PrivateCookieJar
+fn extract_session_from_jar(jar: &PrivateCookieJar, cookie_name: &str) -> Option<SessionData> {
+    jar.get(cookie_name)
+        .and_then(|cookie| {
+            serde_json::from_str(cookie.value()).ok()
+        })
+}
+
 /// Check authentication status
 pub async fn auth_status(
-    State(auth_service): State<Arc<AuthService>>,
-    headers: axum::http::HeaderMap,
+    State(auth_state): State<AuthState>,
+    jar: PrivateCookieJar,
 ) -> Json<AuthStatusResponse> {
     // Skip if auth is disabled
-    if !auth_service.is_enabled() {
+    if !auth_state.is_enabled() {
         return Json(AuthStatusResponse {
             authenticated: false,
             user: None,
@@ -54,14 +62,12 @@ pub async fn auth_status(
         });
     }
     
-    // Extract session ID from cookies
-    let session_id = extract_session_id(&headers, &auth_service.config.session.cookie_name);
-    
-    if let Some(session_id) = session_id {
+    // Try to extract session from private cookie
+    if let Some(session_data) = extract_session_from_jar(&jar, &auth_state.config.session.cookie_name) {
         // Validate session
-        if let Ok(session_data) = auth_service.validate_session(&session_id).await {
+        if auth_state.validate_session(&session_data).is_ok() {
             // Check if user is allowed
-            if auth_service.is_user_allowed(&session_data.handle) {
+            if auth_state.is_user_allowed(&session_data.handle) {
                 return Json(AuthStatusResponse {
                     authenticated: true,
                     user: Some(UserInfo {
@@ -86,13 +92,13 @@ pub async fn auth_status(
 
 /// Validate Magic Key and create survey session
 pub async fn magic_key_auth(
-    State(auth_service): State<Arc<AuthService>>,
+    State(auth_state): State<AuthState>,
     Json(payload): Json<MagicKeyRequest>,
 ) -> Result<Response, StatusCode> {
     // Check if Magic Key authentication is enabled
-    let magic_keys = auth_service.config.magic_keys.magic_keys.clone();
+    let magic_keys = auth_state.config.magic_keys.magic_keys.clone();
     
-    if !auth_service.config.magic_keys.enabled || magic_keys.is_empty() {
+    if !auth_state.config.magic_keys.enabled || magic_keys.is_empty() {
         return Err(StatusCode::NOT_FOUND);
     }
     
@@ -130,9 +136,9 @@ pub async fn magic_key_auth(
                 header::SET_COOKIE,
                 format!(
                     "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
-                    auth_service.config.magic_keys.survey_cookie_name,
+                    auth_state.config.magic_keys.survey_cookie_name,
                     survey_session_id,
-                    auth_service.config.magic_keys.survey_timeout_seconds
+                    auth_state.config.magic_keys.survey_timeout_seconds
                 ),
             ),
         ],
@@ -140,20 +146,4 @@ pub async fn magic_key_auth(
             "message": "Magic Key validated successfully"
         })),
     ).into_response())
-}
-
-fn extract_session_id(headers: &axum::http::HeaderMap, cookie_name: &str) -> Option<String> {
-    headers
-        .get("cookie")?
-        .to_str()
-        .ok()?
-        .split(';')
-        .find_map(|cookie| {
-            let parts: Vec<&str> = cookie.trim().split('=').collect();
-            if parts.len() == 2 && parts[0] == cookie_name {
-                Some(parts[1].to_string())
-            } else {
-                None
-            }
-        })
 }

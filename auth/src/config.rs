@@ -109,6 +109,12 @@ pub struct SessionConfig {
     /// Secure cookie (HTTPS only)
     #[serde(default)]
     pub secure: bool,
+    
+    /// Cookie secret for encrypting session data (base64 encoded, 64 bytes)
+    /// If not provided, a random secret is generated on startup
+    /// WARNING: If not set, sessions will not persist across server restarts
+    #[serde(default)]
+    pub cookie_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,6 +202,7 @@ impl Default for SessionConfig {
             cookie_name: default_session_cookie_name(),
             timeout_seconds: default_session_timeout(),
             secure: false,
+            cookie_secret: None,
         }
     }
 }

@@ -1,49 +1,58 @@
 use axum::{
-    extract::{Request, State},
+    extract::{Request, State, FromRequestParts},
     http::StatusCode,
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
 };
-use std::sync::Arc;
+use axum_extra::extract::cookie::PrivateCookieJar;
 
-use crate::service::AuthService;
+use crate::AuthState;
+use crate::session::SessionData;
 use crate::views::access_denied_page_html;
+
+/// Extract session data from PrivateCookieJar
+fn extract_session_from_jar(jar: &PrivateCookieJar, cookie_name: &str) -> Option<SessionData> {
+    jar.get(cookie_name)
+        .and_then(|cookie| {
+            serde_json::from_str(cookie.value()).ok()
+        })
+}
 
 /// Middleware to require authentication
 pub async fn require_auth(
-    State(auth_service): State<Arc<AuthService>>,
+    State(auth_state): State<AuthState>,
     request: Request,
     next: Next,
 ) -> Response {
     // Skip authentication if disabled
-    if !auth_service.is_enabled() {
+    if !auth_state.is_enabled() {
         return next.run(request).await;
     }
     
-    // Extract session ID from cookies
-    let session_id = request
-        .headers()
-        .get("cookie")
-        .and_then(|cookie| cookie.to_str().ok())
-        .and_then(|cookie_str| extract_session_id(cookie_str, &auth_service.config.session.cookie_name));
+    // Extract PrivateCookieJar from request
+    let (mut parts, body) = request.into_parts();
+    let jar = match PrivateCookieJar::from_request_parts(&mut parts, &auth_state).await {
+        Ok(jar) => jar,
+        Err(_) => {
+            return Redirect::to("/auth/login").into_response();
+        }
+    };
     
-    if let Some(session_id) = session_id {
-        // Validate session
-        match auth_service.validate_session(&session_id).await {
-            Ok(session_data) => {
-                // Check if user is in allowed list
-                if !auth_service.is_user_allowed(&session_data.handle) {
-                    tracing::warn!("Access denied for user: {}", session_data.handle);
-                    let html = access_denied_page_html(&session_data.handle);
-                    return (StatusCode::FORBIDDEN, Html(html)).into_response();
-                }
-                
-                // Session is valid and user is allowed, continue
-                return next.run(request).await;
+    // Try to extract session from private cookie
+    if let Some(session_data) = extract_session_from_jar(&jar, &auth_state.config.session.cookie_name) {
+        // Validate session (check expiration)
+        if auth_state.validate_session(&session_data).is_ok() {
+            // Check if user is in allowed list
+            if !auth_state.is_user_allowed(&session_data.handle) {
+                tracing::warn!("Access denied for user: {}", session_data.handle);
+                let html = access_denied_page_html(&session_data.handle);
+                return (StatusCode::FORBIDDEN, Html(html)).into_response();
             }
-            Err(e) => {
-                tracing::debug!("Session validation failed: {}", e);
-            }
+            
+            // Session is valid and user is allowed, continue
+            let mut request = Request::from_parts(parts, body);
+            request.extensions_mut().insert(session_data);
+            return next.run(request).await;
         }
     }
     
@@ -53,41 +62,34 @@ pub async fn require_auth(
 
 /// Middleware to optionally extract authentication info without requiring it
 pub async fn optional_auth(
-    State(auth_service): State<Arc<AuthService>>,
-    mut request: Request,
+    State(auth_state): State<AuthState>,
+    request: Request,
     next: Next,
 ) -> Response {
     // Skip if authentication is disabled
-    if !auth_service.is_enabled() {
+    if !auth_state.is_enabled() {
         return next.run(request).await;
     }
     
-    // Try to extract and validate session, but don't fail if it doesn't exist
-    let session_id = request
-        .headers()
-        .get("cookie")
-        .and_then(|cookie| cookie.to_str().ok())
-        .and_then(|cookie_str| extract_session_id(cookie_str, &auth_service.config.session.cookie_name));
+    // Extract PrivateCookieJar from request
+    let (mut parts, body) = request.into_parts();
+    let jar = match PrivateCookieJar::from_request_parts(&mut parts, &auth_state).await {
+        Ok(jar) => jar,
+        Err(_) => {
+            let request = Request::from_parts(parts, body);
+            return next.run(request).await;
+        }
+    };
     
-    if let Some(session_id) = session_id {
-        if let Ok(session_data) = auth_service.validate_session(&session_id).await {
+    // Try to extract session from private cookie
+    let mut request = Request::from_parts(parts, body);
+    if let Some(session_data) = extract_session_from_jar(&jar, &auth_state.config.session.cookie_name) {
+        // Validate session (check expiration)
+        if auth_state.validate_session(&session_data).is_ok() {
             // Store session data in request extensions for handlers to use
             request.extensions_mut().insert(session_data);
         }
     }
     
     next.run(request).await
-}
-
-fn extract_session_id(cookie_str: &str, cookie_name: &str) -> Option<String> {
-    cookie_str
-        .split(';')
-        .find_map(|cookie| {
-            let parts: Vec<&str> = cookie.trim().split('=').collect();
-            if parts.len() == 2 && parts[0] == cookie_name {
-                Some(parts[1].to_string())
-            } else {
-                None
-            }
-        })
 }

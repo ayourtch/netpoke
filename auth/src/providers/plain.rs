@@ -62,10 +62,7 @@ impl PlainLoginProvider {
             user_id: format!("local:{}", username),
             handle: username.to_string(),
             display_name: user.display_name.clone(),
-            access_token: String::new(), // No OAuth token for plain login
-            pkce_verifier: None,
-            oauth_endpoints: None,
-            dpop_private_key: None,
+            groups: vec![],
             created_at: now,
         })
     }

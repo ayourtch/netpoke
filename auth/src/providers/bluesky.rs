@@ -1,9 +1,9 @@
 use crate::error::AuthError;
-use crate::session::{OAuthEndpoints, SessionData, AuthProvider};
+use crate::session::{OAuthEndpoints, SessionData, OAuthTempState, AuthProvider};
 use crate::config::OAuthConfig;
 use oauth2::{
-    basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    PkceCodeChallenge, RedirectUrl, Scope, TokenUrl, TokenResponse,
+    basic::BasicClient, AuthUrl, ClientId, CsrfToken,
+    PkceCodeChallenge, RedirectUrl, Scope, TokenUrl,
 };
 use serde::Deserialize;
 use trust_dns_resolver::TokioAsyncResolver;
@@ -69,7 +69,7 @@ impl BlueskyProvider {
     }
     
     /// Start Bluesky OAuth flow
-    pub async fn start_auth(&self, handle: &str) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_auth(&self, handle: &str) -> Result<(String, OAuthTempState), AuthError> {
         tracing::info!("Starting Bluesky OAuth for handle: {}", handle);
         
         // Discover OAuth endpoints dynamically
@@ -103,32 +103,34 @@ impl BlueskyProvider {
             .unwrap()
             .as_secs();
         
-        let session_data = SessionData {
+        let temp_state = OAuthTempState {
             auth_provider: AuthProvider::Bluesky,
-            user_id: user_did,
-            handle: handle.to_string(),
-            display_name: None,
-            access_token: String::new(),
+            handle: Some(handle.to_string()),
+            access_token: Some(user_did), // Store user_did in access_token temporarily
             pkce_verifier: Some(pkce_verifier.secret().clone()),
             oauth_endpoints: Some(oauth_endpoints),
             dpop_private_key: Some(dpop_private_key),
             created_at: now,
         };
         
-        Ok((auth_url.to_string(), session_data))
+        Ok((auth_url.to_string(), temp_state))
     }
     
     /// Complete Bluesky OAuth flow
     pub async fn complete_auth(
         &self,
         code: &str,
-        session_data: &SessionData,
+        temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
-        let pkce_verifier = session_data.pkce_verifier.as_ref()
+        let pkce_verifier = temp_state.pkce_verifier.as_ref()
             .ok_or_else(|| AuthError::InvalidSession)?;
-        let dpop_key = session_data.dpop_private_key.as_ref()
+        let dpop_key = temp_state.dpop_private_key.as_ref()
             .ok_or_else(|| AuthError::InvalidSession)?;
-        let oauth_endpoints = session_data.oauth_endpoints.as_ref()
+        let oauth_endpoints = temp_state.oauth_endpoints.as_ref()
+            .ok_or_else(|| AuthError::InvalidSession)?;
+        let user_did = temp_state.access_token.as_ref()
+            .ok_or_else(|| AuthError::InvalidSession)?;
+        let handle = temp_state.handle.as_ref()
             .ok_or_else(|| AuthError::InvalidSession)?;
         
         let client = reqwest::Client::new();
@@ -203,7 +205,7 @@ impl BlueskyProvider {
         
         // Fetch profile
         let display_name = self.fetch_profile(
-            &session_data.user_id,
+            user_did,
             &access_token,
             dpop_key,
             &oauth_endpoints.service_endpoint,
@@ -216,13 +218,10 @@ impl BlueskyProvider {
         
         Ok(SessionData {
             auth_provider: AuthProvider::Bluesky,
-            user_id: session_data.user_id.clone(),
-            handle: session_data.handle.clone(),
+            user_id: user_did.clone(),
+            handle: handle.clone(),
             display_name,
-            access_token,
-            pkce_verifier: None,
-            oauth_endpoints: session_data.oauth_endpoints.clone(),
-            dpop_private_key: session_data.dpop_private_key.clone(),
+            groups: vec![],
             created_at: now,
         })
     }

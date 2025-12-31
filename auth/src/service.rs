@@ -1,7 +1,8 @@
 use crate::config::AuthConfig;
 use crate::error::AuthError;
-use crate::session::SessionData;
+use crate::session::{OAuthTempState, SessionData};
 use crate::providers::{BlueskyProvider, GitHubProvider, GoogleProvider, LinkedInProvider, PlainLoginProvider};
+use axum_extra::extract::cookie::Key;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -10,7 +11,11 @@ use trust_dns_resolver::TokioAsyncResolver;
 /// Main authentication service
 pub struct AuthService {
     pub config: AuthConfig,
-    pub sessions: Arc<RwLock<HashMap<String, SessionData>>>,
+    /// Temporary OAuth state storage (PKCE verifiers, etc.) - cleared after token exchange
+    /// This is still needed for OAuth flows since we can't store sensitive PKCE data in cookies
+    oauth_temp_states: Arc<RwLock<HashMap<String, OAuthTempState>>>,
+    /// Cookie encryption key for PrivateCookieJar
+    cookie_key: Key,
     bluesky_provider: Option<BlueskyProvider>,
     github_provider: Option<GitHubProvider>,
     google_provider: Option<GoogleProvider>,
@@ -20,7 +25,29 @@ pub struct AuthService {
 
 impl AuthService {
     pub async fn new(config: AuthConfig) -> Result<Self, AuthError> {
-        let sessions = Arc::new(RwLock::new(HashMap::new()));
+        let oauth_temp_states = Arc::new(RwLock::new(HashMap::new()));
+        
+        // Initialize cookie key from config or generate randomly
+        let cookie_key = if let Some(ref secret) = config.session.cookie_secret {
+            // Decode base64 secret
+            let secret_bytes = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                secret,
+            ).map_err(|e| AuthError::ConfigError(format!("Invalid cookie_secret base64: {}", e)))?;
+            
+            if secret_bytes.len() < 64 {
+                return Err(AuthError::ConfigError(format!(
+                    "cookie_secret must be at least 64 bytes when decoded, got {}",
+                    secret_bytes.len()
+                )));
+            }
+            
+            Key::try_from(&secret_bytes[..])
+                .map_err(|e| AuthError::ConfigError(format!("Invalid cookie_secret: {}", e)))?
+        } else {
+            tracing::warn!("No cookie_secret configured, generating random key. Sessions will not persist across server restarts.");
+            Key::generate()
+        };
         
         // Initialize enabled providers
         let bluesky_provider = if config.oauth.enable_bluesky {
@@ -57,13 +84,19 @@ impl AuthService {
         
         Ok(Self {
             config,
-            sessions,
+            oauth_temp_states,
+            cookie_key,
             bluesky_provider,
             github_provider,
             google_provider,
             linkedin_provider,
             plain_login_provider,
         })
+    }
+    
+    /// Get the cookie key for PrivateCookieJar
+    pub fn cookie_key(&self) -> Key {
+        self.cookie_key.clone()
     }
     
     /// Check if authentication is enabled
@@ -94,7 +127,7 @@ impl AuthService {
     }
     
     /// Start Bluesky authentication
-    pub async fn start_bluesky_auth(&self, handle: &str) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_bluesky_auth(&self, handle: &str) -> Result<(String, OAuthTempState), AuthError> {
         let provider = self.bluesky_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("Bluesky provider not enabled".to_string()))?;
         provider.start_auth(handle).await
@@ -104,15 +137,15 @@ impl AuthService {
     pub async fn complete_bluesky_auth(
         &self,
         code: &str,
-        session_data: &SessionData,
+        temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
         let provider = self.bluesky_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("Bluesky provider not enabled".to_string()))?;
-        provider.complete_auth(code, session_data).await
+        provider.complete_auth(code, temp_state).await
     }
     
     /// Start GitHub authentication
-    pub async fn start_github_auth(&self) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_github_auth(&self) -> Result<(String, OAuthTempState), AuthError> {
         let provider = self.github_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("GitHub provider not enabled".to_string()))?;
         provider.start_auth().await
@@ -122,15 +155,15 @@ impl AuthService {
     pub async fn complete_github_auth(
         &self,
         code: &str,
-        session_data: &SessionData,
+        temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
         let provider = self.github_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("GitHub provider not enabled".to_string()))?;
-        provider.complete_auth(code, session_data).await
+        provider.complete_auth(code, temp_state).await
     }
     
     /// Start Google authentication
-    pub async fn start_google_auth(&self) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_google_auth(&self) -> Result<(String, OAuthTempState), AuthError> {
         let provider = self.google_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("Google provider not enabled".to_string()))?;
         provider.start_auth().await
@@ -140,15 +173,15 @@ impl AuthService {
     pub async fn complete_google_auth(
         &self,
         code: &str,
-        session_data: &SessionData,
+        temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
         let provider = self.google_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("Google provider not enabled".to_string()))?;
-        provider.complete_auth(code, session_data).await
+        provider.complete_auth(code, temp_state).await
     }
     
     /// Start LinkedIn authentication
-    pub async fn start_linkedin_auth(&self) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_linkedin_auth(&self) -> Result<(String, OAuthTempState), AuthError> {
         let provider = self.linkedin_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("LinkedIn provider not enabled".to_string()))?;
         provider.start_auth().await
@@ -158,11 +191,11 @@ impl AuthService {
     pub async fn complete_linkedin_auth(
         &self,
         code: &str,
-        session_data: &SessionData,
+        temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
         let provider = self.linkedin_provider.as_ref()
             .ok_or_else(|| AuthError::ConfigError("LinkedIn provider not enabled".to_string()))?;
-        provider.complete_auth(code, session_data).await
+        provider.complete_auth(code, temp_state).await
     }
     
     /// Authenticate with plain login (username/password)
@@ -176,41 +209,37 @@ impl AuthService {
         provider.authenticate(username, password).await
     }
     
-    /// Store session data
-    pub async fn store_session(&self, session_id: String, session_data: SessionData) {
-        let mut sessions = self.sessions.write().await;
-        sessions.insert(session_id, session_data);
+    /// Store temporary OAuth state (PKCE verifier, etc.)
+    pub async fn store_oauth_temp_state(&self, state_id: String, temp_state: OAuthTempState) {
+        let mut states = self.oauth_temp_states.write().await;
+        states.insert(state_id, temp_state);
     }
     
-    /// Get session data
-    pub async fn get_session(&self, session_id: &str) -> Option<SessionData> {
-        let sessions = self.sessions.read().await;
-        sessions.get(session_id).cloned()
+    /// Get temporary OAuth state
+    pub async fn get_oauth_temp_state(&self, state_id: &str) -> Option<OAuthTempState> {
+        let states = self.oauth_temp_states.read().await;
+        states.get(state_id).cloned()
     }
     
-    /// Remove session (logout)
-    pub async fn remove_session(&self, session_id: &str) {
-        let mut sessions = self.sessions.write().await;
-        sessions.remove(session_id);
+    /// Remove temporary OAuth state (after token exchange)
+    pub async fn remove_oauth_temp_state(&self, state_id: &str) {
+        let mut states = self.oauth_temp_states.write().await;
+        states.remove(state_id);
     }
     
-    /// Validate session and check expiration
-    pub async fn validate_session(&self, session_id: &str) -> Result<SessionData, AuthError> {
-        let session_data = self.get_session(session_id).await
-            .ok_or(AuthError::SessionNotFound)?;
-        
+    /// Validate session data from cookie (check expiration)
+    pub fn validate_session(&self, session_data: &SessionData) -> Result<(), AuthError> {
         if session_data.is_expired(self.config.session.timeout_seconds) {
-            self.remove_session(session_id).await;
             return Err(AuthError::SessionExpired);
         }
-        
-        Ok(session_data)
+        Ok(())
     }
     
-    /// Clean up expired sessions
-    pub async fn cleanup_expired_sessions(&self) {
-        let mut sessions = self.sessions.write().await;
-        let timeout = self.config.session.timeout_seconds;
-        sessions.retain(|_, session| !session.is_expired(timeout));
+    /// Clean up expired OAuth temp states (called periodically or on access)
+    pub async fn cleanup_expired_oauth_states(&self) {
+        let mut states = self.oauth_temp_states.write().await;
+        // OAuth temp states expire after 10 minutes (should complete auth flow by then)
+        let timeout = 600u64;
+        states.retain(|_, state| !state.is_expired(timeout));
     }
 }

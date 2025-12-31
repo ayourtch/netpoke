@@ -10,6 +10,7 @@ tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 axum = { version = "0.8", features = ["ws"] }
+axum-extra = { version = "0.10", features = ["cookie-private"] }
 axum-server = { version = "*", features = ["tls-rustls"], default-features = false }
 rustls = { version = "*", features = ["ring"], default-features = false }
 rustls-webpki = { version = "*", features = ["ring"], default-features = false }

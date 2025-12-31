@@ -1,5 +1,5 @@
 use crate::error::AuthError;
-use crate::session::{SessionData, AuthProvider};
+use crate::session::{SessionData, OAuthTempState, AuthProvider};
 use crate::config::OAuthConfig;
 use oauth2::{
     basic::BasicClient, AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
@@ -39,7 +39,7 @@ impl GoogleProvider {
         })
     }
     
-    pub async fn start_auth(&self) -> Result<(String, SessionData), AuthError> {
+    pub async fn start_auth(&self) -> Result<(String, OAuthTempState), AuthError> {
         let google_client = BasicClient::new(
             ClientId::new(self.client_id.clone()),
             None,
@@ -64,25 +64,23 @@ impl GoogleProvider {
             .unwrap()
             .as_secs();
         
-        let session_data = SessionData {
+        let temp_state = OAuthTempState {
             auth_provider: AuthProvider::Google,
-            user_id: String::new(),
-            handle: String::new(),
-            display_name: None,
-            access_token: String::new(),
+            handle: None,
+            access_token: None,
             pkce_verifier: Some(pkce_verifier.secret().clone()),
             oauth_endpoints: None,
             dpop_private_key: None,
             created_at: now,
         };
         
-        Ok((auth_url.to_string(), session_data))
+        Ok((auth_url.to_string(), temp_state))
     }
     
     pub async fn complete_auth(
         &self,
         code: &str,
-        session_data: &SessionData,
+        temp_state: &OAuthTempState,
     ) -> Result<SessionData, AuthError> {
         let google_client = BasicClient::new(
             ClientId::new(self.client_id.clone()),
@@ -93,7 +91,7 @@ impl GoogleProvider {
         .set_redirect_uri(RedirectUrl::new(self.redirect_url.clone()).unwrap());
         
         let code = AuthorizationCode::new(code.to_string());
-        let pkce_verifier = session_data.pkce_verifier.as_ref()
+        let pkce_verifier = temp_state.pkce_verifier.as_ref()
             .map(|v| oauth2::PkceCodeVerifier::new(v.clone()));
         
         let mut token_request = google_client.exchange_code(code);
@@ -128,10 +126,7 @@ impl GoogleProvider {
             user_id: format!("google:{}", user_info.sub),
             handle: user_info.email.unwrap_or_else(|| user_info.sub.clone()),
             display_name: user_info.name,
-            access_token,
-            pkce_verifier: None,
-            oauth_endpoints: None,
-            dpop_private_key: None,
+            groups: vec![],
             created_at: now,
         })
     }
