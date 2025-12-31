@@ -14,6 +14,8 @@ pub struct Config {
     pub capture: CaptureConfig,
     #[serde(default)]
     pub tracing: TracingConfig,
+    #[serde(default)]
+    pub client: ClientConfig,
 }
 
 /// Tracing buffer configuration
@@ -36,6 +38,28 @@ impl Default for TracingConfig {
         Self {
             enabled: false,
             max_log_entries: default_max_log_entries(),
+        }
+    }
+}
+
+/// Client-side configuration settings
+/// These settings are exposed to the client via the /api/config/client endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientConfig {
+    /// Delay in milliseconds between WebRTC connection establishment attempts
+    /// This helps space out connection attempts to reduce network congestion
+    #[serde(default = "default_webrtc_connection_delay_ms")]
+    pub webrtc_connection_delay_ms: u32,
+}
+
+fn default_webrtc_connection_delay_ms() -> u32 {
+    50
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            webrtc_connection_delay_ms: default_webrtc_connection_delay_ms(),
         }
     }
 }
@@ -168,6 +192,7 @@ impl Default for Config {
             auth: AuthConfig::default(),
             capture: CaptureConfig::default(),
             tracing: TracingConfig::default(),
+            client: ClientConfig::default(),
         }
     }
 }

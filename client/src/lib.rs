@@ -4,9 +4,11 @@ mod measurements;
 use crate::measurements::current_time_ms;
 
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 use web_sys::{window, Document, RtcPeerConnection};
 use std::cell::RefCell;
 use gloo_timers::callback::Interval;
+use serde::Deserialize;
 
 // Path analysis timeout in milliseconds (30 seconds)
 const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
@@ -21,6 +23,9 @@ const MODE_MEASUREMENT: &str = "measurement";
 // Placeholder text for WebRTC-managed addresses (actual addresses are abstracted by the browser)
 const WEBRTC_MANAGED_ADDRESS: &str = "WebRTC managed";
 
+// Default WebRTC connection delay in milliseconds
+const DEFAULT_WEBRTC_CONNECTION_DELAY_MS: u32 = 50;
+
 // Global state for tracking active connections and testing status
 thread_local! {
     static WAKE_LOCK: RefCell<Option<JsValue>> = RefCell::new(None);
@@ -29,6 +34,116 @@ thread_local! {
     static IS_TESTING_ACTIVE: RefCell<bool> = RefCell::new(false);
     // Timestamp (in ms) when chart data collection should begin (after delay period)
     static CHART_COLLECTION_START_MS: RefCell<Option<u64>> = RefCell::new(None);
+}
+
+/// Client configuration fetched from the server
+#[derive(Debug, Clone, Deserialize)]
+struct ClientConfig {
+    /// Delay in milliseconds between WebRTC connection establishment attempts
+    webrtc_connection_delay_ms: u32,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            webrtc_connection_delay_ms: DEFAULT_WEBRTC_CONNECTION_DELAY_MS,
+        }
+    }
+}
+
+/// Fetch client configuration from the server
+async fn fetch_client_config() -> ClientConfig {
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::{Request, RequestInit, RequestMode, Response};
+    
+    let window = match window() {
+        Some(w) => w,
+        None => {
+            log::warn!("No window available, using default client config");
+            return ClientConfig::default();
+        }
+    };
+    
+    let origin = match window.location().origin() {
+        Ok(o) => o,
+        Err(_) => {
+            log::warn!("Failed to get origin, using default client config");
+            return ClientConfig::default();
+        }
+    };
+    
+    let url = format!("{}/api/config/client", origin);
+    
+    let opts = RequestInit::new();
+    opts.set_method("GET");
+    opts.set_mode(RequestMode::Cors);
+    
+    let request = match Request::new_with_str_and_init(&url, &opts) {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("Failed to create request: {:?}, using default client config", e);
+            return ClientConfig::default();
+        }
+    };
+    
+    let resp_value = match JsFuture::from(window.fetch_with_request(&request)).await {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("Failed to fetch client config: {:?}, using default", e);
+            return ClientConfig::default();
+        }
+    };
+    
+    let resp: Response = match resp_value.dyn_into() {
+        Ok(r) => r,
+        Err(_) => {
+            log::warn!("Invalid response type, using default client config");
+            return ClientConfig::default();
+        }
+    };
+    
+    if !resp.ok() {
+        log::warn!("Server returned error status, using default client config");
+        return ClientConfig::default();
+    }
+    
+    let json = match resp.json() {
+        Ok(j) => j,
+        Err(e) => {
+            log::warn!("Failed to get JSON from response: {:?}, using default client config", e);
+            return ClientConfig::default();
+        }
+    };
+    
+    let json_value = match JsFuture::from(json).await {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("Failed to parse JSON: {:?}, using default client config", e);
+            return ClientConfig::default();
+        }
+    };
+    
+    match serde_wasm_bindgen::from_value(json_value) {
+        Ok(config) => {
+            log::info!("Fetched client config: {:?}", config);
+            config
+        }
+        Err(e) => {
+            log::warn!("Failed to deserialize client config: {:?}, using default", e);
+            ClientConfig::default()
+        }
+    }
+}
+
+/// Sleep for the specified number of milliseconds
+async fn sleep_ms(ms: u32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        let window = web_sys::window().expect("no global window available");
+        window
+            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms as i32)
+            .expect("Failed to set timeout");
+    });
+    wasm_bindgen_futures::JsFuture::from(promise).await.expect("Failed to sleep");
 }
 
 #[wasm_bindgen(start)]
@@ -147,6 +262,11 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
     let count = conn_count.clamp(1, 16) as usize;
     log::info!("Starting dual-stack network measurement with {} connections per address family...", count);
 
+    // Fetch client configuration from server
+    let client_config = fetch_client_config().await;
+    let connection_delay_ms = client_config.webrtc_connection_delay_ms;
+    log::info!("Using WebRTC connection delay: {}ms", connection_delay_ms);
+
     // Request wake lock to prevent device from sleeping
     if let Err(e) = request_wake_lock().await {
         log::warn!("Failed to acquire wake lock: {:?}", e);
@@ -158,6 +278,11 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
     let mut parent_id: Option<String> = None;
     
     for i in 0..count {
+        // Add delay between connection attempts (except for the first one)
+        if i > 0 && connection_delay_ms > 0 {
+            sleep_ms(connection_delay_ms).await;
+        }
+        
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv4", 
             parent_id.clone(), 
@@ -182,6 +307,11 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
     // Create IPv6 connections (use parent from first IPv4 connection)
     let mut ipv6_connections = Vec::with_capacity(count);
     for i in 0..count {
+        // Add delay between connection attempts (including between IPv4 and IPv6 groups)
+        if connection_delay_ms > 0 {
+            sleep_ms(connection_delay_ms).await;
+        }
+        
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv6", 
             parent_id.clone(), 
@@ -313,6 +443,11 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
     let count = conn_count.clamp(1, 16) as usize;
     log::info!("Starting path analysis (traceroute) with {} connections per address family...", count);
 
+    // Fetch client configuration from server
+    let client_config = fetch_client_config().await;
+    let connection_delay_ms = client_config.webrtc_connection_delay_ms;
+    log::info!("Using WebRTC connection delay: {}ms", connection_delay_ms);
+
     // Request wake lock to prevent device from sleeping
     if let Err(e) = request_wake_lock().await {
         log::warn!("Failed to acquire wake lock: {:?}", e);
@@ -324,6 +459,11 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
     let mut parent_id: Option<String> = None;
     
     for i in 0..count {
+        // Add delay between connection attempts (except for the first one)
+        if i > 0 && connection_delay_ms > 0 {
+            sleep_ms(connection_delay_ms).await;
+        }
+        
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv4", 
             parent_id.clone(), 
@@ -352,6 +492,11 @@ pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
     // Create IPv6 connections with traceroute mode
     let mut ipv6_connections = Vec::with_capacity(count);
     for i in 0..count {
+        // Add delay between connection attempts (including between IPv4 and IPv6 groups)
+        if connection_delay_ms > 0 {
+            sleep_ms(connection_delay_ms).await;
+        }
+        
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv6", 
             parent_id.clone(), 
@@ -412,6 +557,11 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let count = conn_count.clamp(1, 16) as usize;
     log::info!("Starting network analysis with {} connections per address family...", count);
 
+    // Fetch client configuration from server
+    let client_config = fetch_client_config().await;
+    let connection_delay_ms = client_config.webrtc_connection_delay_ms;
+    log::info!("Using WebRTC connection delay: {}ms", connection_delay_ms);
+
     // Request wake lock to prevent device from sleeping
     if let Err(e) = request_wake_lock().await {
         log::warn!("Failed to acquire wake lock: {:?}", e);
@@ -426,6 +576,11 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let mut parent_id: Option<String> = None;
     
     for i in 0..count {
+        // Add delay between connection attempts (except for the first one)
+        if i > 0 && connection_delay_ms > 0 {
+            sleep_ms(connection_delay_ms).await;
+        }
+        
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv4", 
             parent_id.clone(), 
@@ -454,6 +609,11 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     // Create IPv6 connections with traceroute mode
     let mut ipv6_connections = Vec::with_capacity(count);
     for i in 0..count {
+        // Add delay between connection attempts (including between IPv4 and IPv6 groups)
+        if connection_delay_ms > 0 {
+            sleep_ms(connection_delay_ms).await;
+        }
+        
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv6", 
             parent_id.clone(), 

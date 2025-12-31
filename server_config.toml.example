@@ -166,3 +166,11 @@ enabled = false
 
 # Maximum number of log entries to store in the ring buffer
 max_log_entries = 10000
+
+# Client Configuration
+# Settings that are exposed to the WASM client via /api/config/client
+[client]
+# Delay in milliseconds between WebRTC connection establishment attempts
+# This helps space out connection attempts to reduce network congestion
+# Default: 50
+webrtc_connection_delay_ms = 50

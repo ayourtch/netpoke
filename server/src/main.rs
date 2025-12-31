@@ -16,6 +16,7 @@ mod packet_capture;
 mod capture_api;
 mod tracing_buffer;
 mod tracing_api;
+mod client_config_api;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -40,6 +41,7 @@ use axum::routing::IntoMakeService;
 
 use packet_capture::PacketCaptureService;
 use tracing_buffer::TracingService;
+use client_config_api::ClientConfigState;
 
 
 fn get_make_service(
@@ -47,6 +49,7 @@ fn get_make_service(
     auth_state: Option<AuthState>,
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
+    client_config_state: Arc<ClientConfigState>,
 ) -> IntoMakeService<axum::Router> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
@@ -78,6 +81,11 @@ fn get_make_service(
         .route("/api/tracing/stats", get(tracing_api::tracing_stats))
         .route("/api/tracing/clear", post(tracing_api::clear_tracing))
         .with_state(tracing_service);
+    
+    // Client config API routes - public, no auth required (needed by WASM client)
+    let client_config_routes = Router::new()
+        .route("/api/config/client", get(client_config_api::get_client_config))
+        .with_state(client_config_state);
     
     // Add authentication if enabled
     let app = if let Some(auth_state) = auth_state {
@@ -138,10 +146,11 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session
                 ));
             
-            // Combine: auth routes (public) + public API + public static files + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + tracing (hybrid auth) + dashboard (protected) + static (protected)
+            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + tracing (hybrid auth) + dashboard (protected) + static (protected)
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
+                .merge(client_config_routes)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
                 .route("/health", get(health_check))
@@ -160,6 +169,7 @@ fn get_make_service(
                 .merge(dashboard_routes)
                 .merge(capture_routes)
                 .merge(tracing_routes)
+                .merge(client_config_routes)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
                 .nest_service("/static", ServeDir::new("server/static"))
@@ -173,6 +183,7 @@ fn get_make_service(
             .merge(dashboard_routes)
             .merge(capture_routes)
             .merge(tracing_routes)
+            .merge(client_config_routes)
             .route_service("/", ServeFile::new("server/static/public/index.html"))
             .nest_service("/public", ServeDir::new("server/static/public"))
             .nest_service("/static", ServeDir::new("server/static"))
@@ -188,8 +199,9 @@ async fn http_server(
     auth_state: Option<AuthState>,
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
+    client_config_state: Arc<ClientConfigState>,
 ) {
-    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -216,8 +228,9 @@ async fn https_server(
     auth_state: Option<AuthState>,
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
+    client_config_state: Arc<ClientConfigState>,
 ) {
-    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -530,6 +543,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Authentication disabled");
         None
     };
+    
+    // Create client config state from configuration
+    let client_config_state = Arc::new(ClientConfigState {
+        webrtc_connection_delay_ms: config.client.webrtc_connection_delay_ms,
+    });
+    tracing::info!("Client configuration:");
+    tracing::info!("  WebRTC connection delay: {}ms", config.client.webrtc_connection_delay_ms);
 
     let mut tasks = Vec::new();
 
@@ -539,8 +559,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_state_clone = app_state.clone();
         let capture_svc = capture_service.clone();
         let tracing_svc = tracing_service.clone();
+        let client_cfg = client_config_state.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc).await
+            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -552,8 +573,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let app_state_clone = app_state.clone();
         let capture_svc = capture_service.clone();
         let tracing_svc = tracing_service.clone();
+        let client_cfg = client_config_state.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc).await
+            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");
