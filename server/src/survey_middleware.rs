@@ -69,6 +69,8 @@ pub async fn require_auth_or_survey_session(
                 } else {
                     tracing::debug!("Invalid or expired survey session: {}", survey_session_id);
                 }
+            } else {
+                tracing::debug!("Could not extract survey session id({}) from cookie: {}", &auth_service.config.magic_keys.survey_cookie_name, &cookie_str);
             }
         }
         
