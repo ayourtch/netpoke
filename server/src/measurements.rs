@@ -393,8 +393,10 @@ pub async fn start_traceroute_sender(
     const TRACEROUTE_TIMEOUT_SECS: u64 = 35;
     const TTL_SEND_INTERVAL_MS: u64 = 20; // time between TTL probes on same connection
     const ROUND_INTERVAL_MS: u64 = 2000; // time between complete rounds of all TTLs
+    const STARTING_INTERVAL_MS: u64 = 500; // starting interval before tracerouting on a session
 
     loop {
+        tokio::time::sleep(Duration::from_millis(STARTING_INTERVAL_MS)).await;
         // Check if we should stop traceroute before starting a new round
         let (should_stop, timeout_exceeded) = {
             let state = session.measurement_state.read().await;
