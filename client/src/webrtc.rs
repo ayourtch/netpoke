@@ -256,8 +256,10 @@ impl WebRtcConnection {
         let probe_channel = peer.create_data_channel_with_data_channel_dict("probe", &probe_init);
         measurements::setup_probe_channel(probe_channel, state.clone());
 
-        // Create bulk channel (reliable, ordered)
+        // Create bulk channel (unreliable, unordered) for realistic throughput measurement
         let bulk_init = RtcDataChannelInit::new();
+        bulk_init.set_ordered(false);
+        bulk_init.set_max_retransmits(0);
         let bulk_channel = peer.create_data_channel_with_data_channel_dict("bulk", &bulk_init);
         measurements::setup_bulk_channel(bulk_channel, state.clone());
 

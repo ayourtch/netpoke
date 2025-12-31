@@ -23,7 +23,7 @@ Browser-based network measurement system using WebRTC for continuous monitoring 
 - Runs in browser, establishes WebRTC connection to server
 - Opens three data channels:
   - **Probe channel** (unreliable, unordered): Rapid probe packets
-  - **Bulk channel** (reliable, ordered): Throughput measurement traffic
+  - **Bulk channel** (unreliable, unordered): Realistic throughput measurement traffic
   - **Control channel** (reliable, ordered): Stats reporting
 - Measures incoming packets (delay, jitter, reordering, loss)
 - Calculates metrics locally and displays in UI
@@ -59,7 +59,7 @@ Browser-based network measurement system using WebRTC for continuous monitoring 
 ### Data Channel Configuration
 
 - **Probe channel**: `{ordered: false, maxRetransmits: 0}` - unreliable for low-latency probes
-- **Bulk channel**: `{ordered: true}` - reliable for throughput testing
+- **Bulk channel**: `{ordered: false, maxRetransmits: 0}` - unreliable for realistic throughput measurement under actual network conditions
 - **Control channel**: `{ordered: true}` - reliable for stats/control messages
 
 ### Rationale

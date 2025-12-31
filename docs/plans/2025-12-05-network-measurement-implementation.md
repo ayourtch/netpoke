@@ -2234,8 +2234,10 @@ impl WebRtcConnection {
         probe_init.max_retransmits(0);
         let _probe_channel = peer.create_data_channel_with_data_channel_dict("probe", &probe_init);
 
-        // Create bulk channel (reliable, ordered)
+        // Create bulk channel (unreliable, unordered) for realistic throughput measurement
         let bulk_init = RtcDataChannelInit::new();
+        bulk_init.set_ordered(false);
+        bulk_init.set_max_retransmits(0);
         let _bulk_channel = peer.create_data_channel_with_data_channel_dict("bulk", &bulk_init);
 
         // Create control channel (reliable, ordered)
@@ -2813,7 +2815,7 @@ cargo run -p wifi-verify-server
 1. Client creates WebRTC connection to server
 2. Three data channels established:
    - **Probe** (unreliable): High-frequency packets for delay/jitter/loss measurement
-   - **Bulk** (reliable): Continuous data for throughput measurement
+   - **Bulk** (unreliable, unordered): Continuous data for realistic throughput measurement
    - **Control** (reliable): Stats reporting
 3. Both client and server send probes/bulk data bidirectionally
 4. Metrics calculated over 1s, 10s, and 60s windows
