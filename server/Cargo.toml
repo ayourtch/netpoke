@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 common = { path = "../common" }
 wifi-verify-auth = { path = "../auth" }
+iperf3-server = { path = "../iperf3-server" }
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

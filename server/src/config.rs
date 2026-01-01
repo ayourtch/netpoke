@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use wifi_verify_auth::AuthConfig;
 
+// Re-export iperf3 config for convenience
+pub use iperf3_server::Iperf3Config;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
@@ -16,6 +19,8 @@ pub struct Config {
     pub tracing: TracingConfig,
     #[serde(default)]
     pub client: ClientConfig,
+    #[serde(default)]
+    pub iperf3: Iperf3Config,
 }
 
 /// Tracing buffer configuration
@@ -193,6 +198,7 @@ impl Default for Config {
             capture: CaptureConfig::default(),
             tracing: TracingConfig::default(),
             client: ClientConfig::default(),
+            iperf3: Iperf3Config::default(),
         }
     }
 }

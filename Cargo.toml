@@ -1,5 +1,5 @@
 [workspace]
-members = ["server", "client", "common", "auth"]
+members = ["server", "client", "common", "auth", "iperf3-server"]
 resolver = "2"
 
 # Patch webrtc crates to use our locally modified versions

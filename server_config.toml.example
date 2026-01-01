@@ -174,3 +174,31 @@ max_log_entries = 10000
 # This helps space out connection attempts to reduce network congestion
 # Default: 50
 webrtc_connection_delay_ms = 50
+
+# iperf3 Server Configuration
+# A built-in iperf3-compatible server for bandwidth testing
+[iperf3]
+# Enable the iperf3 server
+enabled = false
+
+# Host/IP address to bind to
+host = "0.0.0.0"
+
+# Control port (default: 5201, same as standard iperf3)
+port = 5201
+
+# Maximum number of concurrent test sessions
+max_sessions = 10
+
+# Maximum test duration in seconds (0 = unlimited)
+# Limits how long a single test can run to prevent resource exhaustion
+max_duration_secs = 3600
+
+# Whether to require IP-based authentication
+# When true, only IPs from authenticated WebRTC sessions can connect
+# When false, all IPs are allowed
+require_auth = false
+
+# Maximum bandwidth per stream in bits/second (0 = unlimited)
+# Can be used to limit the bandwidth used by iperf3 tests
+max_bandwidth = 0

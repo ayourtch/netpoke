@@ -554,6 +554,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Client configuration:");
     tracing::info!("  WebRTC connection delay: {}ms", config.client.webrtc_connection_delay_ms);
 
+    // Initialize iperf3 server if enabled
+    let iperf3_server = if config.iperf3.enabled {
+        tracing::info!("iperf3 server enabled:");
+        tracing::info!("  Host: {}", config.iperf3.host);
+        tracing::info!("  Port: {}", config.iperf3.port);
+        tracing::info!("  Max sessions: {}", config.iperf3.max_sessions);
+        tracing::info!("  Max duration: {} seconds", config.iperf3.max_duration_secs);
+        tracing::info!("  Require auth: {}", config.iperf3.require_auth);
+        
+        let iperf3 = Arc::new(iperf3_server::Iperf3Server::new(config.iperf3.clone()));
+        
+        // If authentication is required and enabled, set up the auth callback
+        // to check against authenticated user addresses
+        if config.iperf3.require_auth {
+            let clients = app_state.clients.clone();
+            let auth_callback: iperf3_server::server::AuthCallback = Arc::new(move |ip| {
+                // Check if this IP matches any authenticated session's peer address
+                // We use a synchronous approach here since the callback needs to be Fn
+                // We'll check the current sessions' peer addresses
+                let clients_clone = clients.clone();
+                
+                // Use tokio::task::block_in_place to run async code in sync context
+                // This is safe because we're in a tokio runtime
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let clients_guard = clients_clone.read("iperf3_auth_check").await;
+                        for (_, session) in clients_guard.iter() {
+                            let peer_addr = session.peer_address.lock().await;
+                            if let Some((addr_str, _)) = &*peer_addr {
+                                if let Ok(peer_ip) = addr_str.parse::<std::net::IpAddr>() {
+                                    if peer_ip == ip {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        false
+                    })
+                })
+            });
+            
+            // Set the callback - we need to do this asynchronously
+            let iperf3_clone = iperf3.clone();
+            tokio::spawn(async move {
+                iperf3_clone.set_auth_callback(auth_callback).await;
+            });
+        }
+        
+        Some(iperf3)
+    } else {
+        tracing::info!("iperf3 server disabled");
+        None
+    };
+
     let mut tasks = Vec::new();
 
     if config.server.enable_http {
@@ -582,6 +636,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");
+    }
+
+    // Start iperf3 server if enabled
+    if let Some(iperf3) = iperf3_server {
+        tasks.push(tokio::spawn(async move {
+            if let Err(e) = iperf3.run().await {
+                tracing::error!("iperf3 server error: {}", e);
+            }
+        }));
     }
 
     if tasks.is_empty() {
