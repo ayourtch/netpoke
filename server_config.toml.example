@@ -195,9 +195,16 @@ max_sessions = 10
 max_duration_secs = 3600
 
 # Whether to require IP-based authentication
-# When true, only IPs from authenticated WebRTC sessions can connect
+# When true, only IPs from recently authenticated HTTP/HTTPS sessions 
+# or active WebRTC sessions can connect
 # When false, all IPs are allowed
 require_auth = false
+
+# How long (in seconds) an authenticated address remains valid for iperf3 access
+# This controls how recently a user must have authenticated via HTTP/HTTPS
+# or had an active WebRTC session to use iperf3
+# Default: 300 (5 minutes)
+auth_timeout_secs = 300
 
 # Maximum bandwidth per stream in bits/second (0 = unlimited)
 # Can be used to limit the bandwidth used by iperf3 tests

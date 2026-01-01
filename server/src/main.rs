@@ -17,6 +17,7 @@ mod capture_api;
 mod tracing_buffer;
 mod tracing_api;
 mod client_config_api;
+mod auth_cache;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -42,6 +43,7 @@ use axum::routing::IntoMakeService;
 use packet_capture::PacketCaptureService;
 use tracing_buffer::TracingService;
 use client_config_api::ClientConfigState;
+use auth_cache::SharedAuthAddressCache;
 
 
 fn get_make_service(
@@ -50,6 +52,7 @@ fn get_make_service(
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
+    auth_cache: Option<SharedAuthAddressCache>,
 ) -> IntoMakeService<axum::Router> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
@@ -200,8 +203,9 @@ async fn http_server(
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
+    auth_cache: Option<SharedAuthAddressCache>,
 ) {
-    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state, auth_cache);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -229,8 +233,9 @@ async fn https_server(
     capture_service: Arc<PacketCaptureService>,
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
+    auth_cache: Option<SharedAuthAddressCache>,
 ) {
-    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state, auth_cache);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -554,6 +559,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Client configuration:");
     tracing::info!("  WebRTC connection delay: {}ms", config.client.webrtc_connection_delay_ms);
 
+    // Initialize authenticated address cache for iperf3
+    // This cache is updated from HTTP/HTTPS auth events and WebRTC sessions
+    let auth_cache: Option<SharedAuthAddressCache> = if config.iperf3.enabled && config.iperf3.require_auth {
+        let cache = auth_cache::create_auth_cache(config.iperf3.auth_timeout_secs);
+        tracing::info!("Authenticated address cache created with {} second timeout", config.iperf3.auth_timeout_secs);
+        
+        // Spawn a task to periodically sync WebRTC session IPs to the auth cache
+        // This ensures that active WebRTC sessions are also allowed to use iperf3
+        let clients = app_state.clients.clone();
+        let cache_updater = cache.clone();
+        tokio::spawn(async move {
+            loop {
+                // Update auth cache from current WebRTC sessions
+                {
+                    let clients_guard = clients.read("iperf3_cache_sync").await;
+                    for (session_id, session) in clients_guard.iter() {
+                        let peer_addr = session.peer_address.lock().await;
+                        if let Some((addr_str, _)) = &*peer_addr {
+                            if let Ok(peer_ip) = addr_str.parse::<std::net::IpAddr>() {
+                                // Record/refresh the WebRTC session in the cache
+                                cache_updater.record_auth(
+                                    peer_ip,
+                                    format!("webrtc:{}", session_id),
+                                    None,
+                                    "webrtc".to_string(),
+                                );
+                            }
+                        }
+                    }
+                }
+                
+                // Cleanup expired entries periodically
+                cache_updater.cleanup_expired();
+                
+                // Sync every second
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        });
+        
+        Some(cache)
+    } else {
+        None
+    };
+
     // Initialize iperf3 server if enabled
     let iperf3_server = if config.iperf3.enabled {
         tracing::info!("iperf3 server enabled:");
@@ -562,61 +611,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("  Max sessions: {}", config.iperf3.max_sessions);
         tracing::info!("  Max duration: {} seconds", config.iperf3.max_duration_secs);
         tracing::info!("  Require auth: {}", config.iperf3.require_auth);
+        if config.iperf3.require_auth {
+            tracing::info!("  Auth timeout: {} seconds", config.iperf3.auth_timeout_secs);
+        }
         
         let iperf3 = Arc::new(iperf3_server::Iperf3Server::new(config.iperf3.clone()));
         
         // If authentication is required and enabled, set up the auth callback
-        // to check against authenticated user addresses using a synchronized allowed IPs set
+        // to check against the authenticated address cache
         if config.iperf3.require_auth {
-            // Create a thread-safe HashSet of allowed IPs that can be updated by the main app
-            // and checked synchronously by the iperf3 auth callback
-            let allowed_ips: Arc<std::sync::RwLock<std::collections::HashSet<std::net::IpAddr>>> = 
-                Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
-            
-            // Create a task to periodically sync allowed IPs from WebRTC client sessions
-            let clients = app_state.clients.clone();
-            let allowed_ips_updater = allowed_ips.clone();
-            tokio::spawn(async move {
-                loop {
-                    // Update allowed IPs from current WebRTC sessions
-                    let mut new_ips = std::collections::HashSet::new();
-                    {
-                        let clients_guard = clients.read("iperf3_ip_sync").await;
-                        for (_, session) in clients_guard.iter() {
-                            let peer_addr = session.peer_address.lock().await;
-                            if let Some((addr_str, _)) = &*peer_addr {
-                                if let Ok(peer_ip) = addr_str.parse::<std::net::IpAddr>() {
-                                    new_ips.insert(peer_ip);
-                                }
-                            }
-                        }
+            if let Some(cache) = auth_cache.clone() {
+                // Set up the sync auth callback that checks the cache and logs the user
+                let auth_callback: iperf3_server::server::AuthCallback = Arc::new(move |ip| {
+                    // Check if this IP is in the authenticated cache
+                    if let Some(auth_info) = cache.check_auth(ip) {
+                        tracing::info!(
+                            "iperf3: Connection allowed for {} (user: '{}', auth source: {}, last auth: {:?} ago)",
+                            ip,
+                            auth_info.user_id,
+                            auth_info.auth_source,
+                            auth_info.last_authenticated.elapsed()
+                        );
+                        true
+                    } else {
+                        tracing::warn!("iperf3: Connection denied for {} (not authenticated or expired)", ip);
+                        false
                     }
-                    
-                    // Update the allowed IPs set
-                    if let Ok(mut allowed) = allowed_ips_updater.write() {
-                        *allowed = new_ips;
-                    }
-                    
-                    // Sync every second
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                }
-            });
-            
-            // Set up the sync auth callback
-            let auth_callback: iperf3_server::server::AuthCallback = Arc::new(move |ip| {
-                // This is a synchronous callback - use std::sync::RwLock
-                if let Ok(allowed) = allowed_ips.read() {
-                    allowed.contains(&ip)
-                } else {
-                    false
-                }
-            });
-            
-            // Set the callback asynchronously
-            let iperf3_clone = iperf3.clone();
-            tokio::spawn(async move {
-                iperf3_clone.set_auth_callback(auth_callback).await;
-            });
+                });
+                
+                // Set the callback asynchronously
+                let iperf3_clone = iperf3.clone();
+                tokio::spawn(async move {
+                    iperf3_clone.set_auth_callback(auth_callback).await;
+                });
+            }
         }
         
         Some(iperf3)
@@ -634,8 +662,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let capture_svc = capture_service.clone();
         let tracing_svc = tracing_service.clone();
         let client_cfg = client_config_state.clone();
+        let auth_cache_clone = auth_cache.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg).await
+            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg, auth_cache_clone).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -648,8 +677,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let capture_svc = capture_service.clone();
         let tracing_svc = tracing_service.clone();
         let client_cfg = client_config_state.clone();
+        let auth_cache_clone = auth_cache.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg).await
+            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg, auth_cache_clone).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

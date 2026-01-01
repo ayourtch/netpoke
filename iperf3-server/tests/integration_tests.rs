@@ -24,6 +24,7 @@ fn test_config_serialization() {
         max_sessions: 5,
         max_duration_secs: 600,
         require_auth: true,
+        auth_timeout_secs: 300,
         max_bandwidth: 1_000_000_000,
     };
 
@@ -36,6 +37,7 @@ fn test_config_serialization() {
     assert_eq!(parsed.max_sessions, config.max_sessions);
     assert_eq!(parsed.max_duration_secs, config.max_duration_secs);
     assert_eq!(parsed.require_auth, config.require_auth);
+    assert_eq!(parsed.auth_timeout_secs, config.auth_timeout_secs);
     assert_eq!(parsed.max_bandwidth, config.max_bandwidth);
 }
 

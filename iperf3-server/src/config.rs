@@ -30,6 +30,11 @@ pub struct Iperf3Config {
     #[serde(default)]
     pub require_auth: bool,
 
+    /// How long (in seconds) an authenticated address remains valid
+    /// This controls how recently a user must have authenticated to use iperf3
+    #[serde(default = "default_auth_timeout")]
+    pub auth_timeout_secs: u64,
+
     /// Maximum bandwidth per stream in bits/second (0 = unlimited)
     #[serde(default)]
     pub max_bandwidth: u64,
@@ -51,6 +56,10 @@ fn default_max_duration() -> u64 {
     3600 // 1 hour max
 }
 
+fn default_auth_timeout() -> u64 {
+    300 // 5 minutes default
+}
+
 impl Default for Iperf3Config {
     fn default() -> Self {
         Self {
@@ -60,6 +69,7 @@ impl Default for Iperf3Config {
             max_sessions: default_max_sessions(),
             max_duration_secs: default_max_duration(),
             require_auth: false,
+            auth_timeout_secs: default_auth_timeout(),
             max_bandwidth: 0,
         }
     }
