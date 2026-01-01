@@ -117,7 +117,7 @@ impl Iperf3Server {
 
         // Parse the host address first to determine if it's IPv4 or IPv6
         let ip_addr: IpAddr = self.config.host.parse()
-            .map_err(|e| Iperf3Error::InvalidParameter(format!("Invalid host address '{}': {}", self.config.host, e)))?;
+            .map_err(|e| Iperf3Error::InvalidParameter(format!("Invalid host address {}: {}", self.config.host, e)))?;
         let addr = SocketAddr::new(ip_addr, self.config.port);
 
         let listener = TcpListener::bind(&addr).await?;
