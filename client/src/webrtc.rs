@@ -548,13 +548,7 @@ impl WebRtcConnection {
             }
             
             // Sleep for 50ms before checking again
-            let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-                let window = web_sys::window().expect("no global window available");
-                window
-                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 50)
-                    .expect("Failed to set timeout");
-            });
-            wasm_bindgen_futures::JsFuture::from(promise).await.expect("Failed to sleep");
+            crate::sleep_ms(50).await;
         }
     }
     

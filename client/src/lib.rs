@@ -38,6 +38,8 @@ const TRACEROUTE_ROUNDS: u32 = 5;
 const MTU_TRACEROUTE_ROUNDS: u32 = 5;
 // MTU sizes to test (in bytes)
 const MTU_SIZES: [u32; 5] = [576, 1280, 1400, 1472, 1500];
+// Timeout in milliseconds for control channels to be ready
+const CONTROL_CHANNEL_READY_TIMEOUT_MS: u32 = 10000;
 
 // Global state for tracking active connections and testing status
 thread_local! {
@@ -152,8 +154,8 @@ async fn fetch_client_config() -> ClientConfig {
     }
 }
 
-/// Sleep for the specified number of milliseconds
-async fn sleep_ms(ms: u32) {
+/// Sleep for the specified number of milliseconds (shared utility function)
+pub(crate) async fn sleep_ms(ms: u32) {
     let promise = js_sys::Promise::new(&mut |resolve, _reject| {
         let window = web_sys::window().expect("no global window available");
         window
@@ -609,7 +611,6 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // Wait for all control channels to be ready before sending StartSurveySession
     log::info!("Waiting for control channels to be ready...");
-    let control_channel_timeout_ms: u32 = 10000; // 10 second timeout for control channels
     
     for (i, conn) in ipv4_connections.iter().enumerate() {
         if should_abort_testing() {
@@ -617,7 +618,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             return Ok(());
         }
         
-        if conn.wait_for_control_channel_ready(control_channel_timeout_ms).await {
+        if conn.wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS).await {
             if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
                 log::warn!("Failed to send StartSurveySession for IPv4 connection {}: {:?}", i, e);
             } else {
@@ -634,7 +635,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             return Ok(());
         }
         
-        if conn.wait_for_control_channel_ready(control_channel_timeout_ms).await {
+        if conn.wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS).await {
             if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
                 log::warn!("Failed to send StartSurveySession for IPv6 connection {}: {:?}", i, e);
             } else {
