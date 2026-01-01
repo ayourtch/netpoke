@@ -467,7 +467,8 @@
         };
         
         // MTU tracking data structure
-        // Map of IP version -> connection_id -> max_mtu (minimum MTU discovered for that connection)
+        // Map of IP version -> connection_id -> hop_number -> min_mtu
+        // Stores the minimum MTU discovered for each hop on each connection
         let mtuData = {
             ipv4: {},
             ipv6: {}
@@ -547,8 +548,8 @@
             }
             
             // For each MTU message about hop N, find hop N-1 for the same connection ID
-            // and set the max MTU for this connection ID if it's smaller or nonexistent
-            if (mtuValue && hopNum > 0) {
+            // and set the minimum MTU for this connection ID if it's smaller or nonexistent
+            if (mtuValue != null && hopNum > 0) {
                 const targetHop = hopNum - 1;
                 
                 // Initialize connection MTU tracking if needed
@@ -557,10 +558,10 @@
                 }
                 
                 // Get or initialize MTU for this specific hop (N-1)
-                if (!mtuData[ipVersion][connId][targetHop]) {
+                if (mtuData[ipVersion][connId][targetHop] === undefined) {
                     mtuData[ipVersion][connId][targetHop] = mtuValue;
                 } else {
-                    // Set to the smaller value
+                    // Set to the smaller value (minimum MTU)
                     mtuData[ipVersion][connId][targetHop] = Math.min(mtuData[ipVersion][connId][targetHop], mtuValue);
                 }
                 

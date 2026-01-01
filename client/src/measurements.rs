@@ -517,8 +517,14 @@ fn update_mtu_visualization(mtu_msg: &common::MtuHopMessage) {
         // Call the JavaScript function
         if let Ok(add_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addMtuHop")) {
             if let Ok(add_fn) = add_fn.dyn_into::<js_sys::Function>() {
-                let _ = add_fn.call1(&JsValue::NULL, &js_obj);
+                if let Err(e) = add_fn.call1(&JsValue::NULL, &js_obj) {
+                    log::warn!("Failed to call addMtuHop JavaScript function: {:?}", e);
+                }
+            } else {
+                log::warn!("addMtuHop is not a function");
             }
+        } else {
+            log::warn!("addMtuHop function not found in window object");
         }
     }
 }
