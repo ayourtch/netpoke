@@ -233,24 +233,31 @@ impl Iperf3Server {
     }
 
     /// Run the iperf3 protocol for a session
+    /// Run the iperf3 protocol for a session.
+    ///
+    /// Protocol flow (based on iperf3 source):
+    /// 1. Server sends PARAM_EXCHANGE state
+    /// 2. Client sends JSON parameters directly (no state byte)
+    /// 3. Server reads JSON, sends CREATE_STREAMS state
+    /// 4. Client creates data streams (no state byte on control connection)
+    /// 5. Server detects streams connected, sends TEST_START, then TEST_RUNNING
+    /// 6. Test runs
+    /// 7. Client sends TEST_END state when done
+    /// 8. Server sends EXCHANGE_RESULTS state
+    /// 9. Client sends results JSON (no state byte), server reads it
+    /// 10. Server sends results JSON
+    /// 11. Server sends DISPLAY_RESULTS state
+    /// 12. Client sends IPERF_DONE state
+    /// 13. Server sends SERVER_TERMINATE state
     async fn run_session_protocol(
         session: Arc<TestSession>,
         max_duration: Duration,
         max_bandwidth: u64,
     ) -> Result<()> {
-        // Send PARAM_EXCHANGE state
+        // Step 1: Send PARAM_EXCHANGE state
         session.send_state(State::ParamExchange).await?;
 
-        // Wait for client to send parameters (state byte first)
-        let client_state = session.read_state().await?;
-        if client_state != State::ParamExchange {
-            return Err(Iperf3Error::Protocol(format!(
-                "Expected PARAM_EXCHANGE, got {:?}",
-                client_state
-            )));
-        }
-
-        // Read test parameters
+        // Step 2: Read test parameters directly (client doesn't send a state byte here)
         let params_json = session.read_json_message().await?;
         tracing::debug!("iperf3: Received parameters: {:?}", params_json);
 
@@ -272,28 +279,11 @@ impl Iperf3Server {
             params.bandwidth = max_bandwidth;
         }
 
-        // Store params in session
-        // Note: We can't modify session.params directly since it's not mutable
-        // For now, we'll use the local params
-
-        // Send acknowledgment (empty JSON object means OK)
-        session
-            .write_json_message(&serde_json::json!({}))
-            .await?;
-
-        // Wait for CREATE_STREAMS
-        let client_state = session.read_state().await?;
-        if client_state != State::CreateStreams {
-            return Err(Iperf3Error::Protocol(format!(
-                "Expected CREATE_STREAMS, got {:?}",
-                client_state
-            )));
-        }
-
-        // Send CREATE_STREAMS back
+        // Step 3: Send CREATE_STREAMS state (no JSON acknowledgment needed)
+        // The iperf3 protocol goes directly from reading parameters to sending CREATE_STREAMS
         session.send_state(State::CreateStreams).await?;
 
-        // Wait for streams to connect (give client time to create streams)
+        // Step 4: Wait for data streams to connect
         let expected_streams = params.parallel as usize;
         let timeout = Duration::from_secs(STREAM_CONNECT_TIMEOUT_SECS);
         let start = std::time::Instant::now();
@@ -314,91 +304,65 @@ impl Iperf3Server {
             session.stream_count().await
         );
 
-        // Wait for TEST_START
-        let client_state = session.read_state().await?;
-        if client_state != State::TestStart {
-            return Err(Iperf3Error::Protocol(format!(
-                "Expected TEST_START, got {:?}",
-                client_state
-            )));
-        }
-
-        // Send TEST_START
+        // Step 5: Send TEST_START, then TEST_RUNNING
         session.send_state(State::TestStart).await?;
 
         // Start the test
         session.start_test().await;
 
-        // Send TEST_RUNNING
         session.send_state(State::TestRunning).await?;
 
-        // Run the actual test
+        // Step 6: Run the actual test in the background, waiting for TEST_END from client
+        // The client controls when the test ends by sending TEST_END
         let test_duration = Duration::from_secs(params.time);
-        if params.reverse {
+        let data_handles = if params.reverse {
             // Server sends to client
-            session.run_sender(test_duration, params.bandwidth).await?;
+            session
+                .start_sender_background(test_duration, params.bandwidth)
+                .await
         } else {
             // Client sends to server
-            session.run_receiver(test_duration).await?;
+            session.start_receiver_background(test_duration).await
+        };
+
+        // Step 7: Wait for TEST_END from client (this is what actually ends the test)
+        let client_state = session.read_state().await?;
+        if client_state != State::TestEnd {
+            tracing::warn!("iperf3: Expected TEST_END, got {:?}", client_state);
+        }
+
+        // Cancel data transfer and wait for tasks to finish
+        session.cancel();
+        for handle in data_handles {
+            let _ = handle.await;
         }
 
         // Wait a bit for any remaining data
         tokio::time::sleep(Duration::from_millis(POST_TEST_DELAY_MS)).await;
 
-        // Wait for TEST_END
-        let client_state = session.read_state().await?;
-        if client_state != State::TestEnd {
-            tracing::warn!(
-                "iperf3: Expected TEST_END, got {:?}",
-                client_state
-            );
-        }
-
-        // Send TEST_END
-        session.send_state(State::TestEnd).await?;
-
-        // Exchange results
-        let client_state = session.read_state().await?;
-        if client_state != State::ExchangeResults {
-            tracing::warn!(
-                "iperf3: Expected EXCHANGE_RESULTS, got {:?}",
-                client_state
-            );
-        }
-
+        // Step 8: Send EXCHANGE_RESULTS state (not TEST_END - client already sent that)
         session.send_state(State::ExchangeResults).await?;
 
-        // Read client results (we mostly ignore these)
+        // Step 9: Read client results (client sends JSON directly, no state byte)
         let _client_results = session.read_json_message().await?;
 
-        // Generate and send server results
+        // Step 10: Generate and send server exchange results
+        // Note: This uses the exchange format, not the final output format
         let elapsed = session.test_elapsed().await.unwrap_or_default();
-        let results = session.generate_results(elapsed.as_secs_f64());
-        let results_json = serde_json::to_value(&results)?;
+        let exchange_results = session.generate_exchange_results(elapsed.as_secs_f64());
+        let results_json = serde_json::to_value(&exchange_results)?;
         session.write_json_message(&results_json).await?;
 
-        // Wait for DISPLAY_RESULTS
-        let client_state = session.read_state().await?;
-        if client_state != State::DisplayResults {
-            tracing::warn!(
-                "iperf3: Expected DISPLAY_RESULTS, got {:?}",
-                client_state
-            );
-        }
-
-        // Send DISPLAY_RESULTS
+        // Step 11: Send DISPLAY_RESULTS state
         session.send_state(State::DisplayResults).await?;
 
-        // Wait for IPERF_DONE
+        // Step 12: Wait for IPERF_DONE from client
         let client_state = session.read_state().await?;
         if client_state != State::IperfDone {
-            tracing::warn!(
-                "iperf3: Expected IPERF_DONE, got {:?}",
-                client_state
-            );
+            tracing::warn!("iperf3: Expected IPERF_DONE, got {:?}", client_state);
         }
 
-        // Send SERVER_TERMINATE
+        // Step 13: Send SERVER_TERMINATE state
         session.send_state(State::ServerTerminate).await?;
 
         tracing::info!(

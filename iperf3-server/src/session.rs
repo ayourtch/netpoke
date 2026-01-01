@@ -2,8 +2,8 @@
 
 use crate::error::{Iperf3Error, Result};
 use crate::protocol::{
-    ConnectedInfo, EndInfo, ServerResults, StartInfo, State, StreamEndResult,
-    StreamResult, TestParameters, TestStartInfo,
+    ConnectedInfo, EndInfo, ExchangeResultsData, ExchangeStreamResult, ServerResults, StartInfo,
+    State, StreamEndResult, StreamResult, TestParameters, TestStartInfo,
 };
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -200,6 +200,57 @@ impl TestSession {
             .ok_or_else(|| Iperf3Error::Protocol(format!("Unknown state: {}", buf[0])))
     }
 
+    /// Start the data stream receiving loop in background (for normal mode - client sends to server).
+    /// Returns immediately. Call cancel() to stop receiving, then wait for the returned handle.
+    pub async fn start_receiver_background(
+        &self,
+        max_duration: Duration,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let streams = self.data_streams.lock().await;
+        if streams.is_empty() {
+            return Vec::new();
+        }
+
+        let cancelled = self.cancelled.clone();
+        let bytes_received = self.bytes_received.clone();
+        let deadline = Instant::now() + max_duration;
+
+        // Spawn receiver tasks for each stream
+        let mut handles = Vec::new();
+        for stream in streams.iter() {
+            let stream = stream.clone();
+            let cancelled = cancelled.clone();
+            let bytes_received = bytes_received.clone();
+
+            let handle = tokio::spawn(async move {
+                let mut buf = vec![0u8; BUFFER_SIZE];
+                loop {
+                    if cancelled.load(Ordering::SeqCst) || Instant::now() > deadline {
+                        break;
+                    }
+
+                    let mut stream_guard = stream.lock().await;
+                    match tokio::time::timeout(
+                        Duration::from_millis(READ_TIMEOUT_MS),
+                        stream_guard.read(&mut buf),
+                    )
+                    .await
+                    {
+                        Ok(Ok(0)) => break, // Connection closed
+                        Ok(Ok(n)) => {
+                            bytes_received.fetch_add(n as u64, Ordering::Relaxed);
+                        }
+                        Ok(Err(_)) => break, // Error
+                        Err(_) => continue,  // Timeout, check again
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        handles
+    }
+
     /// Run the data stream receiving loop (for normal mode - client sends to server)
     pub async fn run_receiver(&self, max_duration: Duration) -> Result<()> {
         let streams = self.data_streams.lock().await;
@@ -250,6 +301,75 @@ impl TestSession {
         }
 
         Ok(())
+    }
+
+    /// Start the data stream sending loop in background (for reverse mode - server sends to client).
+    /// Returns immediately. Call cancel() to stop sending, then wait for the returned handle.
+    pub async fn start_sender_background(
+        &self,
+        max_duration: Duration,
+        bandwidth: u64,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let streams = self.data_streams.lock().await;
+        if streams.is_empty() {
+            return Vec::new();
+        }
+
+        let cancelled = self.cancelled.clone();
+        let bytes_sent = self.bytes_sent.clone();
+        let deadline = Instant::now() + max_duration;
+        let blksize = self.params.blksize as usize;
+
+        // Calculate bytes per interval for bandwidth limiting
+        let bytes_per_second = if bandwidth > 0 {
+            bandwidth / 8 // Convert bits to bytes
+        } else {
+            u64::MAX // No limit
+        };
+
+        // Spawn sender tasks for each stream
+        let mut handles = Vec::new();
+        for stream in streams.iter() {
+            let stream = stream.clone();
+            let cancelled = cancelled.clone();
+            let bytes_sent = bytes_sent.clone();
+
+            let handle = tokio::spawn(async move {
+                let buf = vec![0u8; blksize];
+                let mut last_send = Instant::now();
+                let mut bytes_this_second: u64 = 0;
+
+                loop {
+                    if cancelled.load(Ordering::SeqCst) || Instant::now() > deadline {
+                        break;
+                    }
+
+                    // Bandwidth limiting
+                    if bytes_per_second != u64::MAX {
+                        let elapsed = last_send.elapsed();
+                        if elapsed >= Duration::from_secs(1) {
+                            last_send = Instant::now();
+                            bytes_this_second = 0;
+                        } else if bytes_this_second >= bytes_per_second {
+                            tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS)).await;
+                            continue;
+                        }
+                    }
+
+                    let mut stream_guard = stream.lock().await;
+                    match stream_guard.write_all(&buf).await {
+                        Ok(_) => {
+                            bytes_sent.fetch_add(blksize as u64, Ordering::Relaxed);
+                            bytes_this_second += blksize as u64;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        handles
     }
 
     /// Run the data stream sending loop (for reverse mode - server sends to client)
@@ -410,6 +530,34 @@ impl TestSession {
                 }),
                 cpu_utilization_percent: None,
             },
+        }
+    }
+
+    /// Generate exchange results (format used during EXCHANGE_RESULTS phase)
+    /// This is different from the final output format
+    pub fn generate_exchange_results(&self, test_duration: f64) -> ExchangeResultsData {
+        let bytes_received = self.bytes_received.load(Ordering::Relaxed);
+
+        ExchangeResultsData {
+            cpu_util_total: 0.0,
+            cpu_util_user: 0.0,
+            cpu_util_system: 0.0,
+            // -1 means we're in receiver mode (client sends to server)
+            // This will be different for reverse mode
+            sender_has_retransmits: -1,
+            congestion_used: Some("cubic".to_string()),
+            streams: vec![ExchangeStreamResult {
+                id: 1,
+                bytes: bytes_received,
+                retransmits: -1,
+                jitter: 0.0,
+                errors: 0,
+                omitted_errors: 0,
+                packets: 0,
+                omitted_packets: 0,
+                start_time: 0.0,
+                end_time: test_duration,
+            }],
         }
     }
 }

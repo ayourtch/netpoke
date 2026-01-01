@@ -309,6 +309,64 @@ pub struct CpuUtilization {
     pub remote_system: f64,
 }
 
+/// Results exchanged during EXCHANGE_RESULTS phase
+/// This format is different from the final output format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExchangeResultsData {
+    /// Total CPU utilization (percent)
+    pub cpu_util_total: f64,
+
+    /// User CPU utilization (percent)
+    pub cpu_util_user: f64,
+
+    /// System CPU utilization (percent)
+    pub cpu_util_system: f64,
+
+    /// Whether sender has retransmit info (-1 = receiver mode, 0 = no, 1 = yes)
+    pub sender_has_retransmits: i32,
+
+    /// Congestion control algorithm used (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub congestion_used: Option<String>,
+
+    /// Per-stream results
+    pub streams: Vec<ExchangeStreamResult>,
+}
+
+/// Per-stream result for exchange
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExchangeStreamResult {
+    /// Stream ID
+    pub id: u32,
+
+    /// Bytes transferred
+    pub bytes: u64,
+
+    /// Retransmits (-1 if not available)
+    pub retransmits: i64,
+
+    /// Jitter (for UDP)
+    pub jitter: f64,
+
+    /// Errors
+    pub errors: u64,
+
+    /// Omitted errors
+    pub omitted_errors: u64,
+
+    /// Packets
+    pub packets: u64,
+
+    /// Omitted packets
+    pub omitted_packets: u64,
+
+    /// Start time
+    pub start_time: f64,
+
+    /// End time
+    pub end_time: f64,
+}
+
 /// Cookie length for stream identification
 pub const COOKIE_SIZE: usize = 37;
 
