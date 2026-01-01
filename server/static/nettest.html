@@ -547,8 +547,9 @@
                 ipVersion = 'ipv6';
             }
             
-            // For each MTU message about hop N, find hop N-1 for the same connection ID
-            // and set the minimum MTU for this connection ID if it's smaller or nonexistent
+            // For each MTU message about hop N, store the MTU for hop N-1
+            // This is because the MTU value represents the link capacity TO hop N,
+            // so it applies to the previous hop (N-1) in the path
             // MTU must be > 0 to be valid
             if (mtuValue != null && mtuValue > 0 && hopNum > 0) {
                 const targetHop = hopNum - 1;
@@ -559,6 +560,7 @@
                 }
                 
                 // Get or initialize MTU for this specific hop (N-1)
+                // Store the minimum MTU seen for this hop on this connection
                 if (mtuData[ipVersion][connId][targetHop] === undefined) {
                     mtuData[ipVersion][connId][targetHop] = mtuValue;
                 } else {
