@@ -25,6 +25,24 @@ const POST_TEST_DELAY_MS: u64 = 100;
 /// This is the ASCII bytes '6789' (0x36, 0x37, 0x38, 0x39)
 const UDP_CONNECT_REPLY: u32 = 0x36373839;
 
+/// Normalize an IP address by converting IPv4-mapped IPv6 addresses to IPv4.
+/// 
+/// When an iperf3 server listens on :: (IPv6 any address), IPv4 connections
+/// appear as IPv4-mapped IPv6 addresses (e.g., ::ffff:192.0.2.1). This function
+/// converts them back to IPv4 addresses for consistent auth checks.
+fn normalize_ip(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                IpAddr::V4(v4)
+            } else {
+                IpAddr::V6(v6)
+            }
+        }
+        IpAddr::V4(_) => ip,
+    }
+}
+
 /// Callback type for checking if an IP is allowed
 pub type AuthCallback = Arc<dyn Fn(IpAddr) -> bool + Send + Sync>;
 
@@ -79,6 +97,9 @@ impl Iperf3Server {
 
     /// Check if an IP is allowed
     pub async fn is_ip_allowed(&self, ip: IpAddr) -> bool {
+        // Normalize the IP address (convert IPv4-mapped IPv6 to IPv4)
+        let normalized_ip = normalize_ip(ip);
+        
         // If auth is not required, allow all
         if !self.config.require_auth {
             return true;
@@ -86,7 +107,7 @@ impl Iperf3Server {
 
         // Check custom callback first
         if let Some(callback) = self.auth_callback.read().await.as_ref() {
-            return callback(ip);
+            return callback(normalized_ip);
         }
 
         // Check allowed IPs list
@@ -95,7 +116,7 @@ impl Iperf3Server {
             // If no IPs configured and auth is required, deny all
             return false;
         }
-        allowed.contains_key(&ip)
+        allowed.contains_key(&normalized_ip)
     }
 
     /// Get the number of active sessions
