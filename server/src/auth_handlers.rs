@@ -1,10 +1,10 @@
 use axum::{
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, FromRef, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
-use axum_extra::extract::cookie::PrivateCookieJar;
+use axum_extra::extract::cookie::{Key, PrivateCookieJar};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -16,6 +16,13 @@ use crate::auth_cache::SharedAuthAddressCache;
 pub struct AuthHandlerState {
     pub auth_state: AuthState,
     pub auth_cache: Option<SharedAuthAddressCache>,
+}
+
+/// Implement FromRef to allow PrivateCookieJar to extract Key from AuthHandlerState
+impl FromRef<AuthHandlerState> for Key {
+    fn from_ref(state: &AuthHandlerState) -> Self {
+        state.auth_state.cookie_key()
+    }
 }
 
 #[derive(Deserialize)]

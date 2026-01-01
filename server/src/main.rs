@@ -39,6 +39,7 @@ use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
 
 use axum::routing::IntoMakeService;
+use axum::extract::connect_info::IntoMakeServiceWithConnectInfo;
 
 use packet_capture::PacketCaptureService;
 use tracing_buffer::TracingService;
@@ -53,7 +54,7 @@ fn get_make_service(
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
-) -> IntoMakeService<axum::Router> {
+) -> IntoMakeServiceWithConnectInfo<axum::Router, SocketAddr> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
         .route("/api/signaling/start", post(signaling::signaling_start))
@@ -98,11 +99,18 @@ fn get_make_service(
             // Create auth routes with their own state
             let auth_router = auth_routes().with_state(auth_state.clone());
             
-            // Public API routes (auth status and magic key)
+            // Create AuthHandlerState for routes that need to record to auth cache
+            let auth_handler_state = auth_handlers::AuthHandlerState {
+                auth_state: auth_state.clone(),
+                auth_cache: auth_cache.clone(),
+            };
+            
+            // Public API routes (auth status and magic key) - use _with_cache handlers
+            // to record authenticated IPs to the auth cache for iperf3 access control
             let public_api = Router::new()
-                .route("/api/auth/status", get(auth_handlers::auth_status))
-                .route("/api/auth/magic-key", post(auth_handlers::magic_key_auth))
-                .with_state(auth_state.clone());
+                .route("/api/auth/status", get(auth_handlers::auth_status_with_cache))
+                .route("/api/auth/magic-key", post(auth_handlers::magic_key_auth_with_cache))
+                .with_state(auth_handler_state);
             
             // Signaling routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
             let hybrid_signaling = signaling_routes
@@ -193,7 +201,7 @@ fn get_make_service(
             .layer(TraceLayer::new_for_http())
     };
 
-    app.into_make_service()
+    app.into_make_service_with_connect_info::<SocketAddr>()
 }
 
 async fn http_server(

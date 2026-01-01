@@ -115,9 +115,10 @@ impl Iperf3Server {
             return Ok(());
         }
 
-        let addr: SocketAddr = format!("{}:{}", self.config.host, self.config.port)
-            .parse()
-            .map_err(|e| Iperf3Error::InvalidParameter(format!("Invalid address: {}", e)))?;
+        // Parse the host address first to determine if it's IPv4 or IPv6
+        let ip_addr: IpAddr = self.config.host.parse()
+            .map_err(|e| Iperf3Error::InvalidParameter(format!("Invalid host address '{}': {}", self.config.host, e)))?;
+        let addr = SocketAddr::new(ip_addr, self.config.port);
 
         let listener = TcpListener::bind(&addr).await?;
         tracing::info!("iperf3 server listening on {}", addr);
@@ -314,7 +315,8 @@ impl Iperf3Server {
 
         if is_udp {
             // For UDP, we need to create a UDP listener and accept connections
-            Self::accept_udp_streams(session.clone(), expected_streams, server_port, timeout)
+            // Pass the client address to determine the correct address family (IPv4 vs IPv6)
+            Self::accept_udp_streams(session.clone(), expected_streams, server_port, timeout, session.client_addr)
                 .await?;
         } else {
             // For TCP, wait for data streams to connect (handled by main accept loop)
@@ -428,6 +430,7 @@ impl Iperf3Server {
         expected_streams: usize,
         server_port: u16,
         timeout: Duration,
+        client_addr: SocketAddr,
     ) -> Result<()> {
         let start = std::time::Instant::now();
 
@@ -440,11 +443,16 @@ impl Iperf3Server {
             }
 
             // Create a UDP socket bound to the server port
+            // Use the same address family as the client (IPv4 or IPv6)
             // Note: For multiple parallel streams, we would need SO_REUSEPORT or different ports.
             // Currently, parallel UDP streams > 1 may not work correctly.
-            let bind_addr = format!("0.0.0.0:{}", server_port);
-            let socket = UdpSocket::bind(&bind_addr).await.map_err(|e| {
-                Iperf3Error::Protocol(format!("Failed to bind UDP socket: {}", e))
+            let bind_addr: SocketAddr = if client_addr.is_ipv6() {
+                SocketAddr::new(std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), server_port)
+            } else {
+                SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), server_port)
+            };
+            let socket = UdpSocket::bind(bind_addr).await.map_err(|e| {
+                Iperf3Error::Protocol(format!("Failed to bind UDP socket to {}: {}", bind_addr, e))
             })?;
 
             tracing::debug!("iperf3: UDP listener bound to {}", bind_addr);
