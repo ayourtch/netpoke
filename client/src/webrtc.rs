@@ -490,7 +490,7 @@ impl WebRtcConnection {
     /// Helper method to send a serializable message over the control channel
     /// Returns an error if the control channel is not ready (not open)
     fn send_control_message<T: serde::Serialize>(&self, msg: &T, msg_type: &str) -> Result<(), JsValue> {
-        let json = serde_json::to_vec(msg)
+        let json = serde_json::to_string(msg)
             .map_err(|e| {
                 log::error!("Failed to serialize {} message: {}", msg_type, e);
                 JsValue::from_str(&format!("Serialization error: {}", e))
@@ -507,8 +507,7 @@ impl WebRtcConnection {
                 )));
             }
             
-            let array = js_sys::Uint8Array::from(&json[..]);
-            channel.send_with_array_buffer(&array.buffer())?;
+            channel.send_with_str(&json)?;
             log::info!("Sent {} message for conn_id: {}", msg_type, self.conn_id);
         } else {
             log::warn!("Control channel not available to send {} message", msg_type);

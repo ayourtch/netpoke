@@ -107,7 +107,17 @@ async fn handle_bulk_message(session: Arc<ClientSession>, msg: DataChannelMessag
 }
 
 async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
-    tracing::trace!("Control message from {}", session.id);
+    tracing::debug!("Control message from {} ({} bytes)", session.id, msg.data.len());
+    
+    // Log the raw message for debugging (first 200 bytes)
+    if let Ok(msg_str) = std::str::from_utf8(&msg.data) {
+        let preview = if msg_str.len() > 200 {
+            &msg_str[..200]
+        } else {
+            msg_str
+        };
+        tracing::debug!("Control message content (session {}): {}", session.id, preview);
+    }
     
     // Try to parse as StartSurveySessionMessage
     if let Ok(start_survey_msg) = serde_json::from_slice::<common::StartSurveySessionMessage>(&msg.data) {
@@ -131,58 +141,68 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
     }
     
     // Try to parse as StartTracerouteMessage
-    if let Ok(start_msg) = serde_json::from_slice::<common::StartTracerouteMessage>(&msg.data) {
-        if start_msg.conn_id != session.conn_id {
-            tracing::warn!(
-                "StartTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                start_msg.conn_id, session.id, session.conn_id
-            );
+    match serde_json::from_slice::<common::StartTracerouteMessage>(&msg.data) {
+        Ok(start_msg) => {
+            if start_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StartTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    start_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            // Update survey session ID if provided
+            if !start_msg.survey_session_id.is_empty() {
+                let mut survey_id = session.survey_session_id.write().await;
+                *survey_id = start_msg.survey_session_id.clone();
+            }
+            
+            tracing::info!("Received start traceroute request for session {} (survey: {})", 
+                session.id, start_msg.survey_session_id);
+            
+            // Trigger a single round of traceroute
+            let session_clone = session.clone();
+            tokio::spawn(async move {
+                measurements::run_single_traceroute_round(session_clone).await;
+            });
             return;
         }
-        
-        // Update survey session ID if provided
-        if !start_msg.survey_session_id.is_empty() {
-            let mut survey_id = session.survey_session_id.write().await;
-            *survey_id = start_msg.survey_session_id.clone();
+        Err(e) => {
+            tracing::trace!("Not a StartTracerouteMessage: {}", e);
         }
-        
-        tracing::info!("Received start traceroute request for session {} (survey: {})", 
-            session.id, start_msg.survey_session_id);
-        
-        // Trigger a single round of traceroute
-        let session_clone = session.clone();
-        tokio::spawn(async move {
-            measurements::run_single_traceroute_round(session_clone).await;
-        });
-        return;
     }
     
     // Try to parse as StartMtuTracerouteMessage
-    if let Ok(mtu_msg) = serde_json::from_slice::<common::StartMtuTracerouteMessage>(&msg.data) {
-        if mtu_msg.conn_id != session.conn_id {
-            tracing::warn!(
-                "StartMtuTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                mtu_msg.conn_id, session.id, session.conn_id
-            );
+    match serde_json::from_slice::<common::StartMtuTracerouteMessage>(&msg.data) {
+        Ok(mtu_msg) => {
+            if mtu_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StartMtuTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    mtu_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            // Update survey session ID if provided
+            if !mtu_msg.survey_session_id.is_empty() {
+                let mut survey_id = session.survey_session_id.write().await;
+                *survey_id = mtu_msg.survey_session_id.clone();
+            }
+            
+            tracing::info!("Received MTU traceroute request for session {} with packet_size={}", 
+                session.id, mtu_msg.packet_size);
+            
+            // Trigger MTU traceroute with the specified packet size
+            let session_clone = session.clone();
+            let packet_size = mtu_msg.packet_size;
+            tokio::spawn(async move {
+                measurements::run_mtu_traceroute_round(session_clone, packet_size).await;
+            });
             return;
         }
-        
-        // Update survey session ID if provided
-        if !mtu_msg.survey_session_id.is_empty() {
-            let mut survey_id = session.survey_session_id.write().await;
-            *survey_id = mtu_msg.survey_session_id.clone();
+        Err(e) => {
+            tracing::trace!("Not a StartMtuTracerouteMessage: {}", e);
         }
-        
-        tracing::info!("Received MTU traceroute request for session {} with packet_size={}", 
-            session.id, mtu_msg.packet_size);
-        
-        // Trigger MTU traceroute with the specified packet size
-        let session_clone = session.clone();
-        let packet_size = mtu_msg.packet_size;
-        tokio::spawn(async move {
-            measurements::run_mtu_traceroute_round(session_clone, packet_size).await;
-        });
-        return;
     }
     
     // Try to parse as GetMeasuringTimeMessage
@@ -349,7 +369,18 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
         tokio::spawn(async move {
             measurements::start_bulk_sender(session_for_bulk).await;
         });
+        return;
     }
+    
+    // If we reach here, the message was not recognized
+    tracing::warn!(
+        "Unrecognized control message from session {} ({} bytes). Message preview: {}",
+        session.id,
+        msg.data.len(),
+        std::str::from_utf8(&msg.data)
+            .map(|s| if s.len() > 100 { &s[..100] } else { s })
+            .unwrap_or("<binary data>")
+    );
 }
 
 async fn handle_testprobe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
