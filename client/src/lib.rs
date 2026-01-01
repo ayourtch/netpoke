@@ -571,10 +571,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         conn.setup_address_update_callback("ipv4", i);
         
-        // Send StartSurveySession message
-        if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
-            log::warn!("Failed to send StartSurveySession for IPv4 connection {}: {:?}", i, e);
-        }
+        // NOTE: Do NOT send StartSurveySession here - control channel is not ready yet
         
         ipv4_connections.push(conn);
     }
@@ -605,11 +602,47 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
         conn.setup_address_update_callback("ipv6", i);
         
-        if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
-            log::warn!("Failed to send StartSurveySession for IPv6 connection {}: {:?}", i, e);
-        }
+        // NOTE: Do NOT send StartSurveySession here - control channel is not ready yet
         
         ipv6_connections.push(conn);
+    }
+
+    // Wait for all control channels to be ready before sending StartSurveySession
+    log::info!("Waiting for control channels to be ready...");
+    let control_channel_timeout_ms: u32 = 10000; // 10 second timeout for control channels
+    
+    for (i, conn) in ipv4_connections.iter().enumerate() {
+        if should_abort_testing() {
+            log::info!("Testing aborted while waiting for control channels");
+            return Ok(());
+        }
+        
+        if conn.wait_for_control_channel_ready(control_channel_timeout_ms).await {
+            if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
+                log::warn!("Failed to send StartSurveySession for IPv4 connection {}: {:?}", i, e);
+            } else {
+                log::info!("Sent StartSurveySession for IPv4 connection {}", i);
+            }
+        } else {
+            log::warn!("Control channel not ready for IPv4 connection {}, skipping StartSurveySession", i);
+        }
+    }
+    
+    for (i, conn) in ipv6_connections.iter().enumerate() {
+        if should_abort_testing() {
+            log::info!("Testing aborted while waiting for control channels");
+            return Ok(());
+        }
+        
+        if conn.wait_for_control_channel_ready(control_channel_timeout_ms).await {
+            if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
+                log::warn!("Failed to send StartSurveySession for IPv6 connection {}: {:?}", i, e);
+            } else {
+                log::info!("Sent StartSurveySession for IPv6 connection {}", i);
+            }
+        } else {
+            log::warn!("Control channel not ready for IPv6 connection {}, skipping StartSurveySession", i);
+        }
     }
 
     // Wait for all ServerSideReady messages
@@ -672,6 +705,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
     
     log::info!("PHASE 1 complete: Traceroute finished");
+    
+    // Add a brief pause between phases to allow server processing to complete
+    sleep_ms(1000).await;
 
     // PHASE 2: MTU Traceroute (5 rounds with different packet sizes)
     log::info!("PHASE 2: Starting MTU traceroute ({} rounds with sizes {:?})...", MTU_TRACEROUTE_ROUNDS, MTU_SIZES);
@@ -700,6 +736,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
     
     log::info!("PHASE 2 complete: MTU traceroute finished");
+    
+    // Add a brief pause between phases to allow server processing to complete
+    sleep_ms(1000).await;
 
     // PHASE 3: Get measuring time and start measurements
     log::info!("PHASE 3: Getting measuring time and starting measurements...");

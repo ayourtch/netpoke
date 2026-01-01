@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{
     RtcPeerConnection, RtcConfiguration,
     RtcDataChannelInit, RtcSessionDescriptionInit, RtcSdpType,
-    RtcIceCandidateInit,
+    RtcIceCandidateInit, RtcDataChannelState,
 };
 use js_sys;
 use crate::{signaling, measurements};
@@ -488,6 +488,7 @@ impl WebRtcConnection {
     }
     
     /// Helper method to send a serializable message over the control channel
+    /// Returns an error if the control channel is not ready (not open)
     fn send_control_message<T: serde::Serialize>(&self, msg: &T, msg_type: &str) -> Result<(), JsValue> {
         let json = serde_json::to_vec(msg)
             .map_err(|e| {
@@ -497,14 +498,64 @@ impl WebRtcConnection {
         
         let control_channel_opt = self.control_channel.borrow();
         if let Some(channel) = control_channel_opt.as_ref() {
+            // Check if channel is open before sending
+            let state = channel.ready_state();
+            if state != RtcDataChannelState::Open {
+                log::warn!("Control channel not open for {} message (state: {:?})", msg_type, state);
+                return Err(JsValue::from_str(&format!(
+                    "Control channel not ready: {:?}", state
+                )));
+            }
+            
             let array = js_sys::Uint8Array::from(&json[..]);
             channel.send_with_array_buffer(&array.buffer())?;
             log::info!("Sent {} message for conn_id: {}", msg_type, self.conn_id);
         } else {
             log::warn!("Control channel not available to send {} message", msg_type);
+            return Err(JsValue::from_str("Control channel not available"));
         }
         
         Ok(())
+    }
+    
+    /// Check if the control channel is open and ready for sending messages
+    pub fn is_control_channel_open(&self) -> bool {
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            channel.ready_state() == RtcDataChannelState::Open
+        } else {
+            false
+        }
+    }
+    
+    /// Wait for the control channel to be ready with a timeout
+    /// Returns true if the channel is ready, false if timeout occurred
+    pub async fn wait_for_control_channel_ready(&self, timeout_ms: u32) -> bool {
+        let start_time = crate::measurements::current_time_ms();
+        let timeout = timeout_ms as u64;
+        
+        loop {
+            if self.is_control_channel_open() {
+                log::info!("Control channel is now open for conn_id: {}", self.conn_id);
+                return true;
+            }
+            
+            let elapsed = crate::measurements::current_time_ms() - start_time;
+            if elapsed >= timeout {
+                log::warn!("Timeout waiting for control channel to open for conn_id: {} ({}ms)", 
+                    self.conn_id, timeout_ms);
+                return false;
+            }
+            
+            // Sleep for 50ms before checking again
+            let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+                let window = web_sys::window().expect("no global window available");
+                window
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 50)
+                    .expect("Failed to set timeout");
+            });
+            wasm_bindgen_futures::JsFuture::from(promise).await.expect("Failed to sleep");
+        }
     }
     
     /// Send a stop traceroute message to the server
