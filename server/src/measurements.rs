@@ -41,6 +41,15 @@ pub async fn start_probe_sender(
     loop {
         interval.tick().await;
 
+        // Check if traffic should still be active
+        {
+            let state = session.measurement_state.read().await;
+            if !state.traffic_active {
+                tracing::info!("Stopping probe sender for session {} (traffic_active=false)", session.id);
+                break;
+            }
+        }
+
         // Check if probe channel is ready
         let channels = session.data_channels.read().await;
         let probe_channel = match &channels.probe {
@@ -103,6 +112,15 @@ pub async fn start_bulk_sender(
 
     loop {
         interval.tick().await;
+
+        // Check if traffic should still be active
+        {
+            let state = session.measurement_state.read().await;
+            if !state.traffic_active {
+                tracing::info!("Stopping bulk sender for session {} (traffic_active=false)", session.id);
+                break;
+            }
+        }
 
         let channels = session.data_channels.read().await;
         let bulk_channel = match &channels.bulk {
