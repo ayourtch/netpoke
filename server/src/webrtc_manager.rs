@@ -2,7 +2,6 @@ use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
-use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::ice::network_type::NetworkType;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
@@ -29,6 +28,13 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
     // Configure SettingEngine to disable mDNS and set network types based on IP family
     let mut setting_engine = SettingEngine::default();
     setting_engine.set_ice_multicast_dns_mode(webrtc::ice::mdns::MulticastDnsMode::Disabled);
+    
+    // Enable ICE Lite mode for server-side.
+    // This ensures only host candidates are gathered (binding to specific local IPs),
+    // and avoids gathering server reflexive (STUN) or relay (TURN) candidates which
+    // would bind to wildcard addresses (0.0.0.0 or ::).
+    // This is appropriate when the server is directly reachable by clients.
+    setting_engine.set_lite(true);
     
     // Configure ICE timeouts for more robust connections
     // - disconnected_timeout: 10s (default 5s) - more tolerance for temporary disconnections
@@ -62,11 +68,10 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
         .with_setting_engine(setting_engine)
         .build();
 
+    // ICE Lite mode: No STUN/TURN servers needed since only host candidates are gathered.
+    // The server relies on the client to perform connectivity checks.
     let config = RTCConfiguration {
-        ice_servers: vec![RTCIceServer {
-            urls: vec!["stun:stun.l.google.com:19302".to_owned()],
-            ..Default::default()
-        }],
+        ice_servers: vec![],
         ice_transport_policy: "all".into(),
         ..Default::default()
     };
