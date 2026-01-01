@@ -13,6 +13,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
+/// Maximum size of a JSON message (1 MB)
+const MAX_MESSAGE_SIZE: usize = 1024 * 1024;
+
+/// Buffer size for reading/writing data streams (128 KB)
+const BUFFER_SIZE: usize = 128 * 1024;
+
+/// Timeout in milliseconds for data stream read operations
+const READ_TIMEOUT_MS: u64 = 100;
+
+/// Sleep interval in milliseconds for bandwidth limiting
+const BANDWIDTH_LIMIT_SLEEP_MS: u64 = 1;
+
 /// A test session with a client
 pub struct TestSession {
     /// Session ID (cookie)
@@ -137,7 +149,7 @@ impl TestSession {
         stream.read_exact(&mut len_buf).await?;
         let len = u32::from_be_bytes(len_buf) as usize;
 
-        if len > 1024 * 1024 {
+        if len > MAX_MESSAGE_SIZE {
             return Err(Iperf3Error::Protocol(format!(
                 "Message too large: {} bytes",
                 len
@@ -207,7 +219,7 @@ impl TestSession {
             let bytes_received = bytes_received.clone();
 
             let handle = tokio::spawn(async move {
-                let mut buf = vec![0u8; 128 * 1024]; // 128KB buffer
+                let mut buf = vec![0u8; BUFFER_SIZE];
                 loop {
                     if cancelled.load(Ordering::SeqCst) || Instant::now() > deadline {
                         break;
@@ -215,7 +227,7 @@ impl TestSession {
 
                     let mut stream_guard = stream.lock().await;
                     match tokio::time::timeout(
-                        Duration::from_millis(100),
+                        Duration::from_millis(READ_TIMEOUT_MS),
                         stream_guard.read(&mut buf),
                     )
                     .await
@@ -283,7 +295,7 @@ impl TestSession {
                             last_send = Instant::now();
                             bytes_this_second = 0;
                         } else if bytes_this_second >= bytes_per_second {
-                            tokio::time::sleep(Duration::from_millis(1)).await;
+                            tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS)).await;
                             continue;
                         }
                     }

@@ -12,6 +12,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
 
+/// Timeout in seconds for waiting for data streams to connect
+const STREAM_CONNECT_TIMEOUT_SECS: u64 = 10;
+
+/// Polling interval in milliseconds when waiting for data streams
+const STREAM_POLL_INTERVAL_MS: u64 = 50;
+
+/// Delay in milliseconds after test completion to allow remaining data to arrive
+const POST_TEST_DELAY_MS: u64 = 100;
+
 /// Callback type for checking if an IP is allowed
 pub type AuthCallback = Arc<dyn Fn(IpAddr) -> bool + Send + Sync>;
 
@@ -286,7 +295,7 @@ impl Iperf3Server {
 
         // Wait for streams to connect (give client time to create streams)
         let expected_streams = params.parallel as usize;
-        let timeout = Duration::from_secs(10);
+        let timeout = Duration::from_secs(STREAM_CONNECT_TIMEOUT_SECS);
         let start = std::time::Instant::now();
 
         while session.stream_count().await < expected_streams {
@@ -297,7 +306,7 @@ impl Iperf3Server {
                     session.stream_count().await
                 )));
             }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(STREAM_POLL_INTERVAL_MS)).await;
         }
 
         tracing::debug!(
@@ -334,7 +343,7 @@ impl Iperf3Server {
         }
 
         // Wait a bit for any remaining data
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(POST_TEST_DELAY_MS)).await;
 
         // Wait for TEST_END
         let client_state = session.read_state().await?;

@@ -566,36 +566,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let iperf3 = Arc::new(iperf3_server::Iperf3Server::new(config.iperf3.clone()));
         
         // If authentication is required and enabled, set up the auth callback
-        // to check against authenticated user addresses
+        // to check against authenticated user addresses using a synchronized allowed IPs set
         if config.iperf3.require_auth {
+            // Create a thread-safe HashSet of allowed IPs that can be updated by the main app
+            // and checked synchronously by the iperf3 auth callback
+            let allowed_ips: Arc<std::sync::RwLock<std::collections::HashSet<std::net::IpAddr>>> = 
+                Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
+            
+            // Create a task to periodically sync allowed IPs from WebRTC client sessions
             let clients = app_state.clients.clone();
-            let auth_callback: iperf3_server::server::AuthCallback = Arc::new(move |ip| {
-                // Check if this IP matches any authenticated session's peer address
-                // We use a synchronous approach here since the callback needs to be Fn
-                // We'll check the current sessions' peer addresses
-                let clients_clone = clients.clone();
-                
-                // Use tokio::task::block_in_place to run async code in sync context
-                // This is safe because we're in a tokio runtime
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let clients_guard = clients_clone.read("iperf3_auth_check").await;
+            let allowed_ips_updater = allowed_ips.clone();
+            tokio::spawn(async move {
+                loop {
+                    // Update allowed IPs from current WebRTC sessions
+                    let mut new_ips = std::collections::HashSet::new();
+                    {
+                        let clients_guard = clients.read("iperf3_ip_sync").await;
                         for (_, session) in clients_guard.iter() {
                             let peer_addr = session.peer_address.lock().await;
                             if let Some((addr_str, _)) = &*peer_addr {
                                 if let Ok(peer_ip) = addr_str.parse::<std::net::IpAddr>() {
-                                    if peer_ip == ip {
-                                        return true;
-                                    }
+                                    new_ips.insert(peer_ip);
                                 }
                             }
                         }
-                        false
-                    })
-                })
+                    }
+                    
+                    // Update the allowed IPs set
+                    if let Ok(mut allowed) = allowed_ips_updater.write() {
+                        *allowed = new_ips;
+                    }
+                    
+                    // Sync every second
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
             });
             
-            // Set the callback - we need to do this asynchronously
+            // Set up the sync auth callback
+            let auth_callback: iperf3_server::server::AuthCallback = Arc::new(move |ip| {
+                // This is a synchronous callback - use std::sync::RwLock
+                if let Ok(allowed) = allowed_ips.read() {
+                    allowed.contains(&ip)
+                } else {
+                    false
+                }
+            });
+            
+            // Set the callback asynchronously
             let iperf3_clone = iperf3.clone();
             tokio::spawn(async move {
                 iperf3_clone.set_auth_callback(auth_callback).await;
