@@ -488,9 +488,10 @@ impl WebRtcConnection {
     }
     
     /// Send a stop traceroute message to the server
-    pub async fn send_stop_traceroute(&self) -> Result<(), JsValue> {
+    pub async fn send_stop_traceroute(&self, survey_session_id: &str) -> Result<(), JsValue> {
         let stop_msg = common::StopTracerouteMessage {
             conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
         };
         
         let json = serde_json::to_vec(&stop_msg)
@@ -518,12 +519,13 @@ impl WebRtcConnection {
     }
 
     /// Send a start traceroute message to the server
-    pub async fn send_start_traceroute(&self) -> Result<(), JsValue> {
-        let stop_msg = common::StartTracerouteMessage {
+    pub async fn send_start_traceroute(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let start_msg = common::StartTracerouteMessage {
             conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
         };
         
-        let json = serde_json::to_vec(&stop_msg)
+        let json = serde_json::to_vec(&start_msg)
             .map_err(|e| {
                 log::error!("Failed to serialize start traceroute message: {}", e);
                 JsValue::from_str(&format!("Serialization error: {}", e))
@@ -531,17 +533,140 @@ impl WebRtcConnection {
         
         let control_channel_opt = self.control_channel.borrow();
         if let Some(channel) = control_channel_opt.as_ref() {
-            // Convert Vec<u8> to js_sys::Uint8Array and send
             let array = js_sys::Uint8Array::from(&json[..]);
-            
-            // Send the message using ArrayBuffer
             channel.send_with_array_buffer(&array.buffer())?;
             log::info!("Sent start traceroute message for conn_id: {}", self.conn_id);
+        } else {
+            log::warn!("Control channel not available to send start traceroute message");
+        }
+        
+        Ok(())
+    }
+    
+    /// Send a start survey session message to the server
+    pub async fn send_start_survey_session(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let msg = common::StartSurveySessionMessage {
+            survey_session_id: survey_session_id.to_string(),
+            conn_id: self.conn_id.clone(),
+        };
+        
+        let json = serde_json::to_vec(&msg)
+            .map_err(|e| {
+                log::error!("Failed to serialize start survey session message: {}", e);
+                JsValue::from_str(&format!("Serialization error: {}", e))
+            })?;
+        
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            let array = js_sys::Uint8Array::from(&json[..]);
+            channel.send_with_array_buffer(&array.buffer())?;
+            log::info!("Sent start survey session message for conn_id: {}, session: {}", self.conn_id, survey_session_id);
+        } else {
+            log::warn!("Control channel not available to send start survey session message");
+        }
+        
+        Ok(())
+    }
+    
+    /// Send a start MTU traceroute message to the server
+    pub async fn send_start_mtu_traceroute(&self, survey_session_id: &str, packet_size: u32) -> Result<(), JsValue> {
+        let msg = common::StartMtuTracerouteMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+            packet_size,
+        };
+        
+        let json = serde_json::to_vec(&msg)
+            .map_err(|e| {
+                log::error!("Failed to serialize start MTU traceroute message: {}", e);
+                JsValue::from_str(&format!("Serialization error: {}", e))
+            })?;
+        
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            let array = js_sys::Uint8Array::from(&json[..]);
+            channel.send_with_array_buffer(&array.buffer())?;
+            log::info!("Sent start MTU traceroute message for conn_id: {}, size: {}", self.conn_id, packet_size);
+        } else {
+            log::warn!("Control channel not available to send start MTU traceroute message");
+        }
+        
+        Ok(())
+    }
+    
+    /// Send get measuring time message to the server
+    pub async fn send_get_measuring_time(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let msg = common::GetMeasuringTimeMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        };
+        
+        let json = serde_json::to_vec(&msg)
+            .map_err(|e| {
+                log::error!("Failed to serialize get measuring time message: {}", e);
+                JsValue::from_str(&format!("Serialization error: {}", e))
+            })?;
+        
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            let array = js_sys::Uint8Array::from(&json[..]);
+            channel.send_with_array_buffer(&array.buffer())?;
+            log::info!("Sent get measuring time message for conn_id: {}", self.conn_id);
+        } else {
+            log::warn!("Control channel not available to send get measuring time message");
+        }
+        
+        Ok(())
+    }
+    
+    /// Send start server traffic message to the server
+    pub async fn send_start_server_traffic(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let msg = common::StartServerTrafficMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        };
+        
+        let json = serde_json::to_vec(&msg)
+            .map_err(|e| {
+                log::error!("Failed to serialize start server traffic message: {}", e);
+                JsValue::from_str(&format!("Serialization error: {}", e))
+            })?;
+        
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            let array = js_sys::Uint8Array::from(&json[..]);
+            channel.send_with_array_buffer(&array.buffer())?;
+            log::info!("Sent start server traffic message for conn_id: {}", self.conn_id);
             
             // Disable traceroute mode to allow measurement data collection
             self.state.borrow_mut().set_traceroute_active(false);
         } else {
-            log::warn!("Control channel not available to send start traceroute message");
+            log::warn!("Control channel not available to send start server traffic message");
+        }
+        
+        Ok(())
+    }
+    
+    /// Send stop server traffic message to the server
+    pub async fn send_stop_server_traffic(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let msg = common::StopServerTrafficMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        };
+        
+        let json = serde_json::to_vec(&msg)
+            .map_err(|e| {
+                log::error!("Failed to serialize stop server traffic message: {}", e);
+                JsValue::from_str(&format!("Serialization error: {}", e))
+            })?;
+        
+        let control_channel_opt = self.control_channel.borrow();
+        if let Some(channel) = control_channel_opt.as_ref() {
+            let array = js_sys::Uint8Array::from(&json[..]);
+            channel.send_with_array_buffer(&array.buffer())?;
+            log::info!("Sent stop server traffic message for conn_id: {}", self.conn_id);
+        } else {
+            log::warn!("Control channel not available to send stop server traffic message");
         }
         
         Ok(())

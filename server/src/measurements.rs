@@ -561,6 +561,9 @@ pub async fn start_traceroute_sender(
                         let rtt = event.icmp_received_at.duration_since(event.sent_at);
                         let rtt_ms = rtt.as_secs_f64() * 1000.0;
                         
+                        // Get survey session ID
+                        let survey_session_id = session.survey_session_id.read().await.clone();
+                        
                         // Create hop message with actual ICMP data
                         // conn_id is properly passed through UdpSendOptions and available in the event
                         let hop_message = common::TraceHopMessage {
@@ -569,6 +572,7 @@ pub async fn start_traceroute_sender(
                             rtt_ms,
                             message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
                             conn_id: event.conn_id.clone(),
+                            survey_session_id,
                             original_src_port: event.original_src_port,
                             original_dest_addr: event.original_dest_addr.clone(),
                         };
@@ -592,6 +596,290 @@ pub async fn start_traceroute_sender(
             session.id, ROUND_INTERVAL_MS);
         tokio::time::sleep(Duration::from_millis(ROUND_INTERVAL_MS)).await;
     }
+}
+
+/// Run a single round of traceroute (triggered by client StartTraceroute message)
+pub async fn run_single_traceroute_round(session: Arc<ClientSession>) {
+    const MAX_TTL: u8 = 16;
+    const TTL_SEND_INTERVAL_MS: u64 = 250; // time between TTL probes
+    
+    tracing::info!("Running single traceroute round for session {}", session.id);
+    
+    // Get the survey session ID for messages
+    let survey_session_id = session.survey_session_id.read().await.clone();
+    
+    for current_ttl in 1..=MAX_TTL {
+        tracing::debug!("Traceroute tick for session {}, TTL {}", session.id, current_ttl);
+
+        // Check if control channel is ready
+        let channels = session.data_channels.read().await;
+        let control_channel = match &channels.control {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                tracing::debug!("Control channel not ready for session {}, skipping", session.id);
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        // Get testprobe channel to send traceroute test probes
+        let channels = session.data_channels.read().await;
+        let testprobe_channel = match &channels.testprobe {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                tracing::debug!("TestProbe channel not ready for session {}, skipping", session.id);
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        // Create test probe packet with specific TTL for traceroute
+        let sent_at_ms = current_time_ms();
+        let seq = {
+            let mut state = session.measurement_state.write().await;
+            let seq = state.testprobe_seq;
+            state.testprobe_seq += 1;
+            
+            // Track the test probe
+            let sent_testprobe = crate::state::SentProbe {
+                seq,
+                sent_at_ms,
+            };
+            state.sent_testprobes.push_back(sent_testprobe.clone());
+            state.sent_testprobes_map.insert(seq, sent_testprobe);
+            
+            // Keep only last 60 seconds of sent test probes
+            let cutoff = sent_at_ms - 60_000;
+            while let Some(p) = state.sent_testprobes.front() {
+                if p.sent_at_ms < cutoff {
+                    let old_probe = state.sent_testprobes.pop_front().unwrap();
+                    state.sent_testprobes_map.remove(&old_probe.seq);
+                } else {
+                    break;
+                }
+            }
+            
+            seq
+        };
+
+        let send_options = common::SendOptions {
+            ttl: Some(current_ttl),
+            df_bit: Some(true),
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+
+        let testprobe = common::TestProbePacket {
+            test_seq: seq,
+            timestamp_ms: sent_at_ms,
+            direction: Direction::ServerToClient,
+            send_options: Some(send_options),
+            conn_id: session.conn_id.clone(),
+        };
+
+        if let Ok(json) = serde_json::to_vec(&testprobe) {
+            tracing::debug!("Sending traceroute test probe: TTL={}, seq={}", current_ttl, seq);
+            
+            #[cfg(target_os = "linux")]
+            let send_result = {
+                use webrtc_util::UdpSendOptions;
+                let options = Some(UdpSendOptions {
+                    ttl: Some(current_ttl),
+                    tos: None,
+                    df_bit: Some(true),
+                    conn_id: session.conn_id.clone(),
+                });
+                testprobe_channel.send_with_options(&json.into(), options).await
+            };
+            
+            #[cfg(not(target_os = "linux"))]
+            let send_result = testprobe_channel.send(&json.into()).await;
+
+            if let Err(e) = send_result {
+                tracing::error!("Failed to send traceroute test probe: {}", e);
+                continue;
+            }
+
+            // Wait for ICMP response
+            tokio::time::sleep(Duration::from_millis(TTL_SEND_INTERVAL_MS)).await;
+
+            // Check for ICMP events
+            let events = session.packet_tracker.drain_events_for_conn_id(&session.conn_id).await;
+            
+            for event in events {
+                let hop = event.send_options.ttl.expect("TTL should be set");
+                let rtt = event.icmp_received_at.duration_since(event.sent_at);
+                let rtt_ms = rtt.as_secs_f64() * 1000.0;
+                
+                let hop_message = common::TraceHopMessage {
+                    hop,
+                    ip_address: event.router_ip.clone(),
+                    rtt_ms,
+                    message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
+                    conn_id: event.conn_id.clone(),
+                    survey_session_id: survey_session_id.clone(),
+                    original_src_port: event.original_src_port,
+                    original_dest_addr: event.original_dest_addr.clone(),
+                };
+
+                if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
+                    if let Err(e) = control_channel.send(&msg_json.into()).await {
+                        tracing::error!("Failed to send hop message: {}", e);
+                    }
+                }
+            }
+        }
+    }
+    
+    tracing::info!("Completed single traceroute round for session {}", session.id);
+}
+
+/// Run MTU traceroute round with specified packet size
+pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: u32) {
+    const MAX_TTL: u8 = 16;
+    const TTL_SEND_INTERVAL_MS: u64 = 250;
+    
+    tracing::info!("Running MTU traceroute round for session {} with packet_size={}", session.id, packet_size);
+    
+    // Get the survey session ID for messages
+    let survey_session_id = session.survey_session_id.read().await.clone();
+    
+    for current_ttl in 1..=MAX_TTL {
+        tracing::debug!("MTU traceroute tick for session {}, TTL {}, size {}", session.id, current_ttl, packet_size);
+
+        // Check if control channel is ready
+        let channels = session.data_channels.read().await;
+        let control_channel = match &channels.control {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        // Get testprobe channel
+        let channels = session.data_channels.read().await;
+        let testprobe_channel = match &channels.testprobe {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        let sent_at_ms = current_time_ms();
+        let seq = {
+            let mut state = session.measurement_state.write().await;
+            let seq = state.testprobe_seq;
+            state.testprobe_seq += 1;
+            
+            let sent_testprobe = crate::state::SentProbe {
+                seq,
+                sent_at_ms,
+            };
+            state.sent_testprobes.push_back(sent_testprobe.clone());
+            state.sent_testprobes_map.insert(seq, sent_testprobe);
+            
+            let cutoff = sent_at_ms - 60_000;
+            while let Some(p) = state.sent_testprobes.front() {
+                if p.sent_at_ms < cutoff {
+                    let old_probe = state.sent_testprobes.pop_front().unwrap();
+                    state.sent_testprobes_map.remove(&old_probe.seq);
+                } else {
+                    break;
+                }
+            }
+            
+            seq
+        };
+
+        let send_options = common::SendOptions {
+            ttl: Some(current_ttl),
+            df_bit: Some(true),  // DF bit is essential for MTU discovery
+            tos: None,
+            flow_label: None,
+            track_for_ms: 5000,
+        };
+
+        let testprobe = common::TestProbePacket {
+            test_seq: seq,
+            timestamp_ms: sent_at_ms,
+            direction: Direction::ServerToClient,
+            send_options: Some(send_options),
+            conn_id: session.conn_id.clone(),
+        };
+
+        // Serialize and pad to packet_size
+        if let Ok(mut json) = serde_json::to_vec(&testprobe) {
+            // Pad the packet to the desired size
+            let current_len = json.len();
+            let target_len = packet_size as usize;
+            if current_len < target_len {
+                json.resize(target_len, 0);
+            }
+            
+            tracing::debug!("Sending MTU traceroute probe: TTL={}, seq={}, size={}", current_ttl, seq, json.len());
+            
+            #[cfg(target_os = "linux")]
+            let send_result = {
+                use webrtc_util::UdpSendOptions;
+                let options = Some(UdpSendOptions {
+                    ttl: Some(current_ttl),
+                    tos: None,
+                    df_bit: Some(true),  // DF bit set for MTU discovery
+                    conn_id: session.conn_id.clone(),
+                });
+                testprobe_channel.send_with_options(&json.into(), options).await
+            };
+            
+            #[cfg(not(target_os = "linux"))]
+            let send_result = testprobe_channel.send(&json.into()).await;
+
+            if let Err(e) = send_result {
+                tracing::error!("Failed to send MTU traceroute probe: {}", e);
+                continue;
+            }
+
+            tokio::time::sleep(Duration::from_millis(TTL_SEND_INTERVAL_MS)).await;
+
+            // Check for ICMP events (including "Fragmentation Needed" messages)
+            let events = session.packet_tracker.drain_events_for_conn_id(&session.conn_id).await;
+            
+            for event in events {
+                let hop = event.send_options.ttl.expect("TTL should be set");
+                let rtt = event.icmp_received_at.duration_since(event.sent_at);
+                let rtt_ms = rtt.as_secs_f64() * 1000.0;
+                
+                // TODO: Extract MTU from ICMP "Fragmentation Needed" message if present
+                // For now, we set it to None
+                let mtu: Option<u16> = None;
+                
+                let mtu_message = common::MtuHopMessage {
+                    hop,
+                    ip_address: event.router_ip.clone(),
+                    rtt_ms,
+                    mtu,
+                    message: format!("MTU probe hop {} (size {})", hop, packet_size),
+                    conn_id: event.conn_id.clone(),
+                    survey_session_id: survey_session_id.clone(),
+                    packet_size,
+                };
+
+                if let Ok(msg_json) = serde_json::to_vec(&mtu_message) {
+                    if let Err(e) = control_channel.send(&msg_json.into()).await {
+                        tracing::error!("Failed to send MTU hop message: {}", e);
+                    }
+                }
+            }
+        }
+    }
+    
+    tracing::info!("Completed MTU traceroute round for session {} with packet_size={}", session.id, packet_size);
 }
 
 fn current_time_ms() -> u64 {

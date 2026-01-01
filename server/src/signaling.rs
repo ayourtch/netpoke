@@ -137,6 +137,7 @@ pub async fn signaling_start(
         ip_version: req.ip_version.clone(),
         mode: req.mode.clone(),
         conn_id: conn_id.clone(),
+        survey_session_id: Arc::new(tokio::sync::RwLock::new(String::new())),
         peer_connection: peer.clone(),
         data_channels,
         metrics,

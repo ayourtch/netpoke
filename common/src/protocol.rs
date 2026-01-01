@@ -203,6 +203,10 @@ pub struct TraceHopMessage {
     #[serde(default)]
     pub conn_id: String,
     
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+    
     /// Source port from the original UDP packet
     #[serde(default)]
     pub original_src_port: u16,
@@ -219,6 +223,10 @@ pub struct StopTracerouteMessage {
     /// Defaults to empty string for backwards compatibility
     #[serde(default)]
     pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
 }
 
 /// Message sent from client to server to start traceroute probes
@@ -228,6 +236,129 @@ pub struct StartTracerouteMessage {
     /// Defaults to empty string for backwards compatibility
     #[serde(default)]
     pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+/// Message sent from client to server to start a survey session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartSurveySessionMessage {
+    /// Unique survey session ID (UUID) for cross-correlation
+    pub survey_session_id: String,
+    
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+}
+
+/// Message sent from server to client when all channels are ready
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerSideReadyMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+/// Message sent from client to server to start MTU traceroute probes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartMtuTracerouteMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+    
+    /// Target packet size to probe (including headers)
+    pub packet_size: u32,
+}
+
+/// MTU hop message sent from server to client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtuHopMessage {
+    /// Hop number (TTL value)
+    pub hop: u8,
+    
+    /// IP address of the hop (if available from ICMP)
+    pub ip_address: Option<String>,
+    
+    /// Round-trip time to this hop in milliseconds
+    pub rtt_ms: f64,
+    
+    /// MTU value from ICMP "Fragmentation Needed" message (if available)
+    pub mtu: Option<u16>,
+    
+    /// Human-readable message about this hop
+    pub message: String,
+    
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+    
+    /// Packet size that was used for this probe
+    pub packet_size: u32,
+}
+
+/// Message sent from client to server to request measuring time limit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetMeasuringTimeMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+/// Response from server with measuring time limit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeasuringTimeResponseMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+    
+    /// Maximum duration in milliseconds for the performance measurement session
+    pub max_duration_ms: u64,
+}
+
+/// Message sent from client to server to start server-side traffic
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartServerTrafficMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+/// Message sent from client to server to stop server-side traffic
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopServerTrafficMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
 }
 
 /// Event generated when an ICMP error matches a tracked packet

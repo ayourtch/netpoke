@@ -7,10 +7,11 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{window, Document, RtcPeerConnection};
 use std::cell::RefCell;
+use std::rc::Rc;
 use gloo_timers::callback::Interval;
 use serde::Deserialize;
 
-// Path analysis timeout in milliseconds (30 seconds)
+// Path analysis timeout in milliseconds (30 seconds) - deprecated, now using phased approach
 const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
 
 // Delay in milliseconds before starting chart data collection after Phase 1 finishes (10 seconds)
@@ -26,14 +27,30 @@ const WEBRTC_MANAGED_ADDRESS: &str = "WebRTC managed";
 // Default WebRTC connection delay in milliseconds
 const DEFAULT_WEBRTC_CONNECTION_DELAY_MS: u32 = 50;
 
+// New flow constants
+// Delay between StartTraceroute messages to different connections (configurable)
+const DEFAULT_TRACEROUTE_STAGGER_DELAY_MS: u32 = 100;
+// Minimum wait time between traceroute rounds for the same connection (3000ms)
+const TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 3000;
+// Number of traceroute rounds
+const TRACEROUTE_ROUNDS: u32 = 5;
+// Number of MTU traceroute rounds
+const MTU_TRACEROUTE_ROUNDS: u32 = 5;
+// MTU sizes to test (in bytes)
+const MTU_SIZES: [u32; 5] = [576, 1280, 1400, 1472, 1500];
+
 // Global state for tracking active connections and testing status
 thread_local! {
     static WAKE_LOCK: RefCell<Option<JsValue>> = RefCell::new(None);
     static ACTIVE_PEERS: RefCell<Vec<RtcPeerConnection>> = RefCell::new(Vec::new());
     static ACTIVE_INTERVALS: RefCell<Vec<Interval>> = RefCell::new(Vec::new());
     static IS_TESTING_ACTIVE: RefCell<bool> = RefCell::new(false);
+    // Flag to signal that testing should be aborted
+    static ABORT_TESTING: RefCell<bool> = RefCell::new(false);
     // Timestamp (in ms) when chart data collection should begin (after delay period)
     static CHART_COLLECTION_START_MS: RefCell<Option<u64>> = RefCell::new(None);
+    // Current survey session ID (UUID)
+    static SURVEY_SESSION_ID: RefCell<String> = RefCell::new(String::new());
 }
 
 /// Client configuration fetched from the server
@@ -248,6 +265,63 @@ fn clear_active_resources() {
     CHART_COLLECTION_START_MS.with(|start| {
         *start.borrow_mut() = None;
     });
+    
+    // Reset abort flag
+    ABORT_TESTING.with(|abort| {
+        *abort.borrow_mut() = false;
+    });
+}
+
+/// Generate a new UUID for survey session
+fn generate_uuid() -> String {
+    let random_bytes: [u8; 16] = [
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+        (js_sys::Math::random() * 256.0) as u8,
+    ];
+    format!("{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        random_bytes[0], random_bytes[1], random_bytes[2], random_bytes[3],
+        random_bytes[4], random_bytes[5],
+        random_bytes[6], random_bytes[7],
+        random_bytes[8], random_bytes[9],
+        random_bytes[10], random_bytes[11], random_bytes[12], random_bytes[13], random_bytes[14], random_bytes[15])
+}
+
+/// Set the abort testing flag
+fn set_abort_testing(abort: bool) {
+    ABORT_TESTING.with(|flag| {
+        *flag.borrow_mut() = abort;
+    });
+}
+
+/// Check if testing should be aborted
+fn should_abort_testing() -> bool {
+    ABORT_TESTING.with(|flag| *flag.borrow())
+}
+
+/// Get current survey session ID
+fn get_survey_session_id() -> String {
+    SURVEY_SESSION_ID.with(|id| id.borrow().clone())
+}
+
+/// Set current survey session ID
+fn set_survey_session_id(id: String) {
+    SURVEY_SESSION_ID.with(|session_id| {
+        *session_id.borrow_mut() = id;
+    });
 }
 
 #[wasm_bindgen]
@@ -411,6 +485,9 @@ pub fn stop_measurement() {
 pub fn stop_testing() {
     log::info!("Stopping all active testing...");
     
+    // Set abort flag to stop any ongoing phases
+    set_abort_testing(true);
+    
     // Close all connections and clear intervals
     clear_active_resources();
     
@@ -430,11 +507,23 @@ pub async fn analyze_network() -> Result<(), JsValue> {
     analyze_network_with_count(1).await
 }
 
-/// Analyze the network with multiple connections: perform traceroute first, then start measurements
+/// Analyze the network with multiple connections: new phased approach
+/// Phase 0: Generate survey session ID, establish all connections, wait for ServerSideReady
+/// Phase 1: Traceroute (5 rounds, client-driven)
+/// Phase 2: MTU Traceroute (5 rounds with different packet sizes)
+/// Phase 3: Get measuring time, start measurements
 #[wasm_bindgen]
 pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let count = conn_count.clamp(1, 16) as usize;
     log::info!("Starting network analysis with {} connections per address family...", count);
+
+    // Reset abort flag at start
+    set_abort_testing(false);
+    
+    // Generate survey session UUID
+    let survey_session_id = generate_uuid();
+    set_survey_session_id(survey_session_id.clone());
+    log::info!("Generated survey session ID: {}", survey_session_id);
 
     // Fetch client configuration from server
     let client_config = fetch_client_config().await;
@@ -444,18 +533,21 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     // Request wake lock to prevent device from sleeping
     if let Err(e) = request_wake_lock().await {
         log::warn!("Failed to acquire wake lock: {:?}", e);
-        // Continue anyway - wake lock is optional
     }
 
-    // PHASE 1: Create connections with traceroute mode and collect path data
-    log::info!("PHASE 1: Establishing WebRTC connections and analyzing paths (traceroute)...");
+    // PHASE 0: Establish all connections
+    log::info!("PHASE 0: Establishing WebRTC connections...");
     
-    // Create IPv4 connections with traceroute mode
-    let mut ipv4_connections = Vec::with_capacity(count);
+    // Create IPv4 connections
+    let mut ipv4_connections: Vec<webrtc::WebRtcConnection> = Vec::with_capacity(count);
     let mut parent_id: Option<String> = None;
     
     for i in 0..count {
-        // Add delay between connection attempts (except for the first one)
+        if should_abort_testing() {
+            log::info!("Testing aborted during connection setup");
+            return Ok(());
+        }
+        
         if i > 0 && connection_delay_ms > 0 {
             sleep_ms(connection_delay_ms).await;
         }
@@ -463,32 +555,38 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv4", 
             parent_id.clone(), 
-            Some(MODE_TRACEROUTE.to_string()), 
-            None  // conn_id will be auto-generated
+            None,  // No mode - server doesn't auto-start anything
+            None
         ).await?;
         
         if i == 0 {
             parent_id = Some(conn.client_id.clone());
         }
         
-        // Enable traceroute mode to prevent measurement data collection during Phase 1
+        // Enable traceroute mode to prevent measurement data collection
         conn.set_traceroute_mode(true);
         
         log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
-        // Register the connection with JavaScript for display
         register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
-        
-        // Set up callback to update addresses when connection is established
         conn.setup_address_update_callback("ipv4", i);
+        
+        // Send StartSurveySession message
+        if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
+            log::warn!("Failed to send StartSurveySession for IPv4 connection {}: {:?}", i, e);
+        }
         
         ipv4_connections.push(conn);
     }
 
-    // Create IPv6 connections with traceroute mode
-    let mut ipv6_connections = Vec::with_capacity(count);
+    // Create IPv6 connections
+    let mut ipv6_connections: Vec<webrtc::WebRtcConnection> = Vec::with_capacity(count);
     for i in 0..count {
-        // Add delay between connection attempts (including between IPv4 and IPv6 groups)
+        if should_abort_testing() {
+            log::info!("Testing aborted during connection setup");
+            return Ok(());
+        }
+        
         if connection_delay_ms > 0 {
             sleep_ms(connection_delay_ms).await;
         }
@@ -496,72 +594,165 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
             "ipv6", 
             parent_id.clone(), 
-            Some(MODE_TRACEROUTE.to_string()), 
-            None  // conn_id will be auto-generated
+            None,
+            None
         ).await?;
         
-        // Enable traceroute mode to prevent measurement data collection during Phase 1
         conn.set_traceroute_mode(true);
         
         log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
         
-        // Register the connection with JavaScript for display
         register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
-        
-        // Set up callback to update addresses when connection is established
         conn.setup_address_update_callback("ipv6", i);
-        sleep_ms(500).await;
+        
+        if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
+            log::warn!("Failed to send StartSurveySession for IPv6 connection {}: {:?}", i, e);
+        }
         
         ipv6_connections.push(conn);
     }
 
-    // Wait for traceroute data to be collected
-    log::info!("Collecting traceroute data for {} seconds...", PATH_ANALYSIS_TIMEOUT_MS / 1000);
+    // Wait for all ServerSideReady messages
+    log::info!("Waiting for ServerSideReady from all connections...");
+    let all_connections: Vec<_> = ipv4_connections.iter().chain(ipv6_connections.iter()).collect();
+    let total_connections = all_connections.len();
     
-    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        let window = web_sys::window().expect("no global window available during traceroute timeout");
-        window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, PATH_ANALYSIS_TIMEOUT_MS as i32)
-            .expect("Failed to set timeout for traceroute");
-    });
-    wasm_bindgen_futures::JsFuture::from(promise).await?;
-
-    log::info!("PHASE 2: Traceroute complete, starting network measurements...");
-
-    // Send stop traceroute messages to all connections
-    for conn in &ipv4_connections {
-        if let Err(e) = conn.send_stop_traceroute().await {
-            log::warn!("Failed to send stop traceroute for IPv4 connection {}: {:?}", conn.conn_id, e);
+    let timeout_ms: u32 = 30000; // 30 second timeout for all connections to be ready
+    let start_time = current_time_ms();
+    
+    loop {
+        if should_abort_testing() {
+            log::info!("Testing aborted while waiting for ServerSideReady");
+            return Ok(());
         }
-    }
-    for conn in &ipv6_connections {
-        if let Err(e) = conn.send_stop_traceroute().await {
-            log::warn!("Failed to send stop traceroute for IPv6 connection {}: {:?}", conn.conn_id, e);
+        
+        let ready_count = all_connections.iter()
+            .filter(|c| c.state.borrow().server_side_ready)
+            .count();
+        
+        if ready_count == total_connections {
+            log::info!("All {} connections are ready", total_connections);
+            break;
         }
+        
+        if (current_time_ms() - start_time) > timeout_ms as u64 {
+            log::warn!("Timeout waiting for ServerSideReady, proceeding with {}/{} ready", ready_count, total_connections);
+            break;
+        }
+        
+        sleep_ms(100).await;
     }
-    log::info!("Stop traceroute messages sent to all connections");
 
-    // Clear metrics before starting Phase 2 measurements
-    log::info!("Clearing metrics before Phase 2...");
+    // PHASE 1: Traceroute (5 rounds)
+    log::info!("PHASE 1: Starting traceroute ({} rounds)...", TRACEROUTE_ROUNDS);
+    
+    for round in 0..TRACEROUTE_ROUNDS {
+        if should_abort_testing() {
+            log::info!("Testing aborted during traceroute phase");
+            return Ok(());
+        }
+        
+        log::info!("Traceroute round {}/{}", round + 1, TRACEROUTE_ROUNDS);
+        
+        // Send StartTraceroute to all connections with stagger delay
+        for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
+            if should_abort_testing() {
+                return Ok(());
+            }
+            
+            if let Err(e) = conn.send_start_traceroute(&survey_session_id).await {
+                log::warn!("Failed to send StartTraceroute: {:?}", e);
+            }
+            
+            sleep_ms(DEFAULT_TRACEROUTE_STAGGER_DELAY_MS).await;
+        }
+        
+        // Wait at least TRACEROUTE_ROUND_MIN_WAIT_MS before next round
+        sleep_ms(TRACEROUTE_ROUND_MIN_WAIT_MS).await;
+    }
+    
+    log::info!("PHASE 1 complete: Traceroute finished");
+
+    // PHASE 2: MTU Traceroute (5 rounds with different packet sizes)
+    log::info!("PHASE 2: Starting MTU traceroute ({} rounds with sizes {:?})...", MTU_TRACEROUTE_ROUNDS, MTU_SIZES);
+    
+    for (round, &packet_size) in MTU_SIZES.iter().enumerate() {
+        if should_abort_testing() {
+            log::info!("Testing aborted during MTU traceroute phase");
+            return Ok(());
+        }
+        
+        log::info!("MTU traceroute round {}/{} with packet_size={}", round + 1, MTU_TRACEROUTE_ROUNDS, packet_size);
+        
+        for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
+            if should_abort_testing() {
+                return Ok(());
+            }
+            
+            if let Err(e) = conn.send_start_mtu_traceroute(&survey_session_id, packet_size).await {
+                log::warn!("Failed to send StartMtuTraceroute: {:?}", e);
+            }
+            
+            sleep_ms(DEFAULT_TRACEROUTE_STAGGER_DELAY_MS).await;
+        }
+        
+        sleep_ms(TRACEROUTE_ROUND_MIN_WAIT_MS).await;
+    }
+    
+    log::info!("PHASE 2 complete: MTU traceroute finished");
+
+    // PHASE 3: Get measuring time and start measurements
+    log::info!("PHASE 3: Getting measuring time and starting measurements...");
+    
+    // Send GetMeasuringTime to first connection
+    if let Some(first_conn) = ipv4_connections.first() {
+        if let Err(e) = first_conn.send_get_measuring_time(&survey_session_id).await {
+            log::warn!("Failed to send GetMeasuringTime: {:?}", e);
+        }
+        
+        // Wait for response
+        sleep_ms(1000).await;
+        
+        let measuring_time = first_conn.state.borrow().measuring_time_ms;
+        log::info!("Received measuring time: {:?}ms", measuring_time);
+    }
+    
+    if should_abort_testing() {
+        log::info!("Testing aborted before measurement phase");
+        return Ok(());
+    }
+    
+    // Clear metrics before starting measurements
+    log::info!("Clearing metrics before measurement phase...");
     for conn in &ipv4_connections {
         conn.state.borrow_mut().clear_metrics();
     }
     for conn in &ipv6_connections {
         conn.state.borrow_mut().clear_metrics();
     }
-    log::info!("Client-side metrics cleared");
 
-    // Set the chart collection start time to now + delay
-    // This ensures the Live Metrics Graph only starts collecting data 10 seconds after Phase 1 finishes
+    // Set the chart collection start time
     let chart_start_time = current_time_ms() + CHART_COLLECTION_DELAY_MS;
     CHART_COLLECTION_START_MS.with(|start| {
         *start.borrow_mut() = Some(chart_start_time);
     });
     log::info!("Chart data collection will begin in {} seconds", CHART_COLLECTION_DELAY_MS / 1000);
 
-    // PHASE 2: Start measurement loops on the same connections
+    // Send StartServerTraffic to all connections
+    for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
+        if should_abort_testing() {
+            return Ok(());
+        }
+        
+        if let Err(e) = conn.send_start_server_traffic(&survey_session_id).await {
+            log::warn!("Failed to send StartServerTraffic: {:?}", e);
+        }
+    }
+    
+    log::info!("StartServerTraffic sent to all connections");
+
     // Collect states for calculation and UI updates
-    let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();
+    let mut calc_states: Vec<Rc<RefCell<measurements::MeasurementState>>> = Vec::new();
     for conn in &ipv4_connections {
         calc_states.push(conn.state.clone());
     }
@@ -583,30 +774,22 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let ipv6_states: Vec<_> = ipv6_connections.iter().map(|c| c.state.clone()).collect();
     let conn_count_ui = count;
     
-    // Start UI update loop that updates all connections
+    // Start UI update loop
     let ui_interval = gloo_timers::callback::Interval::new(500, move || {
-        // Update metrics for each IPv4 connection
         for (i, state) in ipv4_states.iter().enumerate() {
             let state_ref = state.borrow();
             if conn_count_ui > 1 {
-                // Multi-connection mode: update connection-specific tables
                 update_ui_connection("ipv4", i, &state_ref.metrics);
             }
-            // Note: Single connection mode (conn_count_ui == 1) is handled by update_ui_dual below
         }
         
-        // Update metrics for each IPv6 connection
         for (i, state) in ipv6_states.iter().enumerate() {
             let state_ref = state.borrow();
             if conn_count_ui > 1 {
-                // Multi-connection mode: update connection-specific tables
                 update_ui_connection("ipv6", i, &state_ref.metrics);
             }
-            // Note: Single connection mode (conn_count_ui == 1) is handled by update_ui_dual below
         }
         
-        // For single connection mode or chart updates, use first connection of each type
-        // This also updates the default metrics tables in single connection mode
         if !ipv4_states.is_empty() && !ipv6_states.is_empty() {
             let ipv4_metrics = ipv4_states[0].borrow();
             let ipv6_metrics = ipv6_states[0].borrow();

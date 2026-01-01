@@ -77,6 +77,8 @@ pub struct ClientSession {
     pub mode: Option<String>,  // "measurement" or "traceroute"
     /// Connection ID (UUID) for multi-path ECMP testing
     pub conn_id: String,
+    /// Survey session ID (UUID) for cross-correlation across multiple connections
+    pub survey_session_id: Arc<RwLock<String>>,
     pub peer_connection: Arc<RTCPeerConnection>,
     pub data_channels: Arc<RwLock<DataChannels>>,
     pub metrics: Arc<RwLock<ClientMetrics>>,
@@ -103,6 +105,7 @@ pub struct MeasurementState {
     pub current_ttl: u8,  // Current TTL for traceroute
     pub stop_traceroute: bool,  // Flag to stop traceroute sender
     pub traceroute_started_at: Option<Instant>,  // When traceroute started (for timeout)
+    pub traffic_active: bool,  // Flag to indicate when traffic sending is active
     pub bulk_bytes_sent: u64,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
@@ -191,6 +194,7 @@ impl MeasurementState {
             current_ttl: 1,  // Start at TTL 1
             stop_traceroute: false,  // Initialize to false
             traceroute_started_at: None,  // Not started yet
+            traffic_active: false,  // Traffic not active until StartServerTraffic
             bulk_bytes_sent: 0,
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
