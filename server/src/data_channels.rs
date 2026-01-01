@@ -28,47 +28,12 @@ pub async fn setup_data_channel_handlers(
             match label.as_str() {
                 "probe" => {
                     chans.probe = Some(dc.clone());
-                    // Only start probe sender if mode is NOT traceroute
-                    // In traceroute mode, probe sender starts after stop_traceroute message
-                    let should_start_now = session.mode.as_deref() != Some(MODE_TRACEROUTE);
-                    if should_start_now {
-                        tracing::info!("Starting probe sender immediately for session {} (mode: {:?})", session.id, session.mode);
-                        let session_clone = session.clone();
-                        tokio::spawn(async move {
-                            measurements::start_probe_sender(session_clone).await;
-                        });
-                    } else {
-                        tracing::info!("Delaying probe sender for session {} until traceroute completes (mode: {:?})", session.id, session.mode);
-                    }
                 },
                 "bulk" => {
                     chans.bulk = Some(dc.clone());
-                    // Only start bulk sender if mode is NOT traceroute
-                    // In traceroute mode, bulk sender starts after stop_traceroute message
-                    let should_start_now = session.mode.as_deref() != Some(MODE_TRACEROUTE);
-                    if should_start_now {
-                        tracing::info!("Starting bulk sender immediately for session {} (mode: {:?})", session.id, session.mode);
-                        let session_clone = session.clone();
-                        tokio::spawn(async move {
-                            measurements::start_bulk_sender(session_clone).await;
-                        });
-                    } else {
-                        tracing::info!("Delaying bulk sender for session {} until traceroute completes (mode: {:?})", session.id, session.mode);
-                    }
                 },
                 "control" => {
                     chans.control = Some(dc.clone());
-                    // Only start traceroute sender if mode is "traceroute"
-                    let should_start_traceroute = session.mode.as_deref() == Some(MODE_TRACEROUTE);
-                    if should_start_traceroute {
-                        tracing::info!("Starting traceroute sender for session {} (mode: {})", session.id, MODE_TRACEROUTE);
-                        let session_clone = session.clone();
-                        tokio::spawn(async move {
-                            measurements::start_traceroute_sender(session_clone).await;
-                        });
-                    } else {
-                        tracing::info!("Skipping traceroute sender for session {} (mode: {:?})", session.id, session.mode);
-                    }
                 },
                 "testprobe" => {
                     chans.testprobe = Some(dc.clone());
@@ -76,6 +41,7 @@ pub async fn setup_data_channel_handlers(
                 },
                 _ => tracing::warn!("Unknown data channel: {}", label),
             }
+            let all_channels_ready = chans.all_ready();
             drop(chans);
 
             // Set up message handler
@@ -88,6 +54,35 @@ pub async fn setup_data_channel_handlers(
                     handle_message(session, &label, msg).await;
                 })
             }));
+
+            if all_channels_ready {
+                    // Only start traceroute sender if mode is "traceroute"
+                    let should_start_traceroute = session.mode.as_deref() == Some(MODE_TRACEROUTE);
+                    if should_start_traceroute {
+                        tracing::info!("Starting traceroute sender for session {} (mode: {})", session.id, MODE_TRACEROUTE);
+                        let session_clone = session.clone();
+                        tokio::spawn(async move {
+                            measurements::start_traceroute_sender(session_clone).await;
+                        });
+                    } else {
+                        tracing::info!("Skipping traceroute sender for session {} (mode: {:?})", session.id, session.mode);
+                    }
+                    if false { // do not start bulk sender
+                        tracing::info!("Starting bulk sender immediately for session {} (mode: {:?})", session.id, session.mode);
+                        let session_clone = session.clone();
+                        tokio::spawn(async move {
+                            measurements::start_bulk_sender(session_clone).await;
+                        });
+                    }
+                    if false { // do not start probe sender
+                        tracing::info!("Starting probe sender immediately for session {} (mode: {:?})", session.id, session.mode);
+                        let session_clone = session.clone();
+                        tokio::spawn(async move {
+                            measurements::start_probe_sender(session_clone).await;
+                        });
+                    }
+            }
+
         })
     }));
 }

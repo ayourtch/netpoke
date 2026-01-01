@@ -16,6 +16,7 @@ use common::{SendOptions, TrackedPacketEvent};
 pub struct UdpPacketInfo {
     /// Destination address of the packet
     pub dest_addr: SocketAddr,
+    pub src_addr: Option<SocketAddr>,
     
     /// Actual UDP packet length (UDP header + payload)
     pub udp_length: u16,
@@ -71,6 +72,15 @@ pub struct TrackedPacket {
     
     /// UDP checksum for matching with ICMP errors
     pub udp_checksum: u16,
+}
+
+
+/// The class of ICMP/ICMPv6 message - either a TTL-related one or an error - or ignore
+#[derive(Clone, Debug, Copy, Eq, PartialEq)]
+pub enum IcmpMessageClass {
+    Error,
+    Ignore,
+    TtlExpired,
 }
 
 /// Callback type for handling unmatched ICMP errors
@@ -223,6 +233,7 @@ impl PacketTracker {
     pub async fn match_icmp_error(
         &self,
         icmp_packet: Vec<u8>,
+        icmp_class: IcmpMessageClass,
         embedded_udp_info: EmbeddedUdpInfo,
         router_ip: Option<String>,
     ) {
@@ -288,14 +299,16 @@ impl PacketTracker {
                 embedded_udp_info.udp_length
             );
         } else {
-            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}", 
+            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}, icmp_class: {:?}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
-                embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len());
+                embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len(), icmp_class);
             
             // Pass unmatched ICMP error to callback for session state to handle
             let callback = self.icmp_error_callback.read().await;
-            if let Some(ref cb) = *callback {
-                cb(embedded_udp_info);
+            if icmp_class == IcmpMessageClass::Error {
+                if let Some(ref cb) = *callback {
+                    cb(embedded_udp_info);
+                }
             }
         }
     }
@@ -350,8 +363,8 @@ impl PacketTracker {
             // Use conn_id directly from UdpPacketInfo (passed through from UdpSendOptions)
             let conn_id = info.conn_id.clone();
             
-            tracing::debug!("Received tracking data from UDP layer: dest={}, udp_length={}, udp_checksum={:#06x}, ttl={:?}, conn_id={}", 
-                info.dest_addr, info.udp_length, info.udp_checksum, info.send_options.ttl, conn_id);
+            tracing::debug!("Received tracking data from UDP layer: dest={}, src={:?}, udp_length={}, udp_checksum={:#06x}, ttl={:?}, conn_id={}", 
+                info.dest_addr, info.src_addr, info.udp_length, info.udp_checksum, info.send_options.ttl, conn_id);
             
             let expires_at = info.sent_at + std::time::Duration::from_millis(info.send_options.track_for_ms as u64);
             

@@ -4,7 +4,7 @@
 /// with tracked UDP packets. Requires CAP_NET_RAW or root privileges.
 
 use std::sync::Arc;
-use crate::packet_tracker::{PacketTracker, EmbeddedUdpInfo, MAX_PAYLOAD_PREFIX_SIZE};
+use crate::packet_tracker::{PacketTracker, EmbeddedUdpInfo, MAX_PAYLOAD_PREFIX_SIZE, IcmpMessageClass};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr, Ipv6Addr};
 
 // Constants for packet parsing
@@ -82,9 +82,9 @@ async fn icmp_listener_task_v4(packet_tracker: Arc<PacketTracker>) -> std::io::R
                 let router_ip = Some(addr.ip().to_string());
                 
                 // Parse ICMP packet
-                if let Some(embedded_info) = parse_icmp_error(&icmp_packet) {
+                if let Some((embedded_info, msg_class)) = parse_icmp_error(&icmp_packet) {
                     tracing::debug!("Parsed IPv4 ICMP error successfully, matching against tracked packets");
-                    packet_tracker.match_icmp_error(icmp_packet, embedded_info, router_ip).await;
+                    packet_tracker.match_icmp_error(icmp_packet, msg_class, embedded_info, router_ip).await;
                 } else {
                     tracing::debug!("IPv4 ICMP packet is not an error or failed to parse");
                 }
@@ -139,9 +139,9 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
                 let router_ip = Some(addr.ip().to_string());
                 
                 // Parse ICMPv6 packet
-                if let Some(embedded_info) = parse_icmpv6_error(&icmp_packet) {
+                if let Some((embedded_info, msg_class)) = parse_icmpv6_error(&icmp_packet) {
                     tracing::debug!("Parsed IPv6 ICMPv6 error successfully, matching against tracked packets");
-                    packet_tracker.match_icmp_error(icmp_packet, embedded_info, router_ip).await;
+                    packet_tracker.match_icmp_error(icmp_packet, msg_class, embedded_info, router_ip).await;
                 } else {
                     tracing::debug!("IPv6 ICMPv6 packet is not an error or failed to parse");
                 }
@@ -157,7 +157,7 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
 
 /// Parse an ICMP error packet and extract information about the embedded UDP packet
 #[cfg(target_os = "linux")]
-fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
+fn parse_icmp_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)> {
     tracing::debug!("parse_icmp_error called with packet length={}", packet.len());
     
     // ICMP packet structure:
@@ -183,6 +183,11 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         tracing::debug!("Not an ICMP error type (expected 3, 11, or 12)");
         return None;
     }
+    let icmp_class = match icmp_type {
+        3 => IcmpMessageClass::Error,
+        11 => IcmpMessageClass::TtlExpired,
+        _ => IcmpMessageClass::Ignore,
+    };
     
     // Extract embedded IP packet (starts at offset 28 in ICMP packet)
     let embedded_ip_start = 28;
@@ -269,13 +274,13 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         payload_prefix.len()
     );
     
-    Some(EmbeddedUdpInfo {
+    Some((EmbeddedUdpInfo {
         src_port,
         dest_addr: SocketAddr::new(IpAddr::V4(dest_ip), dest_port),
         udp_length,
         payload_prefix,
         udp_checksum,
-    })
+    }, icmp_class))
 }
 
 /// Parse an ICMPv6 error packet and extract information about the embedded UDP packet
@@ -287,7 +292,7 @@ fn parse_icmp_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
 /// 4-7: Unused (must be zero)
 /// 8+: Original IPv6 packet that caused the error
 #[cfg(target_os = "linux")]
-fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
+fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)> {
     tracing::debug!("parse_icmpv6_error called with packet length={}", packet.len());
     
     // ICMPv6 packet structure (no outer IP header - kernel strips it for raw ICMPv6 sockets):
@@ -314,6 +319,11 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         tracing::debug!("Not an ICMPv6 error type (expected 1, 2, or 3)");
         return None;
     }
+    let icmp_class = match icmpv6_type {
+        1 => IcmpMessageClass::Error,
+        2 => IcmpMessageClass::TtlExpired,
+        _ => IcmpMessageClass::Ignore,
+    };
     
     // Extract embedded IPv6 packet (starts at offset 8 in ICMPv6 packet)
     let embedded_ip_start = ICMPV6_HEADER_SIZE;
@@ -403,13 +413,13 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<EmbeddedUdpInfo> {
         payload_prefix.len()
     );
     
-    Some(EmbeddedUdpInfo {
+    Some((EmbeddedUdpInfo {
         src_port,
         dest_addr: SocketAddr::new(IpAddr::V6(dest_ip), dest_port),
         udp_length,
         payload_prefix,
         udp_checksum,
-    })
+    }, icmp_class))
 }
 
 #[cfg(test)]

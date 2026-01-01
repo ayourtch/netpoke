@@ -408,7 +408,7 @@ fn sendmsg_with_options(
                     let dest_ip = u32::from_be_bytes(addr_v4.ip().octets());
                     let udp_length = (8 + buf.len()) as u16; // UDP header (8 bytes) + payload
                     
-                    // Get source IP and port (use 0.0.0.0:0 if we can't get local addr)
+                    // Get source IP and port (use 0.0.0.0:-1 if we can't get local addr)
                     let (src_ip, src_port) = match local_addr {
                         Ok(SocketAddr::V4(src)) => (u32::from_be_bytes(src.ip().octets()), src.port()),
                         Ok(SocketAddr::V6(src)) => {
@@ -419,7 +419,7 @@ fn sendmsg_with_options(
                                 (0, src.port())
                             }
                         }
-                        Err(_) => (0, 0),
+                        Err(_) => (0, 0xffff),
                     };
                     
                     log::debug!("Calling wifi_verify_track_udp_packet (IPv4): src={}:{}, dest={}:{}, udp_length={}, ttl={}, conn_id={}",

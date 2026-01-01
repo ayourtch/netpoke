@@ -9,8 +9,8 @@ use std::net::SocketAddr;
 use std::time::Instant;
 
 /// Callback type for tracking UDP packets
-/// Parameters: (dest_addr, udp_length, ttl, cleartext_data, sent_at, conn_id, udp_checksum)
-pub type TrackingCallback = Box<dyn Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant, String, u16) + Send + Sync>;
+/// Parameters: (dest_addr, src_addr, udp_length, ttl, cleartext_data, sent_at, conn_id, udp_checksum)
+pub type TrackingCallback = Box<dyn Fn(SocketAddr, Option<SocketAddr>, u16, Option<u8>, Vec<u8>, Instant, String, u16) + Send + Sync>;
 
 static TRACKING_CALLBACK: OnceLock<TrackingCallback> = OnceLock::new();
 
@@ -18,7 +18,7 @@ static TRACKING_CALLBACK: OnceLock<TrackingCallback> = OnceLock::new();
 /// Should be called once at application startup
 pub fn init_tracking_callback<F>(callback: F)
 where
-    F: Fn(SocketAddr, u16, Option<u8>, Vec<u8>, Instant, String, u16) + Send + Sync + 'static,
+    F: Fn(SocketAddr, Option<SocketAddr>, u16, Option<u8>, Vec<u8>, Instant, String, u16) + Send + Sync + 'static,
 {
     if TRACKING_CALLBACK.set(Box::new(callback)).is_err() {
         panic!("Tracking callback already initialized");
@@ -29,6 +29,7 @@ where
 /// This is meant to be called from the UDP sending layer
 pub fn track_udp_packet(
     dest_addr: SocketAddr,
+    src_addr: Option<SocketAddr>,
     udp_length: u16,
     ttl: Option<u8>,
     cleartext: Vec<u8>,
@@ -37,7 +38,7 @@ pub fn track_udp_packet(
     udp_checksum: u16,
 ) {
     if let Some(callback) = TRACKING_CALLBACK.get() {
-        callback(dest_addr, udp_length, ttl, cleartext, sent_at, conn_id, udp_checksum);
+        callback(dest_addr, src_addr, udp_length, ttl, cleartext, sent_at, conn_id, udp_checksum);
     }
 }
 
@@ -216,6 +217,12 @@ pub extern "C" fn wifi_verify_track_udp_packet(
         std::net::Ipv4Addr::from(dest_ip_v4),
         dest_port,
     ));
+
+    let src_addr = SocketAddr::from((
+        std::net::Ipv4Addr::from(src_ip_v4),
+        src_port,
+    ));
+    let src_addr = Some(src_addr);
     
     // Calculate UDP checksum for IPv4
     let udp_checksum = calculate_udp_checksum_v4(
@@ -228,6 +235,7 @@ pub extern "C" fn wifi_verify_track_udp_packet(
     
     track_udp_packet(
         dest_addr,
+        src_addr,
         udp_length,
         Some(ttl),
         cleartext,
@@ -291,6 +299,12 @@ pub extern "C" fn wifi_verify_track_udp_packet_v6(
         std::net::Ipv6Addr::from(dest_ip_bytes),
         dest_port,
     ));
+
+    let src_addr = SocketAddr::from((
+        std::net::Ipv6Addr::from(src_ip_bytes),
+        src_port,
+    ));
+    let src_addr = Some(src_addr);
     
     // Calculate UDP checksum for IPv6
     let udp_checksum = calculate_udp_checksum_v6(
@@ -303,6 +317,7 @@ pub extern "C" fn wifi_verify_track_udp_packet_v6(
     
     track_udp_packet(
         dest_addr,
+        src_addr,
         udp_length,
         Some(hop_limit),
         cleartext,

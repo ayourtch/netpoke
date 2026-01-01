@@ -430,127 +430,6 @@ pub async fn analyze_network() -> Result<(), JsValue> {
     analyze_network_with_count(1).await
 }
 
-/// Analyze the network path (traceroute) once and then close connections
-#[wasm_bindgen]
-pub async fn analyze_path() -> Result<(), JsValue> {
-    // Default to 1 connection per address family
-    analyze_path_with_count(1).await
-}
-
-/// Analyze the network path with multiple connections per address family for ECMP testing
-#[wasm_bindgen]
-pub async fn analyze_path_with_count(conn_count: u8) -> Result<(), JsValue> {
-    let count = conn_count.clamp(1, 16) as usize;
-    log::info!("Starting path analysis (traceroute) with {} connections per address family...", count);
-
-    // Fetch client configuration from server
-    let client_config = fetch_client_config().await;
-    let connection_delay_ms = client_config.webrtc_connection_delay_ms;
-    log::info!("Using WebRTC connection delay: {}ms", connection_delay_ms);
-
-    // Request wake lock to prevent device from sleeping
-    if let Err(e) = request_wake_lock().await {
-        log::warn!("Failed to acquire wake lock: {:?}", e);
-        // Continue anyway - wake lock is optional
-    }
-
-    // Create IPv4 connections with traceroute mode
-    let mut ipv4_connections = Vec::with_capacity(count);
-    let mut parent_id: Option<String> = None;
-    
-    for i in 0..count {
-        // Add delay between connection attempts (except for the first one)
-        if i > 0 && connection_delay_ms > 0 {
-            sleep_ms(connection_delay_ms).await;
-        }
-        
-        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
-            "ipv4", 
-            parent_id.clone(), 
-            Some(MODE_TRACEROUTE.to_string()), 
-            None  // conn_id will be auto-generated
-        ).await?;
-        
-        if i == 0 {
-            parent_id = Some(conn.client_id.clone());
-        }
-        
-        // Enable traceroute mode to prevent measurement data collection
-        conn.set_traceroute_mode(true);
-        
-        log::info!("IPv4 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
-        
-        // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
-        
-        // Set up callback to update addresses when connection is established
-        conn.setup_address_update_callback("ipv4", i);
-        
-        ipv4_connections.push(conn);
-    }
-
-    // Create IPv6 connections with traceroute mode
-    let mut ipv6_connections = Vec::with_capacity(count);
-    for i in 0..count {
-        // Add delay between connection attempts (including between IPv4 and IPv6 groups)
-        if connection_delay_ms > 0 {
-            sleep_ms(connection_delay_ms).await;
-        }
-        
-        let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
-            "ipv6", 
-            parent_id.clone(), 
-            Some(MODE_TRACEROUTE.to_string()), 
-            None  // conn_id will be auto-generated
-        ).await?;
-        
-        // Enable traceroute mode to prevent measurement data collection
-        conn.set_traceroute_mode(true);
-        
-        log::info!("IPv6 traceroute connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
-        
-        // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
-        
-        // Set up callback to update addresses when connection is established
-        conn.setup_address_update_callback("ipv6", i);
-        
-        ipv6_connections.push(conn);
-    }
-
-    // Collect peers for cleanup
-    let peers: Vec<_> = ipv4_connections.iter()
-        .chain(ipv6_connections.iter())
-        .map(|c| c.peer.clone())
-        .collect();
-
-    // Wait for path analysis timeout to collect traceroute data
-    log::info!("Collecting traceroute data for {} seconds...", PATH_ANALYSIS_TIMEOUT_MS / 1000);
-    
-    // Use a timer to wait
-    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
-        let window = web_sys::window().expect("no global window available during path analysis timeout setup");
-        window
-            .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, PATH_ANALYSIS_TIMEOUT_MS as i32)
-            .expect("Failed to set timeout for path analysis");
-    });
-    wasm_bindgen_futures::JsFuture::from(promise).await?;
-
-    log::info!("Path analysis complete, closing {} connections...", peers.len());
-
-    // Close all connections
-    for peer in peers {
-        peer.close();
-    }
-
-    // Release wake lock
-    release_wake_lock();
-
-    log::info!("Path analysis finished");
-
-    Ok(())
-}
-
 /// Analyze the network with multiple connections: perform traceroute first, then start measurements
 #[wasm_bindgen]
 pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
@@ -631,6 +510,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         
         // Set up callback to update addresses when connection is established
         conn.setup_address_update_callback("ipv6", i);
+        sleep_ms(500).await;
         
         ipv6_connections.push(conn);
     }

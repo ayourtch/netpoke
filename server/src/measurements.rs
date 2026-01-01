@@ -389,11 +389,11 @@ pub async fn start_traceroute_sender(
         state.traceroute_started_at = Some(std::time::Instant::now());
     }
     
-    const MAX_TTL: u8 = 30;
+    const MAX_TTL: u8 = 16;
     const TRACEROUTE_TIMEOUT_SECS: u64 = 35;
-    const TTL_SEND_INTERVAL_MS: u64 = 20; // time between TTL probes on same connection
+    const TTL_SEND_INTERVAL_MS: u64 = 250; // time between TTL probes on same connection
     const ROUND_INTERVAL_MS: u64 = 2000; // time between complete rounds of all TTLs
-    const STARTING_INTERVAL_MS: u64 = 500; // starting interval before tracerouting on a session
+    const STARTING_INTERVAL_MS: u64 = 20000; // starting interval before tracerouting on a session
 
     loop {
         tokio::time::sleep(Duration::from_millis(STARTING_INTERVAL_MS)).await;

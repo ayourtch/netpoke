@@ -221,6 +221,15 @@ pub struct StopTracerouteMessage {
     pub conn_id: String,
 }
 
+/// Message sent from client to server to start traceroute probes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartTracerouteMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    /// Defaults to empty string for backwards compatibility
+    #[serde(default)]
+    pub conn_id: String,
+}
+
 /// Event generated when an ICMP error matches a tracked packet
 #[derive(Debug, Clone)]
 pub struct TrackedPacketEvent {

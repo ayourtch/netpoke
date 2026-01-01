@@ -174,6 +174,13 @@ impl DataChannels {
             testprobe: None,
         }
     }
+
+    pub fn all_ready(&self) -> bool {
+        self.probe.is_some() &&
+        self.bulk.is_some() &&
+        self.control.is_some() &&
+        self.testprobe.is_some()
+    }
 }
 
 impl MeasurementState {
