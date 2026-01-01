@@ -30,9 +30,10 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
     setting_engine.set_ice_multicast_dns_mode(webrtc::ice::mdns::MulticastDnsMode::Disabled);
     
     // Enable ICE Lite mode for server-side.
-    // This ensures only host candidates are gathered (binding to specific local IPs),
-    // and avoids gathering server reflexive (STUN) or relay (TURN) candidates which
-    // would bind to wildcard addresses (0.0.0.0 or ::).
+    // ICE Lite makes the server act as a 'controlled' agent that:
+    // 1. Only gathers host candidates (binding to specific local IPs, not wildcards)
+    // 2. Does not perform connectivity checks - relies on the client (controlling agent)
+    // 3. Does not require STUN/TURN servers
     // This is appropriate when the server is directly reachable by clients.
     setting_engine.set_lite(true);
     
