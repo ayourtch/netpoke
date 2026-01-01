@@ -466,6 +466,13 @@
             ipv6: {}
         };
         
+        // MTU tracking data structure
+        // Map of IP version -> connection_id -> max_mtu (minimum MTU discovered for that connection)
+        let mtuData = {
+            ipv4: {},
+            ipv6: {}
+        };
+        
         // Function to add traceroute hop data
         function addTracerouteHop(hopData) {
             // Filter out "Probing hop" messages (placeholder messages)
@@ -526,10 +533,48 @@
             renderTracerouteGraph();
         }
         
+        // Function to add MTU hop data
+        function addMtuHop(mtuHopData) {
+            const connId = mtuHopData.conn_id || 'default';
+            const hopNum = mtuHopData.hop;
+            const mtuValue = mtuHopData.mtu;
+            const ipAddress = mtuHopData.ip_address;
+            
+            // Determine IP version from the address
+            let ipVersion = 'ipv4';
+            if (ipAddress && ipAddress.includes(':')) {
+                ipVersion = 'ipv6';
+            }
+            
+            // For each MTU message about hop N, find hop N-1 for the same connection ID
+            // and set the max MTU for this connection ID if it's smaller or nonexistent
+            if (mtuValue && hopNum > 0) {
+                const targetHop = hopNum - 1;
+                
+                // Initialize connection MTU tracking if needed
+                if (!mtuData[ipVersion][connId]) {
+                    mtuData[ipVersion][connId] = {};
+                }
+                
+                // Get or initialize MTU for this specific hop (N-1)
+                if (!mtuData[ipVersion][connId][targetHop]) {
+                    mtuData[ipVersion][connId][targetHop] = mtuValue;
+                } else {
+                    // Set to the smaller value
+                    mtuData[ipVersion][connId][targetHop] = Math.min(mtuData[ipVersion][connId][targetHop], mtuValue);
+                }
+                
+                // Re-render the visualization to show updated MTU data
+                renderTracerouteGraph();
+            }
+        }
+        
         // Function to clear traceroute data
         function clearTracerouteData() {
             tracerouteData.ipv4 = {};
             tracerouteData.ipv6 = {};
+            mtuData.ipv4 = {};
+            mtuData.ipv6 = {};
             renderTracerouteGraph();
         }
         
@@ -608,6 +653,30 @@
                         });
                         const avgRtt = allRtts.length > 0 ? allRtts.reduce((a, b) => a + b, 0) / allRtts.length : 0;
                         
+                        // Collect MTU values for this hop from all connections
+                        const mtuValues = [];
+                        connsForIp.forEach(({ connId }) => {
+                            if (mtuData[ipVersion][connId] && mtuData[ipVersion][connId][hopNum]) {
+                                mtuValues.push({
+                                    connId: connId,
+                                    mtu: mtuData[ipVersion][connId][hopNum]
+                                });
+                            }
+                        });
+                        
+                        // Calculate MTU range (min-max) for display in box
+                        let mtuRangeText = '';
+                        if (mtuValues.length > 0) {
+                            const mtuNumbers = mtuValues.map(m => m.mtu);
+                            const minMtu = Math.min(...mtuNumbers);
+                            const maxMtu = Math.max(...mtuNumbers);
+                            if (minMtu === maxMtu) {
+                                mtuRangeText = `MTU: ${minMtu}`;
+                            } else {
+                                mtuRangeText = `MTU: ${minMtu}-${maxMtu}`;
+                            }
+                        }
+                        
                         // Create tooltip with literal newlines
                         const tooltipLines = [
                             `Hop ${hopNum}`,
@@ -619,7 +688,12 @@
                             const shortId = connId.substring(0, 8);
                             const rtts = hop.rtts.get(ip) || [];
                             const avgConnRtt = rtts.length > 0 ? rtts.reduce((a, b) => a + b, 0) / rtts.length : 0;
-                            tooltipLines.push(`[${shortId}] RTT: ${avgConnRtt.toFixed(2)}ms`);
+                            
+                            // Find MTU for this connection if available
+                            const connMtu = mtuValues.find(m => m.connId === connId);
+                            const mtuText = connMtu ? ` MTU: ${connMtu.mtu}` : '';
+                            
+                            tooltipLines.push(`[${shortId}] RTT: ${avgConnRtt.toFixed(2)}ms${mtuText}`);
                         });
                         const tooltip = tooltipLines.join('\n');
                         
@@ -645,6 +719,7 @@
                             <div style="font-weight: bold;">${ip}</div>
                             <div style="font-size: 10px; opacity: 0.9;">${avgRtt.toFixed(1)}ms avg</div>
                             <div style="font-size: 9px; opacity: 0.8;">${connCount}/${connIds.length} conn</div>
+                            ${mtuRangeText ? `<div style="font-size: 9px; opacity: 0.8;">${mtuRangeText}</div>` : ''}
                         </div>`;
                     });
                 }
@@ -676,6 +751,7 @@
         
         // Make traceroute functions globally available
         window.addTracerouteHop = addTracerouteHop;
+        window.addMtuHop = addMtuHop;
         window.clearTracerouteData = clearTracerouteData;
         
         // Peer connections data structure
