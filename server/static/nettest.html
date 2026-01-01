@@ -547,10 +547,18 @@
                 ipVersion = 'ipv6';
             }
             
-            // For each MTU message about hop N, store the MTU for hop N-1
-            // This is because the MTU value represents the link capacity TO hop N,
-            // so it applies to the previous hop (N-1) in the path
-            // MTU must be > 0 to be valid
+            // MTU Message Processing Logic:
+            // When we receive an MTU message about hop N (e.g., from ICMP "Fragmentation Needed"),
+            // the MTU value indicates the maximum packet size for the path segment TO that hop.
+            // According to the specification, we store this MTU for hop N-1, because:
+            //   - Hop N-1 is the last hop we can visualize/control
+            //   - The MTU constraint applies to the link between N-1 and N
+            //   - This allows us to display the MTU limitation at the appropriate point in the path
+            // 
+            // For example: If hop 3 reports MTU 1400, we store it for hop 2, indicating that
+            // the link from hop 2 to hop 3 has a 1400-byte MTU limit.
+            //
+            // MTU must be > 0 to be valid (per IPv4 RFC 791, minimum is 68; IPv6 RFC 2460, minimum is 1280)
             if (mtuValue != null && mtuValue > 0 && hopNum > 0) {
                 const targetHop = hopNum - 1;
                 
@@ -564,7 +572,7 @@
                 if (mtuData[ipVersion][connId][targetHop] === undefined) {
                     mtuData[ipVersion][connId][targetHop] = mtuValue;
                 } else {
-                    // Set to the smaller value (minimum MTU)
+                    // Set to the smaller value (minimum MTU) as path MTU is limited by the smallest link
                     mtuData[ipVersion][connId][targetHop] = Math.min(mtuData[ipVersion][connId][targetHop], mtuValue);
                 }
                 

@@ -480,8 +480,14 @@ fn update_traceroute_visualization(hop_msg: &common::TraceHopMessage) {
         // Call the JavaScript function
         if let Ok(add_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addTracerouteHop")) {
             if let Ok(add_fn) = add_fn.dyn_into::<js_sys::Function>() {
-                let _ = add_fn.call1(&JsValue::NULL, &js_obj);
+                if let Err(e) = add_fn.call1(&JsValue::NULL, &js_obj) {
+                    log::warn!("Failed to call addTracerouteHop JavaScript function: {:?}", e);
+                }
+            } else {
+                log::warn!("addTracerouteHop is not a function");
             }
+        } else {
+            log::warn!("addTracerouteHop function not found in window object");
         }
     }
 }
