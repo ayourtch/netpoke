@@ -66,10 +66,12 @@ pub async fn setup_data_channel_handlers(
                 
                 if let Some(control) = control_channel {
                     let survey_session_id = session.survey_session_id.read().await.clone();
-                    let ready_msg = common::ServerSideReadyMessage {
-                        conn_id: session.conn_id.clone(),
-                        survey_session_id,
-                    };
+                    let ready_msg = common::ControlMessage::ServerSideReady(
+                        common::ServerSideReadyMessage {
+                            conn_id: session.conn_id.clone(),
+                            survey_session_id,
+                        }
+                    );
                     
                     if let Ok(msg_json) = serde_json::to_vec(&ready_msg) {
                         if let Err(e) = control.send(&msg_json.into()).await {
@@ -119,30 +121,45 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
         tracing::debug!("Control message content (session {}): {}", session.id, preview);
     }
     
-    // Try to parse as StartSurveySessionMessage
-    if let Ok(start_survey_msg) = serde_json::from_slice::<common::StartSurveySessionMessage>(&msg.data) {
-        if start_survey_msg.conn_id != session.conn_id {
+    // Parse the message using the ControlMessage enum
+    let control_msg = match serde_json::from_slice::<common::ControlMessage>(&msg.data) {
+        Ok(msg) => msg,
+        Err(e) => {
             tracing::warn!(
-                "StartSurveySessionMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                start_survey_msg.conn_id, session.id, session.conn_id
+                "Failed to parse control message from session {} ({} bytes): {}. Message preview: {}",
+                session.id,
+                msg.data.len(),
+                e,
+                std::str::from_utf8(&msg.data)
+                    .map(|s| if s.len() > 100 { &s[..100] } else { s })
+                    .unwrap_or("<binary data>")
             );
             return;
         }
-        
-        // Store the survey session ID
-        {
-            let mut survey_id = session.survey_session_id.write().await;
-            *survey_id = start_survey_msg.survey_session_id.clone();
+    };
+    
+    // Handle the message based on its type
+    match control_msg {
+        common::ControlMessage::StartSurveySession(start_survey_msg) => {
+            if start_survey_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StartSurveySessionMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    start_survey_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            // Store the survey session ID
+            {
+                let mut survey_id = session.survey_session_id.write().await;
+                *survey_id = start_survey_msg.survey_session_id.clone();
+            }
+            
+            tracing::info!("Started survey session {} for connection {}", 
+                start_survey_msg.survey_session_id, session.conn_id);
         }
         
-        tracing::info!("Started survey session {} for connection {}", 
-            start_survey_msg.survey_session_id, session.conn_id);
-        return;
-    }
-    
-    // Try to parse as StartTracerouteMessage
-    match serde_json::from_slice::<common::StartTracerouteMessage>(&msg.data) {
-        Ok(start_msg) => {
+        common::ControlMessage::StartTraceroute(start_msg) => {
             if start_msg.conn_id != session.conn_id {
                 tracing::warn!(
                     "StartTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
@@ -165,16 +182,9 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             tokio::spawn(async move {
                 measurements::run_single_traceroute_round(session_clone).await;
             });
-            return;
         }
-        Err(e) => {
-            tracing::trace!("Not a StartTracerouteMessage: {}", e);
-        }
-    }
-    
-    // Try to parse as StartMtuTracerouteMessage
-    match serde_json::from_slice::<common::StartMtuTracerouteMessage>(&msg.data) {
-        Ok(mtu_msg) => {
+        
+        common::ControlMessage::StartMtuTraceroute(mtu_msg) => {
             if mtu_msg.conn_id != session.conn_id {
                 tracing::warn!(
                     "StartMtuTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
@@ -198,189 +208,180 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             tokio::spawn(async move {
                 measurements::run_mtu_traceroute_round(session_clone, packet_size).await;
             });
-            return;
-        }
-        Err(e) => {
-            tracing::trace!("Not a StartMtuTracerouteMessage: {}", e);
-        }
-    }
-    
-    // Try to parse as GetMeasuringTimeMessage
-    if let Ok(get_time_msg) = serde_json::from_slice::<common::GetMeasuringTimeMessage>(&msg.data) {
-        if get_time_msg.conn_id != session.conn_id {
-            tracing::warn!(
-                "GetMeasuringTimeMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                get_time_msg.conn_id, session.id, session.conn_id
-            );
-            return;
         }
         
-        tracing::info!("Received GetMeasuringTime request for session {}", session.id);
-        
-        // Send back the measuring time response
-        let channels = session.data_channels.read().await;
-        if let Some(control) = &channels.control {
-            if control.ready_state() == RTCDataChannelState::Open {
-                let survey_session_id = session.survey_session_id.read().await.clone();
-                let response = common::MeasuringTimeResponseMessage {
-                    conn_id: session.conn_id.clone(),
-                    survey_session_id,
-                    max_duration_ms: DEFAULT_MEASURING_TIME_MS,
-                };
-                
-                if let Ok(msg_json) = serde_json::to_vec(&response) {
-                    if let Err(e) = control.send(&msg_json.into()).await {
-                        tracing::error!("Failed to send MeasuringTimeResponse: {}", e);
-                    } else {
-                        tracing::info!("Sent MeasuringTimeResponse: {}ms for session {}", 
-                            DEFAULT_MEASURING_TIME_MS, session.id);
+        common::ControlMessage::GetMeasuringTime(get_time_msg) => {
+            if get_time_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "GetMeasuringTimeMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    get_time_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            tracing::info!("Received GetMeasuringTime request for session {}", session.id);
+            
+            // Send back the measuring time response
+            let channels = session.data_channels.read().await;
+            if let Some(control) = &channels.control {
+                if control.ready_state() == RTCDataChannelState::Open {
+                    let survey_session_id = session.survey_session_id.read().await.clone();
+                    let response = common::ControlMessage::MeasuringTimeResponse(
+                        common::MeasuringTimeResponseMessage {
+                            conn_id: session.conn_id.clone(),
+                            survey_session_id,
+                            max_duration_ms: DEFAULT_MEASURING_TIME_MS,
+                        }
+                    );
+                    
+                    if let Ok(msg_json) = serde_json::to_vec(&response) {
+                        if let Err(e) = control.send(&msg_json.into()).await {
+                            tracing::error!("Failed to send MeasuringTimeResponse: {}", e);
+                        } else {
+                            tracing::info!("Sent MeasuringTimeResponse: {}ms for session {}", 
+                                DEFAULT_MEASURING_TIME_MS, session.id);
+                        }
                     }
                 }
             }
         }
-        return;
-    }
-    
-    // Try to parse as StartServerTrafficMessage
-    if let Ok(start_traffic_msg) = serde_json::from_slice::<common::StartServerTrafficMessage>(&msg.data) {
-        if start_traffic_msg.conn_id != session.conn_id {
-            tracing::warn!(
-                "StartServerTrafficMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                start_traffic_msg.conn_id, session.id, session.conn_id
-            );
-            return;
-        }
         
-        // Update survey session ID if provided
-        if !start_traffic_msg.survey_session_id.is_empty() {
-            let mut survey_id = session.survey_session_id.write().await;
-            *survey_id = start_traffic_msg.survey_session_id.clone();
-        }
-        
-        tracing::info!("Received StartServerTraffic for session {} (survey: {})", 
-            session.id, start_traffic_msg.survey_session_id);
-        
-        // Set traffic_active flag and clear metrics
-        {
-            let mut state = session.measurement_state.write().await;
-            state.traffic_active = true;
+        common::ControlMessage::StartServerTraffic(start_traffic_msg) => {
+            if start_traffic_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StartServerTrafficMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    start_traffic_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
             
-            // Clear measurement data for fresh start
-            state.received_probes.clear();
-            state.received_bulk_bytes.clear();
-            state.sent_bulk_packets.clear();
-            state.sent_probes.clear();
-            state.sent_probes_map.clear();
-            state.echoed_probes.clear();
-            tracing::info!("Cleared server-side metrics for measurement phase (session {})", session.id);
-        }
-        
-        // Reset ClientMetrics
-        {
-            let mut metrics = session.metrics.write().await;
-            *metrics = ClientMetrics::default();
-        }
-        
-        // Start the probe and bulk senders for measurement phase
-        tracing::info!("Starting probe and bulk senders for measurement phase (session {})", session.id);
-        
-        let session_for_probe = session.clone();
-        tokio::spawn(async move {
-            measurements::start_probe_sender(session_for_probe).await;
-        });
-        
-        let session_for_bulk = session.clone();
-        tokio::spawn(async move {
-            measurements::start_bulk_sender(session_for_bulk).await;
-        });
-        return;
-    }
-    
-    // Try to parse as StopServerTrafficMessage
-    if let Ok(stop_traffic_msg) = serde_json::from_slice::<common::StopServerTrafficMessage>(&msg.data) {
-        if stop_traffic_msg.conn_id != session.conn_id {
-            tracing::warn!(
-                "StopServerTrafficMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                stop_traffic_msg.conn_id, session.id, session.conn_id
-            );
-            return;
-        }
-        
-        tracing::info!("Received StopServerTraffic for session {} (survey: {})", 
-            session.id, stop_traffic_msg.survey_session_id);
-        
-        // Set traffic_active flag to false to stop senders
-        {
-            let mut state = session.measurement_state.write().await;
-            state.traffic_active = false;
-        }
-        
-        tracing::info!("Stopped server traffic for session {}", session.id);
-        return;
-    }
-    
-    // Try to parse as StopTracerouteMessage (legacy support)
-    if let Ok(stop_msg) = serde_json::from_slice::<common::StopTracerouteMessage>(&msg.data) {
-        // Validate conn_id - ensure message belongs to this session
-        if stop_msg.conn_id != session.conn_id {
-            tracing::warn!(
-                "StopTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
-                stop_msg.conn_id, session.id, session.conn_id
-            );
-            return;
-        }
-        
-        tracing::info!("Received stop traceroute request for session {}", session.id);
-        
-        // Set the stop flag and clear metrics for measurement phase
-        {
-            let mut state = session.measurement_state.write().await;
-            state.stop_traceroute = true;
+            // Update survey session ID if provided
+            if !start_traffic_msg.survey_session_id.is_empty() {
+                let mut survey_id = session.survey_session_id.write().await;
+                *survey_id = start_traffic_msg.survey_session_id.clone();
+            }
             
-            // Clear measurement data accumulated during traceroute phase
-            state.received_probes.clear();
-            state.received_bulk_bytes.clear();
-            state.sent_bulk_packets.clear();
-            state.sent_probes.clear();
-            state.sent_probes_map.clear();
-            state.echoed_probes.clear();
-            // Note: We don't clear sent_testprobes or testprobe_seq as they're used for traceroute
-            tracing::info!("Cleared server-side metrics for session {}", session.id);
+            tracing::info!("Received StartServerTraffic for session {} (survey: {})", 
+                session.id, start_traffic_msg.survey_session_id);
+            
+            // Set traffic_active flag and clear metrics
+            {
+                let mut state = session.measurement_state.write().await;
+                state.traffic_active = true;
+                
+                // Clear measurement data for fresh start
+                state.received_probes.clear();
+                state.received_bulk_bytes.clear();
+                state.sent_bulk_packets.clear();
+                state.sent_probes.clear();
+                state.sent_probes_map.clear();
+                state.echoed_probes.clear();
+                tracing::info!("Cleared server-side metrics for measurement phase (session {})", session.id);
+            }
+            
+            // Reset ClientMetrics
+            {
+                let mut metrics = session.metrics.write().await;
+                *metrics = ClientMetrics::default();
+            }
+            
+            // Start the probe and bulk senders for measurement phase
+            tracing::info!("Starting probe and bulk senders for measurement phase (session {})", session.id);
+            
+            let session_for_probe = session.clone();
+            tokio::spawn(async move {
+                measurements::start_probe_sender(session_for_probe).await;
+            });
+            
+            let session_for_bulk = session.clone();
+            tokio::spawn(async move {
+                measurements::start_bulk_sender(session_for_bulk).await;
+            });
         }
         
-        // Also reset the ClientMetrics
-        {
-            let mut metrics = session.metrics.write().await;
-            *metrics = ClientMetrics::default();
-            tracing::info!("Reset ClientMetrics for session {}", session.id);
+        common::ControlMessage::StopServerTraffic(stop_traffic_msg) => {
+            if stop_traffic_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StopServerTrafficMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    stop_traffic_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            tracing::info!("Received StopServerTraffic for session {} (survey: {})", 
+                session.id, stop_traffic_msg.survey_session_id);
+            
+            // Set traffic_active flag to false to stop senders
+            {
+                let mut state = session.measurement_state.write().await;
+                state.traffic_active = false;
+            }
+            
+            tracing::info!("Stopped server traffic for session {}", session.id);
         }
         
-        tracing::info!("Traceroute stop flag set and metrics cleared for session {}", session.id);
+        common::ControlMessage::StopTraceroute(stop_msg) => {
+            // Validate conn_id - ensure message belongs to this session
+            if stop_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StopTracerouteMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    stop_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            tracing::info!("Received stop traceroute request for session {}", session.id);
+            
+            // Set the stop flag and clear metrics for measurement phase
+            {
+                let mut state = session.measurement_state.write().await;
+                state.stop_traceroute = true;
+                
+                // Clear measurement data accumulated during traceroute phase
+                state.received_probes.clear();
+                state.received_bulk_bytes.clear();
+                state.sent_bulk_packets.clear();
+                state.sent_probes.clear();
+                state.sent_probes_map.clear();
+                state.echoed_probes.clear();
+                // Note: We don't clear sent_testprobes or testprobe_seq as they're used for traceroute
+                tracing::info!("Cleared server-side metrics for session {}", session.id);
+            }
+            
+            // Also reset the ClientMetrics
+            {
+                let mut metrics = session.metrics.write().await;
+                *metrics = ClientMetrics::default();
+                tracing::info!("Reset ClientMetrics for session {}", session.id);
+            }
+            
+            tracing::info!("Traceroute stop flag set and metrics cleared for session {}", session.id);
+            
+            // Now start the probe and bulk senders for measurement phase
+            tracing::info!("Starting probe and bulk senders for measurement phase (session {})", session.id);
+            
+            let session_for_probe = session.clone();
+            tokio::spawn(async move {
+                measurements::start_probe_sender(session_for_probe).await;
+            });
+            
+            let session_for_bulk = session.clone();
+            tokio::spawn(async move {
+                measurements::start_bulk_sender(session_for_bulk).await;
+            });
+        }
         
-        // Now start the probe and bulk senders for measurement phase
-        tracing::info!("Starting probe and bulk senders for measurement phase (session {})", session.id);
-        
-        let session_for_probe = session.clone();
-        tokio::spawn(async move {
-            measurements::start_probe_sender(session_for_probe).await;
-        });
-        
-        let session_for_bulk = session.clone();
-        tokio::spawn(async move {
-            measurements::start_bulk_sender(session_for_bulk).await;
-        });
-        return;
+        // Server-to-client messages (not expected here but included for completeness)
+        common::ControlMessage::ServerSideReady(_) |
+        common::ControlMessage::TraceHop(_) |
+        common::ControlMessage::MtuHop(_) |
+        common::ControlMessage::MeasuringTimeResponse(_) => {
+            tracing::warn!(
+                "Received unexpected server-to-client message type on control channel for session {}",
+                session.id
+            );
+        }
     }
-    
-    // If we reach here, the message was not recognized
-    tracing::warn!(
-        "Unrecognized control message from session {} ({} bytes). Message preview: {}",
-        session.id,
-        msg.data.len(),
-        std::str::from_utf8(&msg.data)
-            .map(|s| if s.len() > 100 { &s[..100] } else { s })
-            .unwrap_or("<binary data>")
-    );
 }
 
 async fn handle_testprobe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {

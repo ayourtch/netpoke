@@ -318,99 +318,105 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
         let data = array.to_vec();
         let text = String::from_utf8_lossy(&data);
 
-        // Try to parse as ServerSideReadyMessage
-        if let Ok(ready_msg) = serde_json::from_str::<common::ServerSideReadyMessage>(&text) {
-            let expected_conn_id = state_for_handler.borrow().conn_id.clone();
-            if !expected_conn_id.is_empty() && ready_msg.conn_id != expected_conn_id {
-                log::warn!(
-                    "ServerSideReadyMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
-                    ready_msg.conn_id, expected_conn_id
-                );
-                return;
+        // Try to parse as ControlMessage enum
+        match serde_json::from_str::<common::ControlMessage>(&text) {
+            Ok(control_msg) => {
+                match control_msg {
+                    common::ControlMessage::ServerSideReady(ready_msg) => {
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && ready_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "ServerSideReadyMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                ready_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        
+                        log::info!("Received ServerSideReady for conn_id: {}", ready_msg.conn_id);
+                        state_for_handler.borrow_mut().server_side_ready = true;
+                    }
+                    
+                    common::ControlMessage::MeasuringTimeResponse(time_msg) => {
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && time_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "MeasuringTimeResponseMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                time_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        
+                        log::info!("Received MeasuringTimeResponse: {}ms for conn_id: {}", time_msg.max_duration_ms, time_msg.conn_id);
+                        state_for_handler.borrow_mut().measuring_time_ms = Some(time_msg.max_duration_ms);
+                    }
+                    
+                    common::ControlMessage::MtuHop(mtu_msg) => {
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && mtu_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "MtuHopMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                mtu_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        
+                        // Display the MTU hop message
+                        let conn_prefix = if mtu_msg.conn_id.len() >= 8 {
+                            &mtu_msg.conn_id[..8]
+                        } else {
+                            &mtu_msg.conn_id
+                        };
+                        let mtu_str = mtu_msg.mtu.map(|m| format!(" MTU:{}", m)).unwrap_or_default();
+                        append_server_message(&format!(
+                            "[{}][MTU Hop {}] size={} RTT:{:.2}ms{}",
+                            conn_prefix,
+                            mtu_msg.hop,
+                            mtu_msg.packet_size,
+                            mtu_msg.rtt_ms,
+                            mtu_str
+                        ));
+                    }
+                    
+                    common::ControlMessage::TraceHop(hop_msg) => {
+                        // Validate conn_id matches this connection
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && hop_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "TraceHopMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                hop_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        
+                        // Pass structured data to visualization function
+                        update_traceroute_visualization(&hop_msg);
+                        
+                        // Display the hop message in the UI with short conn_id prefix for multi-connection differentiation
+                        let conn_prefix = if hop_msg.conn_id.len() >= 8 {
+                            &hop_msg.conn_id[..8]
+                        } else {
+                            &hop_msg.conn_id
+                        };
+                        append_server_message(&format!(
+                            "[{}][Hop {}] {} (RTT: {:.2}ms)",
+                            conn_prefix,
+                            hop_msg.hop,
+                            hop_msg.message,
+                            hop_msg.rtt_ms
+                        ));
+                    }
+                    
+                    // Client-to-server messages (should not be received here)
+                    _ => {
+                        log::warn!("Received unexpected client-to-server control message type");
+                    }
+                }
             }
-            
-            log::info!("Received ServerSideReady for conn_id: {}", ready_msg.conn_id);
-            state_for_handler.borrow_mut().server_side_ready = true;
-            return;
-        }
-        
-        // Try to parse as MeasuringTimeResponseMessage
-        if let Ok(time_msg) = serde_json::from_str::<common::MeasuringTimeResponseMessage>(&text) {
-            let expected_conn_id = state_for_handler.borrow().conn_id.clone();
-            if !expected_conn_id.is_empty() && time_msg.conn_id != expected_conn_id {
-                log::warn!(
-                    "MeasuringTimeResponseMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
-                    time_msg.conn_id, expected_conn_id
-                );
-                return;
+            Err(e) => {
+                // Display as plain text if not a recognized message type
+                log::debug!("Received non-control message (parse error: {}): {}", e, text);
+                append_server_message(&format!("Server: {}", text));
             }
-            
-            log::info!("Received MeasuringTimeResponse: {}ms for conn_id: {}", time_msg.max_duration_ms, time_msg.conn_id);
-            state_for_handler.borrow_mut().measuring_time_ms = Some(time_msg.max_duration_ms);
-            return;
-        }
-        
-        // Try to parse as MtuHopMessage
-        if let Ok(mtu_msg) = serde_json::from_str::<common::MtuHopMessage>(&text) {
-            let expected_conn_id = state_for_handler.borrow().conn_id.clone();
-            if !expected_conn_id.is_empty() && mtu_msg.conn_id != expected_conn_id {
-                log::warn!(
-                    "MtuHopMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
-                    mtu_msg.conn_id, expected_conn_id
-                );
-                return;
-            }
-            
-            // Display the MTU hop message
-            let conn_prefix = if mtu_msg.conn_id.len() >= 8 {
-                &mtu_msg.conn_id[..8]
-            } else {
-                &mtu_msg.conn_id
-            };
-            let mtu_str = mtu_msg.mtu.map(|m| format!(" MTU:{}", m)).unwrap_or_default();
-            append_server_message(&format!(
-                "[{}][MTU Hop {}] size={} RTT:{:.2}ms{}",
-                conn_prefix,
-                mtu_msg.hop,
-                mtu_msg.packet_size,
-                mtu_msg.rtt_ms,
-                mtu_str
-            ));
-            return;
-        }
-
-        // Try to parse as TraceHopMessage
-        if let Ok(hop_msg) = serde_json::from_str::<common::TraceHopMessage>(&text) {
-            // Validate conn_id matches this connection
-            let expected_conn_id = state_for_handler.borrow().conn_id.clone();
-            if !expected_conn_id.is_empty() && hop_msg.conn_id != expected_conn_id {
-                log::warn!(
-                    "TraceHopMessage conn_id mismatch: received '{}' but expected '{}', ignoring",
-                    hop_msg.conn_id, expected_conn_id
-                );
-                return;
-            }
-            
-            // Pass structured data to visualization function
-            update_traceroute_visualization(&hop_msg);
-            
-            // Display the hop message in the UI with short conn_id prefix for multi-connection differentiation
-            let conn_prefix = if hop_msg.conn_id.len() >= 8 {
-                &hop_msg.conn_id[..8]
-            } else {
-                &hop_msg.conn_id
-            };
-            append_server_message(&format!(
-                "[{}][Hop {}] {} (RTT: {:.2}ms)",
-                conn_prefix,
-                hop_msg.hop,
-                hop_msg.message,
-                hop_msg.rtt_ms
-            ));
-        } else {
-            // Display as plain text if not a recognized message type
-            log::debug!("Received control message: {}", text);
-            append_server_message(&format!("Server: {}", text));
         }
     }) as Box<dyn FnMut(MessageEvent)>);
 

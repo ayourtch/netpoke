@@ -361,6 +361,24 @@ pub struct StopServerTrafficMessage {
     pub survey_session_id: String,
 }
 
+/// Enum wrapping all control message types for proper serialization/deserialization
+/// This ensures each message type has a distinct JSON representation with a "type" tag
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ControlMessage {
+    StartTraceroute(StartTracerouteMessage),
+    StopTraceroute(StopTracerouteMessage),
+    StartSurveySession(StartSurveySessionMessage),
+    ServerSideReady(ServerSideReadyMessage),
+    StartMtuTraceroute(StartMtuTracerouteMessage),
+    TraceHop(TraceHopMessage),
+    MtuHop(MtuHopMessage),
+    GetMeasuringTime(GetMeasuringTimeMessage),
+    MeasuringTimeResponse(MeasuringTimeResponseMessage),
+    StartServerTraffic(StartServerTrafficMessage),
+    StopServerTraffic(StopServerTrafficMessage),
+}
+
 /// Event generated when an ICMP error matches a tracked packet
 #[derive(Debug, Clone)]
 pub struct TrackedPacketEvent {
@@ -551,5 +569,127 @@ mod tests {
         assert_eq!(serde_json::from_str::<IpFamily>("\"6\"").unwrap(), IpFamily::IPv6);
         assert_eq!(serde_json::from_str::<IpFamily>("\"any\"").unwrap(), IpFamily::Both);
         assert_eq!(serde_json::from_str::<IpFamily>("\"all\"").unwrap(), IpFamily::Both);
+    }
+
+    #[test]
+    fn test_control_message_serialization_uniqueness() {
+        // Create messages with identical field values
+        let start_traceroute = ControlMessage::StartTraceroute(StartTracerouteMessage {
+            conn_id: "test-conn".to_string(),
+            survey_session_id: "test-survey".to_string(),
+        });
+        
+        let stop_traceroute = ControlMessage::StopTraceroute(StopTracerouteMessage {
+            conn_id: "test-conn".to_string(),
+            survey_session_id: "test-survey".to_string(),
+        });
+        
+        let start_survey = ControlMessage::StartSurveySession(StartSurveySessionMessage {
+            survey_session_id: "test-survey".to_string(),
+            conn_id: "test-conn".to_string(),
+        });
+        
+        // Serialize to JSON
+        let start_traceroute_json = serde_json::to_string(&start_traceroute).unwrap();
+        let stop_traceroute_json = serde_json::to_string(&stop_traceroute).unwrap();
+        let start_survey_json = serde_json::to_string(&start_survey).unwrap();
+        
+        // Verify they serialize to DIFFERENT JSON (due to "type" field)
+        assert_ne!(start_traceroute_json, stop_traceroute_json,
+            "StartTraceroute and StopTraceroute should serialize differently");
+        assert_ne!(start_traceroute_json, start_survey_json,
+            "StartTraceroute and StartSurveySession should serialize differently");
+        assert_ne!(stop_traceroute_json, start_survey_json,
+            "StopTraceroute and StartSurveySession should serialize differently");
+        
+        // Verify each has the correct "type" tag
+        assert!(start_traceroute_json.contains("\"type\":\"start_traceroute\""),
+            "StartTraceroute should have type tag: {}", start_traceroute_json);
+        assert!(stop_traceroute_json.contains("\"type\":\"stop_traceroute\""),
+            "StopTraceroute should have type tag: {}", stop_traceroute_json);
+        assert!(start_survey_json.contains("\"type\":\"start_survey_session\""),
+            "StartSurveySession should have type tag: {}", start_survey_json);
+    }
+    
+    #[test]
+    fn test_control_message_deserialization() {
+        // Test that we can deserialize each message type correctly
+        let start_traceroute_json = r#"{"type":"start_traceroute","conn_id":"test-conn","survey_session_id":"test-survey"}"#;
+        let stop_traceroute_json = r#"{"type":"stop_traceroute","conn_id":"test-conn","survey_session_id":"test-survey"}"#;
+        let start_survey_json = r#"{"type":"start_survey_session","survey_session_id":"test-survey","conn_id":"test-conn"}"#;
+        
+        let start_traceroute: ControlMessage = serde_json::from_str(start_traceroute_json).unwrap();
+        let stop_traceroute: ControlMessage = serde_json::from_str(stop_traceroute_json).unwrap();
+        let start_survey: ControlMessage = serde_json::from_str(start_survey_json).unwrap();
+        
+        // Verify correct variants were deserialized
+        match start_traceroute {
+            ControlMessage::StartTraceroute(msg) => {
+                assert_eq!(msg.conn_id, "test-conn");
+                assert_eq!(msg.survey_session_id, "test-survey");
+            }
+            _ => panic!("Expected StartTraceroute variant"),
+        }
+        
+        match stop_traceroute {
+            ControlMessage::StopTraceroute(msg) => {
+                assert_eq!(msg.conn_id, "test-conn");
+                assert_eq!(msg.survey_session_id, "test-survey");
+            }
+            _ => panic!("Expected StopTraceroute variant"),
+        }
+        
+        match start_survey {
+            ControlMessage::StartSurveySession(msg) => {
+                assert_eq!(msg.survey_session_id, "test-survey");
+                assert_eq!(msg.conn_id, "test-conn");
+            }
+            _ => panic!("Expected StartSurveySession variant"),
+        }
+    }
+    
+    #[test]
+    fn test_control_message_roundtrip() {
+        // Test all control message variants for roundtrip serialization
+        let messages = vec![
+            ControlMessage::StartTraceroute(StartTracerouteMessage {
+                conn_id: "conn1".to_string(),
+                survey_session_id: "survey1".to_string(),
+            }),
+            ControlMessage::StopTraceroute(StopTracerouteMessage {
+                conn_id: "conn2".to_string(),
+                survey_session_id: "survey2".to_string(),
+            }),
+            ControlMessage::StartSurveySession(StartSurveySessionMessage {
+                survey_session_id: "survey3".to_string(),
+                conn_id: "conn3".to_string(),
+            }),
+            ControlMessage::StartMtuTraceroute(StartMtuTracerouteMessage {
+                conn_id: "conn4".to_string(),
+                survey_session_id: "survey4".to_string(),
+                packet_size: 1500,
+            }),
+            ControlMessage::GetMeasuringTime(GetMeasuringTimeMessage {
+                conn_id: "conn5".to_string(),
+                survey_session_id: "survey5".to_string(),
+            }),
+            ControlMessage::StartServerTraffic(StartServerTrafficMessage {
+                conn_id: "conn6".to_string(),
+                survey_session_id: "survey6".to_string(),
+            }),
+            ControlMessage::StopServerTraffic(StopServerTrafficMessage {
+                conn_id: "conn7".to_string(),
+                survey_session_id: "survey7".to_string(),
+            }),
+        ];
+        
+        for msg in messages {
+            let json = serde_json::to_string(&msg).unwrap();
+            let deserialized: ControlMessage = serde_json::from_str(&json).unwrap();
+            
+            // Re-serialize and compare JSON (to ensure roundtrip is stable)
+            let json2 = serde_json::to_string(&deserialized).unwrap();
+            assert_eq!(json, json2, "Roundtrip serialization should be stable");
+        }
     }
 }

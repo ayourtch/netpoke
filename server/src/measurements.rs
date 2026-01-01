@@ -484,16 +484,18 @@ pub async fn run_single_traceroute_round(session: Arc<ClientSession>) {
                 let rtt = event.icmp_received_at.duration_since(event.sent_at);
                 let rtt_ms = rtt.as_secs_f64() * 1000.0;
                 
-                let hop_message = common::TraceHopMessage {
-                    hop,
-                    ip_address: event.router_ip.clone(),
-                    rtt_ms,
-                    message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
-                    conn_id: event.conn_id.clone(),
-                    survey_session_id: survey_session_id.clone(),
-                    original_src_port: event.original_src_port,
-                    original_dest_addr: event.original_dest_addr.clone(),
-                };
+                let hop_message = common::ControlMessage::TraceHop(
+                    common::TraceHopMessage {
+                        hop,
+                        ip_address: event.router_ip.clone(),
+                        rtt_ms,
+                        message: format_traceroute_message(hop, &event.router_ip, rtt_ms),
+                        conn_id: event.conn_id.clone(),
+                        survey_session_id: survey_session_id.clone(),
+                        original_src_port: event.original_src_port,
+                        original_dest_addr: event.original_dest_addr.clone(),
+                    }
+                );
 
                 if let Ok(msg_json) = serde_json::to_vec(&hop_message) {
                     if let Err(e) = control_channel.send(&msg_json.into()).await {
@@ -629,16 +631,18 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
                 // For now, we set it to None
                 let mtu: Option<u16> = None;
                 
-                let mtu_message = common::MtuHopMessage {
-                    hop,
-                    ip_address: event.router_ip.clone(),
-                    rtt_ms,
-                    mtu,
-                    message: format!("MTU probe hop {} (size {})", hop, packet_size),
-                    conn_id: event.conn_id.clone(),
-                    survey_session_id: survey_session_id.clone(),
-                    packet_size,
-                };
+                let mtu_message = common::ControlMessage::MtuHop(
+                    common::MtuHopMessage {
+                        hop,
+                        ip_address: event.router_ip.clone(),
+                        rtt_ms,
+                        mtu,
+                        message: format!("MTU probe hop {} (size {})", hop, packet_size),
+                        conn_id: event.conn_id.clone(),
+                        survey_session_id: survey_session_id.clone(),
+                        packet_size,
+                    }
+                );
 
                 if let Ok(msg_json) = serde_json::to_vec(&mtu_message) {
                     if let Err(e) = control_channel.send(&msg_json.into()).await {

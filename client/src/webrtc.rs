@@ -553,10 +553,12 @@ impl WebRtcConnection {
     
     /// Send a stop traceroute message to the server
     pub async fn send_stop_traceroute(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::StopTracerouteMessage {
-            conn_id: self.conn_id.clone(),
-            survey_session_id: survey_session_id.to_string(),
-        };
+        let msg = common::ControlMessage::StopTraceroute(
+            common::StopTracerouteMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
         self.send_control_message(&msg, "stop traceroute")?;
         self.state.borrow_mut().set_traceroute_active(false);
         Ok(())
@@ -564,47 +566,57 @@ impl WebRtcConnection {
 
     /// Send a start traceroute message to the server
     pub async fn send_start_traceroute(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::StartTracerouteMessage {
-            conn_id: self.conn_id.clone(),
-            survey_session_id: survey_session_id.to_string(),
-        };
+        let msg = common::ControlMessage::StartTraceroute(
+            common::StartTracerouteMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
         self.send_control_message(&msg, "start traceroute")
     }
     
     /// Send a start survey session message to the server
     pub async fn send_start_survey_session(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::StartSurveySessionMessage {
-            survey_session_id: survey_session_id.to_string(),
-            conn_id: self.conn_id.clone(),
-        };
+        let msg = common::ControlMessage::StartSurveySession(
+            common::StartSurveySessionMessage {
+                survey_session_id: survey_session_id.to_string(),
+                conn_id: self.conn_id.clone(),
+            }
+        );
         self.send_control_message(&msg, "start survey session")
     }
     
     /// Send a start MTU traceroute message to the server
     pub async fn send_start_mtu_traceroute(&self, survey_session_id: &str, packet_size: u32) -> Result<(), JsValue> {
-        let msg = common::StartMtuTracerouteMessage {
-            conn_id: self.conn_id.clone(),
-            survey_session_id: survey_session_id.to_string(),
-            packet_size,
-        };
+        let msg = common::ControlMessage::StartMtuTraceroute(
+            common::StartMtuTracerouteMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+                packet_size,
+            }
+        );
         self.send_control_message(&msg, &format!("start MTU traceroute (size: {})", packet_size))
     }
     
     /// Send get measuring time message to the server
     pub async fn send_get_measuring_time(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::GetMeasuringTimeMessage {
-            conn_id: self.conn_id.clone(),
-            survey_session_id: survey_session_id.to_string(),
-        };
+        let msg = common::ControlMessage::GetMeasuringTime(
+            common::GetMeasuringTimeMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
         self.send_control_message(&msg, "get measuring time")
     }
     
     /// Send start server traffic message to the server
     pub async fn send_start_server_traffic(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::StartServerTrafficMessage {
-            conn_id: self.conn_id.clone(),
-            survey_session_id: survey_session_id.to_string(),
-        };
+        let msg = common::ControlMessage::StartServerTraffic(
+            common::StartServerTrafficMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
         self.send_control_message(&msg, "start server traffic")?;
         self.state.borrow_mut().set_traceroute_active(false);
         Ok(())
@@ -612,10 +624,12 @@ impl WebRtcConnection {
     
     /// Send stop server traffic message to the server
     pub async fn send_stop_server_traffic(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::StopServerTrafficMessage {
-            conn_id: self.conn_id.clone(),
-            survey_session_id: survey_session_id.to_string(),
-        };
+        let msg = common::ControlMessage::StopServerTraffic(
+            common::StopServerTrafficMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
         self.send_control_message(&msg, "stop server traffic")
     }
     
