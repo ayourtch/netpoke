@@ -25,6 +25,12 @@ const READ_TIMEOUT_MS: u64 = 100;
 /// Sleep interval in milliseconds for bandwidth limiting
 const BANDWIDTH_LIMIT_SLEEP_MS: u64 = 1;
 
+/// Default UDP block size (8 KB, per iperf3 specification)
+const DEFAULT_UDP_BLKSIZE: usize = 8 * 1024;
+
+/// Default UDP bandwidth in bits per second (1 Mbps)
+const DEFAULT_UDP_BANDWIDTH_BPS: u64 = 1_000_000;
+
 /// A test session with a client
 pub struct TestSession {
     /// Session ID (cookie)
@@ -504,7 +510,7 @@ impl TestSession {
                     )
                     .await
                     {
-                        Ok(Ok(0)) => break, // Connection closed
+                        Ok(Ok(0)) => continue, // UDP can receive 0-byte datagrams, continue
                         Ok(Ok(n)) => {
                             bytes_received.fetch_add(n as u64, Ordering::Relaxed);
                         }
@@ -538,15 +544,14 @@ impl TestSession {
         let blksize = if blksize > 0 {
             blksize as usize
         } else {
-            8 * 1024 // Default UDP blksize is 8KB
+            DEFAULT_UDP_BLKSIZE
         };
 
         // Calculate bytes per interval for bandwidth limiting
         let bytes_per_second = if bandwidth > 0 {
             bandwidth / 8 // Convert bits to bytes
         } else {
-            // Default to 1 Mbps for UDP if no bandwidth specified
-            1_000_000 / 8
+            DEFAULT_UDP_BANDWIDTH_BPS / 8
         };
 
         // Spawn sender tasks for each UDP stream

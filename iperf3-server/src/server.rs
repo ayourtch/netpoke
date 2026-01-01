@@ -21,8 +21,9 @@ const STREAM_POLL_INTERVAL_MS: u64 = 50;
 /// Delay in milliseconds after test completion to allow remaining data to arrive
 const POST_TEST_DELAY_MS: u64 = 100;
 
-/// UDP connect reply value (sent to client to confirm connection)
-const UDP_CONNECT_REPLY: u32 = 0x36373839; // "6789" in network byte order
+/// UDP connect reply magic value (iperf3 protocol specification)
+/// This is the ASCII bytes '6789' (0x36, 0x37, 0x38, 0x39)
+const UDP_CONNECT_REPLY: u32 = 0x36373839;
 
 /// Callback type for checking if an IP is allowed
 pub type AuthCallback = Arc<dyn Fn(IpAddr) -> bool + Send + Sync>;
@@ -247,7 +248,6 @@ impl Iperf3Server {
     }
 
     /// Run the iperf3 protocol for a session.
-    /// Run the iperf3 protocol for a session.
     ///
     /// Protocol flow (based on iperf3 source):
     /// 1. Server sends PARAM_EXCHANGE state
@@ -440,6 +440,8 @@ impl Iperf3Server {
             }
 
             // Create a UDP socket bound to the server port
+            // Note: For multiple parallel streams, we would need SO_REUSEPORT or different ports.
+            // Currently, parallel UDP streams > 1 may not work correctly.
             let bind_addr = format!("0.0.0.0:{}", server_port);
             let socket = UdpSocket::bind(&bind_addr).await.map_err(|e| {
                 Iperf3Error::Protocol(format!("Failed to bind UDP socket: {}", e))
