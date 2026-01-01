@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
 /// Maximum size of a JSON message (1 MB)
@@ -45,6 +45,9 @@ pub struct TestSession {
     /// Data streams (for TCP tests)
     data_streams: Arc<Mutex<Vec<Arc<Mutex<TcpStream>>>>>,
 
+    /// UDP data sockets (for UDP tests)
+    udp_streams: Arc<Mutex<Vec<Arc<UdpSocket>>>>,
+
     /// Session start time
     pub started_at: Instant,
 
@@ -59,6 +62,9 @@ pub struct TestSession {
 
     /// Whether the session is cancelled
     cancelled: Arc<AtomicBool>,
+
+    /// Whether this is a UDP test
+    is_udp: Arc<AtomicBool>,
 }
 
 impl TestSession {
@@ -71,12 +77,24 @@ impl TestSession {
             control_stream: Arc::new(Mutex::new(control_stream)),
             state: Arc::new(Mutex::new(State::ParamExchange)),
             data_streams: Arc::new(Mutex::new(Vec::new())),
+            udp_streams: Arc::new(Mutex::new(Vec::new())),
             started_at: Instant::now(),
             test_started_at: Arc::new(Mutex::new(None)),
             bytes_received: Arc::new(AtomicU64::new(0)),
             bytes_sent: Arc::new(AtomicU64::new(0)),
             cancelled: Arc::new(AtomicBool::new(false)),
+            is_udp: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Set whether this is a UDP test
+    pub fn set_udp_mode(&self, is_udp: bool) {
+        self.is_udp.store(is_udp, Ordering::SeqCst);
+    }
+
+    /// Check if this is a UDP test
+    pub fn is_udp_mode(&self) -> bool {
+        self.is_udp.load(Ordering::SeqCst)
     }
 
     /// Cancel the session
@@ -119,15 +137,25 @@ impl TestSession {
         self.bytes_sent.fetch_add(bytes, Ordering::Relaxed);
     }
 
-    /// Add a data stream
+    /// Add a TCP data stream
     pub async fn add_data_stream(&self, stream: TcpStream) {
         let mut streams = self.data_streams.lock().await;
         streams.push(Arc::new(Mutex::new(stream)));
     }
 
-    /// Get number of data streams
+    /// Add a UDP data stream
+    pub async fn add_udp_stream(&self, socket: Arc<UdpSocket>) {
+        let mut streams = self.udp_streams.lock().await;
+        streams.push(socket);
+    }
+
+    /// Get number of data streams (TCP or UDP)
     pub async fn stream_count(&self) -> usize {
-        self.data_streams.lock().await.len()
+        if self.is_udp_mode() {
+            self.udp_streams.lock().await.len()
+        } else {
+            self.data_streams.lock().await.len()
+        }
     }
 
     /// Start the test timer
@@ -439,6 +467,128 @@ impl TestSession {
         }
 
         Ok(())
+    }
+
+    /// Start the UDP data stream receiving loop in background.
+    /// Returns immediately. Call cancel() to stop receiving, then wait for the returned handles.
+    pub async fn start_udp_receiver_background(
+        &self,
+        max_duration: Duration,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let streams = self.udp_streams.lock().await;
+        if streams.is_empty() {
+            return Vec::new();
+        }
+
+        let cancelled = self.cancelled.clone();
+        let bytes_received = self.bytes_received.clone();
+        let deadline = Instant::now() + max_duration;
+
+        // Spawn receiver tasks for each UDP stream
+        let mut handles = Vec::new();
+        for socket in streams.iter() {
+            let socket = socket.clone();
+            let cancelled = cancelled.clone();
+            let bytes_received = bytes_received.clone();
+
+            let handle = tokio::spawn(async move {
+                let mut buf = vec![0u8; BUFFER_SIZE];
+                loop {
+                    if cancelled.load(Ordering::SeqCst) || Instant::now() > deadline {
+                        break;
+                    }
+
+                    match tokio::time::timeout(
+                        Duration::from_millis(READ_TIMEOUT_MS),
+                        socket.recv(&mut buf),
+                    )
+                    .await
+                    {
+                        Ok(Ok(0)) => break, // Connection closed
+                        Ok(Ok(n)) => {
+                            bytes_received.fetch_add(n as u64, Ordering::Relaxed);
+                        }
+                        Ok(Err(_)) => break, // Error
+                        Err(_) => continue,  // Timeout, check again
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        handles
+    }
+
+    /// Start the UDP data stream sending loop in background.
+    /// Returns immediately. Call cancel() to stop sending, then wait for the returned handles.
+    pub async fn start_udp_sender_background(
+        &self,
+        max_duration: Duration,
+        bandwidth: u64,
+        blksize: u32,
+    ) -> Vec<tokio::task::JoinHandle<()>> {
+        let streams = self.udp_streams.lock().await;
+        if streams.is_empty() {
+            return Vec::new();
+        }
+
+        let cancelled = self.cancelled.clone();
+        let bytes_sent = self.bytes_sent.clone();
+        let deadline = Instant::now() + max_duration;
+        let blksize = if blksize > 0 {
+            blksize as usize
+        } else {
+            8 * 1024 // Default UDP blksize is 8KB
+        };
+
+        // Calculate bytes per interval for bandwidth limiting
+        let bytes_per_second = if bandwidth > 0 {
+            bandwidth / 8 // Convert bits to bytes
+        } else {
+            // Default to 1 Mbps for UDP if no bandwidth specified
+            1_000_000 / 8
+        };
+
+        // Spawn sender tasks for each UDP stream
+        let mut handles = Vec::new();
+        for socket in streams.iter() {
+            let socket = socket.clone();
+            let cancelled = cancelled.clone();
+            let bytes_sent = bytes_sent.clone();
+
+            let handle = tokio::spawn(async move {
+                let buf = vec![0u8; blksize];
+                let mut last_send = Instant::now();
+                let mut bytes_this_second: u64 = 0;
+
+                loop {
+                    if cancelled.load(Ordering::SeqCst) || Instant::now() > deadline {
+                        break;
+                    }
+
+                    // Bandwidth limiting (important for UDP)
+                    let elapsed = last_send.elapsed();
+                    if elapsed >= Duration::from_secs(1) {
+                        last_send = Instant::now();
+                        bytes_this_second = 0;
+                    } else if bytes_this_second >= bytes_per_second {
+                        tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS)).await;
+                        continue;
+                    }
+
+                    match socket.send(&buf).await {
+                        Ok(n) => {
+                            bytes_sent.fetch_add(n as u64, Ordering::Relaxed);
+                            bytes_this_second += n as u64;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        handles
     }
 
     /// Generate server results

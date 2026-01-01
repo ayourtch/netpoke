@@ -9,7 +9,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::{broadcast, RwLock};
 
 /// Timeout in seconds for waiting for data streams to connect
@@ -20,6 +20,9 @@ const STREAM_POLL_INTERVAL_MS: u64 = 50;
 
 /// Delay in milliseconds after test completion to allow remaining data to arrive
 const POST_TEST_DELAY_MS: u64 = 100;
+
+/// UDP connect reply value (sent to client to confirm connection)
+const UDP_CONNECT_REPLY: u32 = 0x36373839; // "6789" in network byte order
 
 /// Callback type for checking if an IP is allowed
 pub type AuthCallback = Arc<dyn Fn(IpAddr) -> bool + Send + Sync>;
@@ -169,10 +172,18 @@ impl Iperf3Server {
         let sessions = self.sessions.clone();
         let max_duration = Duration::from_secs(self.config.max_duration_secs);
         let max_bandwidth = self.config.max_bandwidth;
+        let server_port = self.config.port;
 
         tokio::spawn(async move {
-            if let Err(e) =
-                Self::handle_session(stream, peer_addr, sessions, max_duration, max_bandwidth).await
+            if let Err(e) = Self::handle_session(
+                stream,
+                peer_addr,
+                sessions,
+                max_duration,
+                max_bandwidth,
+                server_port,
+            )
+            .await
             {
                 tracing::error!("iperf3: Session error for {}: {}", peer_addr, e);
             }
@@ -186,6 +197,7 @@ impl Iperf3Server {
         sessions: Arc<RwLock<HashMap<String, Arc<TestSession>>>>,
         max_duration: Duration,
         max_bandwidth: u64,
+        server_port: u16,
     ) -> Result<()> {
         // Step 1: Read the cookie (37 bytes for iperf3)
         let mut cookie_buf = [0u8; COOKIE_SIZE];
@@ -220,7 +232,9 @@ impl Iperf3Server {
         }
 
         // Run the session protocol
-        let result = Self::run_session_protocol(session.clone(), max_duration, max_bandwidth).await;
+        let result =
+            Self::run_session_protocol(session.clone(), max_duration, max_bandwidth, server_port)
+                .await;
 
         // Clean up
         {
@@ -232,27 +246,29 @@ impl Iperf3Server {
         result
     }
 
-    /// Run the iperf3 protocol for a session
+    /// Run the iperf3 protocol for a session.
     /// Run the iperf3 protocol for a session.
     ///
     /// Protocol flow (based on iperf3 source):
     /// 1. Server sends PARAM_EXCHANGE state
     /// 2. Client sends JSON parameters directly (no state byte)
     /// 3. Server reads JSON, sends CREATE_STREAMS state
-    /// 4. Client creates data streams (no state byte on control connection)
-    /// 5. Server detects streams connected, sends TEST_START, then TEST_RUNNING
-    /// 6. Test runs
-    /// 7. Client sends TEST_END state when done
-    /// 8. Server sends EXCHANGE_RESULTS state
-    /// 9. Client sends results JSON (no state byte), server reads it
-    /// 10. Server sends results JSON
-    /// 11. Server sends DISPLAY_RESULTS state
-    /// 12. Client sends IPERF_DONE state
-    /// 13. Server sends SERVER_TERMINATE state
+    /// 4. For UDP: Server creates UDP listener and waits for client datagrams
+    /// 5. Client creates data streams (no state byte on control connection)
+    /// 6. Server detects streams connected, sends TEST_START, then TEST_RUNNING
+    /// 7. Test runs
+    /// 8. Client sends TEST_END state when done
+    /// 9. Server sends EXCHANGE_RESULTS state
+    /// 10. Client sends results JSON (no state byte), server reads it
+    /// 11. Server sends results JSON
+    /// 12. Server sends DISPLAY_RESULTS state
+    /// 13. Client sends IPERF_DONE state
+    /// 14. Server sends SERVER_TERMINATE state
     async fn run_session_protocol(
         session: Arc<TestSession>,
         max_duration: Duration,
         max_bandwidth: u64,
+        server_port: u16,
     ) -> Result<()> {
         // Step 1: Send PARAM_EXCHANGE state
         session.send_state(State::ParamExchange).await?;
@@ -279,6 +295,14 @@ impl Iperf3Server {
             params.bandwidth = max_bandwidth;
         }
 
+        // Detect if this is a UDP test
+        let is_udp = params.udp;
+        session.set_udp_mode(is_udp);
+
+        if is_udp {
+            tracing::debug!("iperf3: UDP mode requested");
+        }
+
         // Step 3: Send CREATE_STREAMS state (no JSON acknowledgment needed)
         // The iperf3 protocol goes directly from reading parameters to sending CREATE_STREAMS
         session.send_state(State::CreateStreams).await?;
@@ -288,15 +312,22 @@ impl Iperf3Server {
         let timeout = Duration::from_secs(STREAM_CONNECT_TIMEOUT_SECS);
         let start = std::time::Instant::now();
 
-        while session.stream_count().await < expected_streams {
-            if start.elapsed() > timeout {
-                return Err(Iperf3Error::Protocol(format!(
-                    "Timeout waiting for {} data streams, got {}",
-                    expected_streams,
-                    session.stream_count().await
-                )));
+        if is_udp {
+            // For UDP, we need to create a UDP listener and accept connections
+            Self::accept_udp_streams(session.clone(), expected_streams, server_port, timeout)
+                .await?;
+        } else {
+            // For TCP, wait for data streams to connect (handled by main accept loop)
+            while session.stream_count().await < expected_streams {
+                if start.elapsed() > timeout {
+                    return Err(Iperf3Error::Protocol(format!(
+                        "Timeout waiting for {} data streams, got {}",
+                        expected_streams,
+                        session.stream_count().await
+                    )));
+                }
+                tokio::time::sleep(Duration::from_millis(STREAM_POLL_INTERVAL_MS)).await;
             }
-            tokio::time::sleep(Duration::from_millis(STREAM_POLL_INTERVAL_MS)).await;
         }
 
         tracing::debug!(
@@ -315,13 +346,23 @@ impl Iperf3Server {
         // Step 6: Run the actual test in the background, waiting for TEST_END from client
         // The client controls when the test ends by sending TEST_END
         let test_duration = Duration::from_secs(params.time);
-        let data_handles = if params.reverse {
-            // Server sends to client
+        let data_handles = if is_udp {
+            if params.reverse {
+                // Server sends to client (UDP)
+                session
+                    .start_udp_sender_background(test_duration, params.bandwidth, params.blksize)
+                    .await
+            } else {
+                // Client sends to server (UDP)
+                session.start_udp_receiver_background(test_duration).await
+            }
+        } else if params.reverse {
+            // Server sends to client (TCP)
             session
                 .start_sender_background(test_duration, params.bandwidth)
                 .await
         } else {
-            // Client sends to server
+            // Client sends to server (TCP)
             session.start_receiver_background(test_duration).await
         };
 
@@ -370,6 +411,91 @@ impl Iperf3Server {
             session.get_bytes_sent(),
             session.get_bytes_received()
         );
+
+        Ok(())
+    }
+
+    /// Accept UDP streams for a session.
+    ///
+    /// For UDP, unlike TCP, we need to:
+    /// 1. Create a UDP socket bound to the server port
+    /// 2. Wait for client to send a datagram
+    /// 3. "Connect" the UDP socket to the client address
+    /// 4. Send a reply to confirm connection
+    /// 5. Repeat for each expected stream
+    async fn accept_udp_streams(
+        session: Arc<TestSession>,
+        expected_streams: usize,
+        server_port: u16,
+        timeout: Duration,
+    ) -> Result<()> {
+        let start = std::time::Instant::now();
+
+        for stream_num in 0..expected_streams {
+            if start.elapsed() > timeout {
+                return Err(Iperf3Error::Protocol(format!(
+                    "Timeout waiting for UDP streams, got {} of {}",
+                    stream_num, expected_streams
+                )));
+            }
+
+            // Create a UDP socket bound to the server port
+            let bind_addr = format!("0.0.0.0:{}", server_port);
+            let socket = UdpSocket::bind(&bind_addr).await.map_err(|e| {
+                Iperf3Error::Protocol(format!("Failed to bind UDP socket: {}", e))
+            })?;
+
+            tracing::debug!("iperf3: UDP listener bound to {}", bind_addr);
+
+            // Wait for a datagram from the client
+            let mut buf = [0u8; 4];
+            let remaining_timeout = timeout.saturating_sub(start.elapsed());
+            let (_, client_addr) = match tokio::time::timeout(
+                remaining_timeout,
+                socket.recv_from(&mut buf),
+            )
+            .await
+            {
+                Ok(Ok((n, addr))) => (n, addr),
+                Ok(Err(e)) => {
+                    return Err(Iperf3Error::Protocol(format!(
+                        "Failed to receive UDP datagram: {}",
+                        e
+                    )));
+                }
+                Err(_) => {
+                    return Err(Iperf3Error::Protocol(format!(
+                        "Timeout waiting for UDP stream {}",
+                        stream_num + 1
+                    )));
+                }
+            };
+
+            tracing::debug!(
+                "iperf3: Received UDP datagram from {}, connecting",
+                client_addr
+            );
+
+            // "Connect" the UDP socket to the client address
+            socket.connect(client_addr).await.map_err(|e| {
+                Iperf3Error::Protocol(format!("Failed to connect UDP socket: {}", e))
+            })?;
+
+            // Send reply to confirm connection
+            let reply = UDP_CONNECT_REPLY.to_be_bytes();
+            socket.send(&reply).await.map_err(|e| {
+                Iperf3Error::Protocol(format!("Failed to send UDP reply: {}", e))
+            })?;
+
+            tracing::debug!(
+                "iperf3: UDP stream {} connected to {}",
+                stream_num + 1,
+                client_addr
+            );
+
+            // Add the socket to the session
+            session.add_udp_stream(Arc::new(socket)).await;
+        }
 
         Ok(())
     }

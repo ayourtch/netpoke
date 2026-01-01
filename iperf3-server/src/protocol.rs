@@ -87,8 +87,8 @@ pub struct TestParameters {
     #[serde(default)]
     pub bandwidth: u64,
 
-    /// Block size for writes
-    #[serde(default = "default_blksize")]
+    /// Block size for writes (sent as "len" by client)
+    #[serde(default = "default_blksize", alias = "len")]
     pub blksize: u32,
 
     /// Window size (socket buffer size)
