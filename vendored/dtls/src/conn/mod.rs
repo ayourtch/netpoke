@@ -173,7 +173,7 @@ impl Conn for DTLSConn {
     ) -> UtilResult<usize> {
         // Check if we should bypass DTLS encryption
         if options.bypass_dtls {
-            log::warn!("🔵 DTLSConn::send_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
+            log::warn!("⚠️ DTLSConn::send_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
                 buf.len(), options.ttl, options.tos, options.df_bit);
             // Send cleartext directly to underlying connection
             return self.conn.send_with_options(buf, options).await;
@@ -196,7 +196,7 @@ impl Conn for DTLSConn {
     ) -> UtilResult<usize> {
         // Check if we should bypass DTLS encryption
         if options.bypass_dtls {
-            log::warn!("🔵 DTLSConn::send_to_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}, target={}",
+            log::warn!("⚠️ DTLSConn::send_to_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}, target={}",
                 buf.len(), options.ttl, options.tos, options.df_bit, target);
             // Send cleartext directly to underlying connection
             return self.conn.send_to_with_options(buf, target, options).await;
