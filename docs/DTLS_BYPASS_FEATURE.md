@@ -164,11 +164,64 @@ Application Data
     → sendmsg() with control messages (TTL, DF, TOS)
 ```
 
-Note: When bypassing, data still goes through SCTP layer, so SCTP framing is still present.
+Note: When bypassing DTLS only, data still goes through SCTP layer, so SCTP framing and 
+potential fragmentation are still present (packets may be split if larger than max_payload_size).
+
+## SCTP Fragmentation Bypass (Added 2026-01-02)
+
+In addition to DTLS bypass, a second bypass flag was added to address SCTP fragmentation:
+
+### The Problem
+
+Even with `bypass_dtls: true`, the SCTP layer still fragments large messages:
+- SCTP splits messages larger than `max_payload_size` (~1200 bytes) into multiple chunks
+- Each chunk becomes a separate packet after bundling
+- This defeats MTU discovery tests that need to send packets larger than 1200 bytes
+
+### The Solution
+
+Added `bypass_sctp_fragmentation` flag to `SendOptions` and `UdpSendOptions`:
+
+```rust
+pub struct SendOptions {
+    pub ttl: Option<u8>,
+    pub df_bit: Option<bool>,
+    pub tos: Option<u8>,
+    pub flow_label: Option<u32>,
+    pub track_for_ms: u32,
+    pub bypass_dtls: bool,
+    pub bypass_sctp_fragmentation: bool,  // NEW: Bypass SCTP fragmentation
+}
+```
+
+When `bypass_sctp_fragmentation: true`:
+- Stream::packetize() sends the entire payload as a single SCTP chunk
+- No fragmentation based on max_payload_size
+- Allows sending packets up to interface MTU (e.g., 1500 bytes or more)
+
+### Data Flow with Both Bypasses
+
+```
+Application Data
+  → RTCDataChannel::send_with_options()
+  → DataChannel::write_data_channel_with_options()
+  → Stream::write_sctp_with_options()
+    → BYPASS SCTP FRAG: Send as single chunk (no fragmentation)
+  → Association (SCTP layer - single chunk)
+  → DTLSConn::send_with_options()
+    → BYPASS DTLS: self.conn.send_with_options() [CLEARTEXT]
+    → Endpoint::send_with_options()
+    → UdpSocket::send_with_options()
+    → sendmsg() with control messages (TTL, DF, TOS)
+```
+
+Result: Original data sent as single UDP packet with precise size control.
 
 ## Usage Examples
 
-### MTU Traceroute (with bypass)
+### MTU Traceroute (with both bypasses)
+
+For MTU testing, use both `bypass_dtls` and `bypass_sctp_fragmentation`:
 
 ```rust
 let send_options = common::SendOptions {
@@ -177,7 +230,8 @@ let send_options = common::SendOptions {
     tos: None,
     flow_label: None,
     track_for_ms: 5000,
-    bypass_dtls: true,  // Bypass for MTU testing
+    bypass_dtls: true,  // Bypass DTLS for MTU testing
+    bypass_sctp_fragmentation: true,  // Bypass SCTP fragmentation for large packets
 };
 
 let options = Some(UdpSendOptions {
@@ -186,12 +240,15 @@ let options = Some(UdpSendOptions {
     df_bit: Some(true),
     conn_id: session.conn_id.clone(),
     bypass_dtls: true,
+    bypass_sctp_fragmentation: true,
 });
 
 testprobe_channel.send_with_options(&json.into(), options).await?;
 ```
 
-### Regular Traceroute (with encryption)
+This allows sending packets larger than 1200 bytes (up to interface MTU) with precise size control.
+
+### Regular Traceroute (with encryption and normal fragmentation)
 
 ```rust
 let send_options = common::SendOptions {
@@ -201,6 +258,7 @@ let send_options = common::SendOptions {
     flow_label: None,
     track_for_ms: 5000,
     bypass_dtls: false,  // Keep DTLS encryption
+    bypass_sctp_fragmentation: false,  // Use normal SCTP fragmentation
 };
 
 let options = Some(UdpSendOptions {
@@ -209,25 +267,56 @@ let options = Some(UdpSendOptions {
     df_bit: Some(true),
     conn_id: session.conn_id.clone(),
     bypass_dtls: false,
+    bypass_sctp_fragmentation: false,
 });
 
 testprobe_channel.send_with_options(&json.into(), options).await?;
 ```
 
+## When to Use Each Bypass
+
+### bypass_dtls only (bypass_sctp_fragmentation: false)
+
+Use when you need to bypass DTLS encryption but packets are small enough to fit in SCTP chunks (~1200 bytes):
+
+- ✅ Small diagnostic packets
+- ✅ Traceroute probes (typically < 100 bytes)
+- ✅ Regular network measurements
+
+### Both bypasses (bypass_dtls: true, bypass_sctp_fragmentation: true)
+
+Use when you need to send large packets for MTU testing:
+
+- ✅ MTU discovery (packets > 1200 bytes)
+- ✅ Path MTU testing (up to interface MTU)
+- ✅ Fragmentation behavior analysis
+
+**WARNING**: Very large packets (> path MTU) will be fragmented or dropped by routers.
+
+### Neither bypass (both: false) - RECOMMENDED DEFAULT
+
+Use for all regular traffic that needs security:
+
+- ✅ User data
+- ✅ Application messages
+- ✅ Any sensitive information
+- ✅ Production traffic
+
 ## Security Considerations
 
 ### What's Protected
 
-1. **Default behavior**: `bypass_dtls` defaults to `false`, maintaining DTLS encryption
-2. **Explicit opt-in**: Must explicitly set `bypass_dtls: true` to bypass encryption
+1. **Default behavior**: Both `bypass_dtls` and `bypass_sctp_fragmentation` default to `false`
+2. **Explicit opt-in**: Must explicitly enable each bypass per packet
 3. **Per-packet control**: Each packet can independently choose to bypass or not
-4. **Backward compatible**: Old code continues to use DTLS encryption
+4. **Backward compatible**: Old code continues to use DTLS encryption and normal fragmentation
 
 ### What's Not Protected
 
-1. **Cleartext transmission**: When bypass is enabled, data is sent in cleartext
+1. **Cleartext transmission**: When DTLS bypass is enabled, data is sent in cleartext
 2. **No authentication**: Bypassed packets don't have DTLS authentication/integrity
 3. **Visible to network**: Packet contents are visible to network observers
+4. **Path MTU risks**: Large unfragmented packets may be dropped or fragmented by routers
 
 ### When to Use Bypass
 
@@ -247,10 +336,17 @@ testprobe_channel.send_with_options(&json.into(), options).await?;
 
 ### Debug Logging
 
-When bypass is active, you'll see:
+When DTLS bypass is active, you'll see:
 
 ```
 DEBUG [dtls] 🔵 DTLSConn::send_with_options: BYPASSING DTLS - Sending cleartext 1500 bytes with TTL=Some(5), TOS=None, DF=Some(true)
+```
+
+When SCTP fragmentation bypass is active, you'll see:
+
+```
+DEBUG [webrtc_sctp::stream] 🔵 Stream::packetize: BYPASSING SCTP FRAGMENTATION - Sending 1500 bytes as single chunk
+DEBUG [webrtc_sctp::stream] 🔵 Stream::packetize: Set UDP options on chunk: TTL=Some(5), TOS=None, DF=Some(true), bypass_sctp_frag=true
 ```
 
 When encryption is active:
@@ -263,14 +359,16 @@ DEBUG [dtls] 🔵 DTLSConn::send_with_options: Sending encrypted data with TTL=S
 
 Run MTU traceroute and verify:
 
-1. Packets have exact expected sizes (no DTLS overhead)
-2. ICMP "Fragmentation Needed" messages report correct MTU values
-3. Debug logs show "BYPASSING DTLS" for MTU test packets
-4. Debug logs show "Sending encrypted data" for regular traceroute packets
+1. Packets have exact expected sizes (no DTLS overhead, no SCTP fragmentation)
+2. Large packets (> 1200 bytes) are sent as single UDP packets
+3. ICMP "Fragmentation Needed" messages report correct MTU values
+4. Debug logs show "BYPASSING DTLS" for MTU test packets
+5. Debug logs show "BYPASSING SCTP FRAGMENTATION" for large packets
+6. Debug logs show "Sending encrypted data" for regular traceroute packets
 
 ### Packet Capture
 
-Use tcpdump to verify cleartext:
+Use tcpdump to verify both bypasses:
 
 ```bash
 # Capture MTU test packets
@@ -278,6 +376,12 @@ sudo tcpdump -i any -v -n -X 'udp and port 5004'
 
 # With bypass_dtls=true, you should see readable JSON in packet data
 # With bypass_dtls=false, you should see encrypted binary data
+
+# Check packet sizes
+sudo tcpdump -i any -v -n 'udp and port 5004' | grep -E 'length [0-9]+'
+
+# With bypass_sctp_fragmentation=true, packets can be > 1200 bytes
+# With bypass_sctp_fragmentation=false, packets are typically <= 1200 bytes (fragmented by SCTP)
 ```
 
 ## Future Considerations
@@ -295,12 +399,23 @@ sudo tcpdump -i any -v -n -X 'udp and port 5004'
 
 ## Summary
 
-The DTLS bypass feature provides:
+The dual bypass feature (DTLS + SCTP fragmentation) provides:
 
-✅ **Precise MTU control** - Send exact packet sizes for accurate MTU discovery  
-✅ **Secure by default** - DTLS encryption is the default behavior  
-✅ **Explicit opt-in** - Must explicitly request bypass per packet  
-✅ **Backward compatible** - Old code continues to work with encryption  
-✅ **Well documented** - Clear warnings about when to use bypass  
+✅ **Complete packet size control** - Bypass both DTLS encryption and SCTP fragmentation  
+✅ **Large packet support** - Send packets larger than 1200 bytes (up to interface MTU)  
+✅ **Precise MTU discovery** - No overhead from DTLS or SCTP chunking  
+✅ **Secure by default** - Both bypasses default to `false`  
+✅ **Explicit opt-in** - Must explicitly enable each bypass per packet  
+✅ **Independent control** - Can bypass DTLS without bypassing SCTP, or vice versa  
+✅ **Backward compatible** - Old code continues to work with encryption and normal fragmentation  
+✅ **Well documented** - Clear warnings about when to use each bypass  
 
-This feature enables accurate MTU testing while maintaining security for all other traffic.
+This feature enables accurate MTU testing with full control over UDP packet sizes, while maintaining security for all other traffic.
+
+### Implementation Summary
+
+1. **DTLS bypass** - Skips DTLS encryption layer (implemented 2026-01-02)
+2. **SCTP fragmentation bypass** - Prevents SCTP from splitting large messages (added 2026-01-02)
+3. **Combined effect** - Original application data → single UDP packet with exact size
+
+Both bypasses work independently and can be enabled/disabled separately as needed.
