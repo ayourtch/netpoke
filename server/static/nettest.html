@@ -743,7 +743,7 @@
                         const mtuInfo = mtuData[ipVersion][connId][hopNum];
                         hopMtuValues.push({
                             connId: connId,
-                            mtu: mtuInfo.value || mtuInfo,  // Handle both old (number) and new (object) formats
+                            mtu: typeof mtuInfo === 'object' ? mtuInfo.value : mtuInfo,  // Handle both old (number) and new (object) formats
                             isExplicit: mtuInfo.isExplicit !== undefined ? mtuInfo.isExplicit : true  // Default to explicit for backward compat
                         });
                     }
