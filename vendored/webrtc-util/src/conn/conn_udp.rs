@@ -93,9 +93,15 @@ pub struct UdpSendOptions {
     /// Connection ID for ICMP correlation (passed through to packet tracker)
     /// Defaults to empty string for backward compatibility
     pub conn_id: String,
-    /// Bypass DTLS encryption and send cleartext directly to UDP
-    /// This is useful for MTU tests where DTLS framing would interfere with packet size control
-    /// WARNING: Only use for diagnostic packets, not sensitive data
+    /// SECURITY WARNING: Bypass DTLS encryption and send cleartext directly to UDP
+    /// 
+    /// When enabled, this bypasses all encryption and authentication. Data will be
+    /// transmitted in cleartext and visible to network observers. NO integrity
+    /// checking or confidentiality protection will be applied.
+    /// 
+    /// This is ONLY intended for diagnostic MTU discovery packets where DTLS framing
+    /// would interfere with precise packet size control. DO NOT use for any
+    /// sensitive data, user information, or authentication tokens.
     pub bypass_dtls: bool,
 }
 

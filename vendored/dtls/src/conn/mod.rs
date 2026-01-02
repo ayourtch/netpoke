@@ -173,7 +173,7 @@ impl Conn for DTLSConn {
     ) -> UtilResult<usize> {
         // Check if we should bypass DTLS encryption
         if options.bypass_dtls {
-            log::debug!("🔵 DTLSConn::send_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
+            log::warn!("🔵 DTLSConn::send_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
                 buf.len(), options.ttl, options.tos, options.df_bit);
             // Send cleartext directly to underlying connection
             return self.conn.send_with_options(buf, options).await;
@@ -186,6 +186,7 @@ impl Conn for DTLSConn {
     
     /// Forward send_to_with_options to the underlying connection
     /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// If bypass_dtls is set in options, sends cleartext directly without DTLS encryption
     #[cfg(target_os = "linux")]
     async fn send_to_with_options(
         &self,
@@ -193,6 +194,14 @@ impl Conn for DTLSConn {
         target: SocketAddr,
         options: &UdpSendOptions,
     ) -> UtilResult<usize> {
+        // Check if we should bypass DTLS encryption
+        if options.bypass_dtls {
+            log::warn!("🔵 DTLSConn::send_to_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}, target={}",
+                buf.len(), options.ttl, options.tos, options.df_bit, target);
+            // Send cleartext directly to underlying connection
+            return self.conn.send_to_with_options(buf, target, options).await;
+        }
+        
         log::info!("🔵 DTLSConn::send_to_with_options: Forwarding to underlying conn with TTL={:?}, TOS={:?}, DF={:?}, target={}",
             options.ttl, options.tos, options.df_bit, target);
         self.conn.send_to_with_options(buf, target, options).await
