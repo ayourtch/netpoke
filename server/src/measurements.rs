@@ -660,8 +660,11 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
 /// For ICMP Type 3 (Destination Unreachable), Code 4 (Fragmentation Needed),
 /// the MTU of the next hop is stored in bytes 6-7 of the ICMP header.
 /// 
+/// **Note:** This function currently only handles IPv4 ICMP packets.
+/// For ICMPv6, the packet structure is different and would require separate handling.
+/// 
 /// ICMP packet structure for Type 3, Code 4:
-/// - Bytes 0-19: Outer IP header
+/// - Bytes 0-19: Outer IPv4 header (20 bytes for IPv4, 40 for IPv6)
 /// - Byte 20: ICMP Type (3 = Destination Unreachable)
 /// - Byte 21: ICMP Code (4 = Fragmentation Needed)
 /// - Bytes 22-23: Checksum
@@ -669,7 +672,8 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
 /// - Bytes 26-27: Next-Hop MTU (big-endian u16)
 /// - Bytes 28+: Original IP packet that caused the error
 fn extract_mtu_from_icmp(icmp_packet: &[u8]) -> Option<u16> {
-    // Need at least 28 bytes: IP header (20) + ICMP header (8)
+    // Need at least 28 bytes: IPv4 header (20) + ICMP header (8)
+    // Note: This assumes IPv4. IPv6 would need 48 bytes minimum (40 + 8).
     if icmp_packet.len() < 28 {
         return None;
     }
@@ -689,9 +693,11 @@ fn extract_mtu_from_icmp(icmp_packet: &[u8]) -> Option<u16> {
     // Extract MTU from bytes 26-27 (big-endian)
     let mtu = u16::from_be_bytes([icmp_packet[26], icmp_packet[27]]);
     
-    // MTU must be > 0 to be valid
-    // Per IPv4 RFC 791, minimum MTU is 68 bytes
-    // Per IPv6 RFC 2460, minimum MTU is 1280 bytes
+    // Basic validation: MTU must be > 0
+    // Per RFC 791 (IPv4), minimum MTU is 68 bytes
+    // Per RFC 2460 (IPv6), minimum MTU is 1280 bytes
+    // We use a simple > 0 check here as the actual minimum depends on the protocol,
+    // and invalid MTU values (like 0) would be caught anyway.
     if mtu > 0 {
         tracing::debug!("Extracted MTU {} from ICMP Type 3 Code 4 message", mtu);
         Some(mtu)
