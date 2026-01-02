@@ -595,7 +595,8 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
             let current_len = json.len();
             let target_len = packet_size as usize;
             if current_len < target_len {
-                json.resize(target_len, 0);
+                // resize with something other than 0 to hopefully change checksum
+                json.resize(target_len, 0x23);
             }
             
             tracing::debug!("Sending MTU traceroute probe: TTL={}, seq={}, size={}", current_ttl, seq, json.len());
