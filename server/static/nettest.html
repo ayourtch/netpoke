@@ -646,6 +646,18 @@
                     }
                 });
                 
+                // Collect MTU values for this hop from ALL connections (not per-IP)
+                // MTU is a path property, not IP-specific, so we collect it at the hop level
+                const hopMtuValues = [];
+                connIds.forEach(connId => {
+                    if (mtuData[ipVersion][connId] && mtuData[ipVersion][connId][hopNum]) {
+                        hopMtuValues.push({
+                            connId: connId,
+                            mtu: mtuData[ipVersion][connId][hopNum]
+                        });
+                    }
+                });
+                
                 if (hopsAtThisLevel.length === 0) {
                     html += '<div style="color: #999; font-style: italic;">No response</div>';
                 } else {
@@ -676,16 +688,10 @@
                         });
                         const avgRtt = allRtts.length > 0 ? allRtts.reduce((a, b) => a + b, 0) / allRtts.length : 0;
                         
-                        // Collect MTU values for this hop from all connections
-                        const mtuValues = [];
-                        connsForIp.forEach(({ connId }) => {
-                            if (mtuData[ipVersion][connId] && mtuData[ipVersion][connId][hopNum]) {
-                                mtuValues.push({
-                                    connId: connId,
-                                    mtu: mtuData[ipVersion][connId][hopNum]
-                                });
-                            }
-                        });
+                        // Filter MTU values to only those from connections that saw this IP
+                        const mtuValues = hopMtuValues.filter(mtuEntry => 
+                            connsForIp.some(({ connId }) => connId === mtuEntry.connId)
+                        );
                         
                         // Calculate MTU range (min-max) for display in box
                         let mtuRangeText = '';
