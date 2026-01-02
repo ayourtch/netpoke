@@ -546,6 +546,17 @@
             const mtuValue = mtuHopData.mtu;
             const ipAddress = mtuHopData.ip_address;
             
+            // Debug logging for MTU message processing
+            console.log('[MTU Debug] Processing MTU hop message:', {
+                conn_id: connId,
+                hop: hopNum,
+                ip_address: ipAddress,
+                mtu: mtuValue,
+                packet_size: mtuHopData.packet_size,
+                rtt_ms: mtuHopData.rtt_ms,
+                full_data: mtuHopData
+            });
+            
             // Determine IP version - first try to get it from registered peer connections
             let ipVersion = getIpVersionForConnId(connId);
             

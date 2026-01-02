@@ -370,13 +370,15 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
                             &mtu_msg.conn_id
                         };
                         let mtu_str = mtu_msg.mtu.map(|m| format!(" MTU:{}", m)).unwrap_or_default();
+                        let ip_str = mtu_msg.ip_address.as_ref().map(|ip| format!(" from {}", ip)).unwrap_or_default();
                         append_server_message(&format!(
-                            "[{}][MTU Hop {}] size={} RTT:{:.2}ms{}",
+                            "[{}][MTU Hop {}] size={} RTT:{:.2}ms{}{}",
                             conn_prefix,
                             mtu_msg.hop,
                             mtu_msg.packet_size,
                             mtu_msg.rtt_ms,
-                            mtu_str
+                            mtu_str,
+                            ip_str
                         ));
                     }
                     
