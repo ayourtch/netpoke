@@ -441,6 +441,7 @@ pub async fn run_single_traceroute_round(session: Arc<ClientSession>) {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,  // Regular traceroute uses DTLS encryption
+            bypass_sctp_fragmentation: false,  // Use normal SCTP fragmentation
         };
 
         let testprobe = common::TestProbePacket {
@@ -463,6 +464,7 @@ pub async fn run_single_traceroute_round(session: Arc<ClientSession>) {
                     df_bit: Some(true),
                     conn_id: session.conn_id.clone(),
                     bypass_dtls: false,  // Regular traceroute uses DTLS encryption
+                    bypass_sctp_fragmentation: false,  // Use normal SCTP fragmentation
                 });
                 testprobe_channel.send_with_options(&json.into(), options).await
             };
@@ -579,6 +581,7 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: true,  // Bypass DTLS for MTU tests to control exact packet sizes
+            bypass_sctp_fragmentation: true,  // Bypass SCTP fragmentation for MTU tests
         };
 
         let testprobe = common::TestProbePacket {
@@ -610,6 +613,7 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
                     df_bit: Some(true),  // DF bit set for MTU discovery
                     conn_id: session.conn_id.clone(),
                     bypass_dtls: true,  // Bypass DTLS for MTU tests to control exact packet sizes
+                    bypass_sctp_fragmentation: true,  // Bypass SCTP fragmentation for MTU tests
                 });
                 testprobe_channel.send_with_options(&json.into(), options).await
             };

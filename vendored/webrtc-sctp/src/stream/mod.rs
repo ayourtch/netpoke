@@ -351,8 +351,25 @@ impl Stream {
 
         let head_abandoned = Arc::new(AtomicBool::new(false));
         let head_all_inflight = Arc::new(AtomicBool::new(false));
+        
+        // Check if we should bypass SCTP fragmentation for MTU testing
+        let bypass_fragmentation = udp_send_options
+            .as_ref()
+            .map(|opts| opts.bypass_sctp_fragmentation)
+            .unwrap_or(false);
+        
+        if bypass_fragmentation {
+            log::debug!("🔵 Stream::packetize: BYPASSING SCTP FRAGMENTATION - Sending {} bytes as single chunk", raw.len());
+        }
+        
         while remaining != 0 {
-            let fragment_size = std::cmp::min(self.max_payload_size as usize, remaining); //self.association.max_payload_size
+            // If bypass_sctp_fragmentation is enabled, send entire payload as one chunk
+            // Otherwise, respect max_payload_size
+            let fragment_size = if bypass_fragmentation {
+                remaining  // Send all remaining data in one chunk
+            } else {
+                std::cmp::min(self.max_payload_size as usize, remaining)
+            };
 
             // Copy the userdata since we'll have to store it until acked
             // and the caller may re-use the buffer in the mean time
@@ -374,8 +391,8 @@ impl Stream {
             };
             
             if let Some(ref opts) = udp_send_options {
-                log::debug!("🔵 Stream::packetize: Set UDP options on chunk: TTL={:?}, TOS={:?}, DF={:?}", 
-                    opts.ttl, opts.tos, opts.df_bit);
+                log::debug!("🔵 Stream::packetize: Set UDP options on chunk: TTL={:?}, TOS={:?}, DF={:?}, bypass_sctp_frag={}", 
+                    opts.ttl, opts.tos, opts.df_bit, opts.bypass_sctp_fragmentation);
             }
 
             chunks.push(chunk);

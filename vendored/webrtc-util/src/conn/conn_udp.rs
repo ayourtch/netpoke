@@ -103,6 +103,21 @@ pub struct UdpSendOptions {
     /// would interfere with precise packet size control. DO NOT use for any
     /// sensitive data, user information, or authentication tokens.
     pub bypass_dtls: bool,
+    
+    /// Bypass SCTP fragmentation and send data as a single chunk
+    /// 
+    /// When enabled, this bypasses SCTP's normal fragmentation behavior which splits
+    /// large messages into chunks based on max_payload_size (typically ~1200 bytes).
+    /// The entire message will be sent as a single SCTP chunk, allowing packet sizes
+    /// up to the interface MTU.
+    /// 
+    /// This is ONLY intended for MTU discovery tests where you need to send packets
+    /// larger than the SCTP fragmentation threshold. Use with bypass_dtls for full
+    /// control over UDP packet size.
+    /// 
+    /// WARNING: Sending very large packets may exceed the path MTU and get dropped
+    /// or fragmented by intermediate routers. Only use this for controlled testing.
+    pub bypass_sctp_fragmentation: bool,
 }
 
 #[cfg(target_os = "linux")]

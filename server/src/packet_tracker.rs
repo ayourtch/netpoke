@@ -475,6 +475,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -504,6 +505,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -554,6 +556,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -698,6 +701,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         // Track a packet
@@ -744,6 +748,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -799,6 +804,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -846,6 +852,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -928,6 +935,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -980,6 +988,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -1029,6 +1038,7 @@ mod tests {
             flow_label: None,
             track_for_ms: 5000,
             bypass_dtls: false,
+            bypass_sctp_fragmentation: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);

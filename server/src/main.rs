@@ -499,6 +499,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     flow_label: None,
                     track_for_ms: 5000, // Track for 5 seconds
                     bypass_dtls: false,  // For testing, use DTLS encryption
+                    bypass_sctp_fragmentation: false,  // Use normal SCTP fragmentation
                 },
                 sent_at,
                 conn_id,
