@@ -545,6 +545,7 @@
             const hopNum = mtuHopData.hop;
             const mtuValue = mtuHopData.mtu;
             const ipAddress = mtuHopData.ip_address;
+            const packetSize = mtuHopData.packet_size;
             
             // Debug logging for MTU message processing
             console.log('[MTU Debug] Processing MTU hop message:', {
@@ -552,7 +553,7 @@
                 hop: hopNum,
                 ip_address: ipAddress,
                 mtu: mtuValue,
-                packet_size: mtuHopData.packet_size,
+                packet_size: packetSize,
                 rtt_ms: mtuHopData.rtt_ms,
                 full_data: mtuHopData
             });
@@ -571,38 +572,84 @@
             console.log('[MTU Debug] Determined IP version:', ipVersion, 'for conn_id:', connId);
             
             // MTU Message Processing Logic:
-            // When we receive an MTU message about hop N (e.g., from ICMP "Fragmentation Needed"),
-            // the MTU value indicates the maximum packet size for the path segment TO that hop.
-            // According to the specification, we store this MTU for hop N-1, because:
-            //   - Hop N-1 is the last hop we can visualize/control
-            //   - The MTU constraint applies to the link between N-1 and N
-            //   - This allows us to display the MTU limitation at the appropriate point in the path
             // 
-            // For example: If hop 3 reports MTU 1400, we store it for hop 2, indicating that
-            // the link from hop 2 to hop 3 has a 1400-byte MTU limit.
+            // Case 1: Explicit MTU from ICMP Type 3 Code 4 "Fragmentation Needed"
+            //   - When we receive a message with an explicit MTU value, it indicates the maximum
+            //     packet size that can traverse to hop N
+            //   - We store this for hop N-1 (the link between N-1 and N has this limit)
             //
-            // MTU must be > 0 to be valid (per IPv4 RFC 791, minimum is 68; IPv6 RFC 2460, minimum is 1280)
-            // Note: Using != null (loose equality) to check for both null and undefined in one condition
+            // Case 2: Implicit MTU from successful packet delivery (TTL Expired)
+            //   - When we receive a TTL Expired (ICMP Type 11) without explicit MTU but with packet_size,
+            //     it means the packet successfully reached hop N
+            //   - This tells us the path to hop N can handle at least packet_size bytes
+            //   - We track this as a "minimum working MTU" for that hop
+            //   - This is more reliable than waiting for Fragmentation Needed messages, which may be blocked
+            //
+            // For example: If hop 3 reports MTU 1400, we store it for hop 2.
+            // If hop 3 successfully receives a 1500-byte packet, we know hop 2 can handle >= 1500 bytes.
+            
+            let shouldStore = false;
+            let valueToStore = null;
+            let targetHop = null;
+            let storageReason = '';
+            
             if (mtuValue != null && mtuValue > 0 && hopNum > 0) {
-                const targetHop = hopNum - 1;
-                
-                console.log('[MTU Debug] MTU value is valid, storing at target hop:', targetHop);
+                // Case 1: Explicit MTU from Fragmentation Needed
+                shouldStore = true;
+                valueToStore = mtuValue;
+                targetHop = hopNum - 1;
+                storageReason = 'explicit MTU from ICMP Fragmentation Needed';
+                console.log('[MTU Debug] Explicit MTU value', mtuValue, 'from hop', hopNum);
+            } else if (packetSize != null && packetSize > 0 && hopNum > 0) {
+                // Case 2: Implicit MTU from successful delivery (TTL Expired)
+                // The packet successfully reached hop N, so path to hop N-1 can handle packet_size
+                shouldStore = true;
+                valueToStore = packetSize;
+                targetHop = hopNum - 1;
+                storageReason = 'inferred from successful packet delivery (TTL expired)';
+                console.log('[MTU Debug] Packet of size', packetSize, 'successfully reached hop', hopNum, '- inferring minimum MTU');
+            }
+            
+            if (shouldStore && targetHop !== null && valueToStore > 0) {
+                console.log('[MTU Debug] Storing MTU value', valueToStore, 'for hop', targetHop, '(', storageReason, ')');
                 
                 // Initialize connection MTU tracking if needed
                 if (!mtuData[ipVersion][connId]) {
                     mtuData[ipVersion][connId] = {};
                 }
                 
-                // Get or initialize MTU for this specific hop (N-1)
-                // Store the minimum MTU seen for this hop on this connection
+                // Get or initialize MTU for this specific hop
+                // For explicit MTU (Fragmentation Needed): store the minimum (most restrictive)
+                // For implicit MTU (successful delivery): store the maximum (largest proven working)
                 if (mtuData[ipVersion][connId][targetHop] === undefined) {
-                    mtuData[ipVersion][connId][targetHop] = mtuValue;
-                    console.log('[MTU Debug] Stored new MTU', mtuValue, 'for hop', targetHop, 'on', ipVersion, 'connection', connId);
+                    mtuData[ipVersion][connId][targetHop] = valueToStore;
+                    console.log('[MTU Debug] Stored new MTU', valueToStore, 'for hop', targetHop, 'on', ipVersion, 'connection', connId);
                 } else {
-                    // Set to the smaller value (minimum MTU) as path MTU is limited by the smallest link
                     const oldMtu = mtuData[ipVersion][connId][targetHop];
-                    mtuData[ipVersion][connId][targetHop] = Math.min(oldMtu, mtuValue);
-                    console.log('[MTU Debug] Updated MTU from', oldMtu, 'to', mtuData[ipVersion][connId][targetHop], 'for hop', targetHop);
+                    
+                    // Update strategy depends on the type of information:
+                    // - Explicit MTU: use minimum (most restrictive) 
+                    // - Implicit MTU: use maximum (largest proven to work)
+                    // Since we don't track the source type, we use a hybrid approach:
+                    // If the existing value is close to a standard MTU (1500, 1492, 1280, etc.),
+                    // assume it's explicit and keep the minimum.
+                    // Otherwise, prefer larger values as they represent successful delivery.
+                    const standardMtus = [1500, 1492, 1480, 1460, 1400, 1280, 576, 68];
+                    const oldIsStandard = standardMtus.some(std => Math.abs(oldMtu - std) < 10);
+                    const newIsStandard = standardMtus.some(std => Math.abs(valueToStore - std) < 10);
+                    
+                    if (mtuValue != null && mtuValue > 0) {
+                        // Explicit MTU - always use minimum
+                        mtuData[ipVersion][connId][targetHop] = Math.min(oldMtu, valueToStore);
+                        console.log('[MTU Debug] Explicit MTU - updated from', oldMtu, 'to', mtuData[ipVersion][connId][targetHop], 'for hop', targetHop);
+                    } else if (oldIsStandard && !newIsStandard) {
+                        // Keep the standard (explicit) MTU
+                        console.log('[MTU Debug] Keeping standard MTU', oldMtu, 'over inferred', valueToStore, 'for hop', targetHop);
+                    } else {
+                        // Use maximum (largest successful delivery)
+                        mtuData[ipVersion][connId][targetHop] = Math.max(oldMtu, valueToStore);
+                        console.log('[MTU Debug] Implicit MTU - updated from', oldMtu, 'to', mtuData[ipVersion][connId][targetHop], 'for hop', targetHop);
+                    }
                 }
                 
                 console.log('[MTU Debug] Current mtuData state:', JSON.stringify(mtuData, null, 2));
@@ -611,7 +658,7 @@
                 renderTracerouteGraph();
                 console.log('[MTU Debug] Triggered re-render of traceroute graph');
             } else {
-                console.log('[MTU Debug] MTU value is invalid or missing - mtuValue:', mtuValue, 'hopNum:', hopNum, '- not storing');
+                console.log('[MTU Debug] Not storing MTU - mtuValue:', mtuValue, 'packetSize:', packetSize, 'hopNum:', hopNum);
             }
         }
         
