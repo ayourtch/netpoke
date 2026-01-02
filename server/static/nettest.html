@@ -491,10 +491,15 @@
                 addConnectionUdpPair(connId, hopData.original_src_port, hopData.original_dest_addr);
             }
             
-            // Determine IP version from the address
-            let ipVersion = 'ipv4';
-            if (ipAddress && ipAddress.includes(':')) {
-                ipVersion = 'ipv6';
+            // Determine IP version - first try to get it from registered peer connections
+            let ipVersion = getIpVersionForConnId(connId);
+            
+            // Fallback: Determine IP version from the router IP address
+            if (!ipVersion) {
+                ipVersion = 'ipv4';
+                if (ipAddress && ipAddress.includes(':')) {
+                    ipVersion = 'ipv6';
+                }
             }
             
             // Initialize connection if needed
@@ -541,10 +546,15 @@
             const mtuValue = mtuHopData.mtu;
             const ipAddress = mtuHopData.ip_address;
             
-            // Determine IP version from the address
-            let ipVersion = 'ipv4';
-            if (ipAddress && ipAddress.includes(':')) {
-                ipVersion = 'ipv6';
+            // Determine IP version - first try to get it from registered peer connections
+            let ipVersion = getIpVersionForConnId(connId);
+            
+            // Fallback: Determine IP version from the router IP address
+            if (!ipVersion) {
+                ipVersion = 'ipv4';
+                if (ipAddress && ipAddress.includes(':')) {
+                    ipVersion = 'ipv6';
+                }
             }
             
             // MTU Message Processing Logic:
@@ -776,6 +786,27 @@
         
         // Track unique UDP address pairs per connection (conn_id -> Set of "src_port -> dest_addr" strings)
         let connectionUdpPairs = {};
+        
+        // Helper function to determine IP version from conn_id
+        // Returns 'ipv4' or 'ipv6' based on which bucket the connection is registered in
+        function getIpVersionForConnId(connId) {
+            // Check IPv4 connections
+            for (const connInfo of Object.values(peerConnectionsData.ipv4)) {
+                if (connInfo.conn_id === connId) {
+                    return 'ipv4';
+                }
+            }
+            
+            // Check IPv6 connections
+            for (const connInfo of Object.values(peerConnectionsData.ipv6)) {
+                if (connInfo.conn_id === connId) {
+                    return 'ipv6';
+                }
+            }
+            
+            // Fallback: try to determine from IP address if available
+            return null;
+        }
         
         // Helper function to escape HTML to prevent XSS
         function escapeHtml(text) {
