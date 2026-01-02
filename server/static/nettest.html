@@ -467,8 +467,9 @@
         };
         
         // MTU tracking data structure
-        // Map of IP version -> connection_id -> hop_number -> min_mtu
-        // Stores the minimum MTU discovered for each hop on each connection
+        // Map of IP version -> connection_id -> hop_number -> { value, isExplicit }
+        // Stores MTU information for each hop on each connection
+        // isExplicit: true = from ICMP Fragmentation Needed, false = inferred from successful delivery
         let mtuData = {
             ipv4: {},
             ipv6: {}
@@ -591,6 +592,7 @@
             let shouldStore = false;
             let valueToStore = null;
             let targetHop = null;
+            let isExplicit = false;
             let storageReason = '';
             
             if (mtuValue != null && mtuValue > 0 && hopNum > 0) {
@@ -598,6 +600,7 @@
                 shouldStore = true;
                 valueToStore = mtuValue;
                 targetHop = hopNum - 1;
+                isExplicit = true;
                 storageReason = 'explicit MTU from ICMP Fragmentation Needed';
                 console.log('[MTU Debug] Explicit MTU value', mtuValue, 'from hop', hopNum);
             } else if (packetSize != null && packetSize > 0 && hopNum > 0) {
@@ -606,6 +609,7 @@
                 shouldStore = true;
                 valueToStore = packetSize;
                 targetHop = hopNum - 1;
+                isExplicit = false;
                 storageReason = 'inferred from successful packet delivery (TTL expired)';
                 console.log('[MTU Debug] Packet of size', packetSize, 'successfully reached hop', hopNum, '- inferring minimum MTU');
             }
@@ -619,37 +623,50 @@
                 }
                 
                 // Get or initialize MTU for this specific hop
-                // For explicit MTU (Fragmentation Needed): store the minimum (most restrictive)
-                // For implicit MTU (successful delivery): store the maximum (largest proven working)
-                if (mtuData[ipVersion][connId][targetHop] === undefined) {
-                    mtuData[ipVersion][connId][targetHop] = valueToStore;
-                    console.log('[MTU Debug] Stored new MTU', valueToStore, 'for hop', targetHop, 'on', ipVersion, 'connection', connId);
+                const currentData = mtuData[ipVersion][connId][targetHop];
+                
+                if (currentData === undefined) {
+                    // No previous data - store new value
+                    mtuData[ipVersion][connId][targetHop] = {
+                        value: valueToStore,
+                        isExplicit: isExplicit
+                    };
+                    console.log('[MTU Debug] Stored new MTU', valueToStore, '(explicit:', isExplicit, ') for hop', targetHop, 'on', ipVersion, 'connection', connId);
                 } else {
-                    const oldMtu = mtuData[ipVersion][connId][targetHop];
+                    // Update existing value based on source type
+                    const oldValue = currentData.value;
+                    const oldIsExplicit = currentData.isExplicit;
                     
-                    // Update strategy depends on the type of information:
-                    // - Explicit MTU: use minimum (most restrictive) 
-                    // - Implicit MTU: use maximum (largest proven to work)
-                    // Since we don't track the source type, we use a hybrid approach:
-                    // If the existing value is close to a standard MTU (1500, 1492, 1280, etc.),
-                    // assume it's explicit and keep the minimum.
-                    // Otherwise, prefer larger values as they represent successful delivery.
-                    const standardMtus = [1500, 1492, 1480, 1460, 1400, 1280, 576, 68];
-                    const oldIsStandard = standardMtus.some(std => Math.abs(oldMtu - std) < 10);
-                    const newIsStandard = standardMtus.some(std => Math.abs(valueToStore - std) < 10);
+                    let newValue = oldValue;
+                    let newIsExplicit = oldIsExplicit;
                     
-                    if (mtuValue != null && mtuValue > 0) {
-                        // Explicit MTU - always use minimum
-                        mtuData[ipVersion][connId][targetHop] = Math.min(oldMtu, valueToStore);
-                        console.log('[MTU Debug] Explicit MTU - updated from', oldMtu, 'to', mtuData[ipVersion][connId][targetHop], 'for hop', targetHop);
-                    } else if (oldIsStandard && !newIsStandard) {
-                        // Keep the standard (explicit) MTU
-                        console.log('[MTU Debug] Keeping standard MTU', oldMtu, 'over inferred', valueToStore, 'for hop', targetHop);
+                    if (isExplicit && oldIsExplicit) {
+                        // Both explicit: use minimum (most restrictive)
+                        newValue = Math.min(oldValue, valueToStore);
+                        newIsExplicit = true;
+                        console.log('[MTU Debug] Both explicit - using minimum:', newValue);
+                    } else if (isExplicit && !oldIsExplicit) {
+                        // New is explicit, old is implicit: prefer explicit
+                        newValue = valueToStore;
+                        newIsExplicit = true;
+                        console.log('[MTU Debug] Replacing implicit', oldValue, 'with explicit', newValue);
+                    } else if (!isExplicit && oldIsExplicit) {
+                        // Old is explicit, new is implicit: keep explicit
+                        newValue = oldValue;
+                        newIsExplicit = true;
+                        console.log('[MTU Debug] Keeping explicit', oldValue, 'over implicit', valueToStore);
                     } else {
-                        // Use maximum (largest successful delivery)
-                        mtuData[ipVersion][connId][targetHop] = Math.max(oldMtu, valueToStore);
-                        console.log('[MTU Debug] Implicit MTU - updated from', oldMtu, 'to', mtuData[ipVersion][connId][targetHop], 'for hop', targetHop);
+                        // Both implicit: use maximum (largest proven working)
+                        newValue = Math.max(oldValue, valueToStore);
+                        newIsExplicit = false;
+                        console.log('[MTU Debug] Both implicit - using maximum:', newValue);
                     }
+                    
+                    mtuData[ipVersion][connId][targetHop] = {
+                        value: newValue,
+                        isExplicit: newIsExplicit
+                    };
+                    console.log('[MTU Debug] Updated MTU from', oldValue, '(explicit:', oldIsExplicit, ') to', newValue, '(explicit:', newIsExplicit, ') for hop', targetHop);
                 }
                 
                 console.log('[MTU Debug] Current mtuData state:', JSON.stringify(mtuData, null, 2));
@@ -723,9 +740,11 @@
                 const hopMtuValues = [];
                 connIds.forEach(connId => {
                     if (mtuData[ipVersion][connId] && mtuData[ipVersion][connId][hopNum]) {
+                        const mtuInfo = mtuData[ipVersion][connId][hopNum];
                         hopMtuValues.push({
                             connId: connId,
-                            mtu: mtuData[ipVersion][connId][hopNum]
+                            mtu: mtuInfo.value || mtuInfo,  // Handle both old (number) and new (object) formats
+                            isExplicit: mtuInfo.isExplicit !== undefined ? mtuInfo.isExplicit : true  // Default to explicit for backward compat
                         });
                     }
                 });
