@@ -4,13 +4,15 @@
 **Status**: ✅ Complete and Working  
 **Platform**: Linux (full support), other platforms (graceful fallback)  
 **Implementation**: Per-packet options passing through WebRTC stack  
-**Date**: 2025-12-26
+**Date**: 2025-12-26  
+**Update**: 2026-01-02 - Added DTLS bypass option for MTU tests
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [What Problem This Solves](#what-problem-this-solves)
 - [Solution Architecture](#solution-architecture)
+- [DTLS Bypass Feature](#dtls-bypass-feature)
 - [Implementation Details](#implementation-details)
 - [Usage Guide](#usage-guide)
 - [Testing and Verification](#testing-and-verification)
@@ -127,6 +129,43 @@ Linux Kernel (Linux only)
   ↓
 UDP Packet (with options applied) ✅
 ```
+
+### DTLS Bypass Feature
+
+**Added**: 2026-01-02  
+**Purpose**: Enable direct control of UDP packet sizes for MTU tests
+
+For MTU (Maximum Transmission Unit) discovery tests, DTLS encryption adds overhead that interferes with precise packet size control. A bypass mechanism was added:
+
+```
+Application Level (with bypass_dtls: true)
+  ├─ Call RTCDataChannel::send_with_options(data, options)
+  │
+  ↓
+WebRTC Layer → ... → SCTP Association Layer
+  │
+  ↓
+DTLS Layer (vendored/dtls)
+  ├─ DTLSConn::send_with_options()
+  ├─ Check options.bypass_dtls
+  │  ├─ If true:  self.conn.send_with_options() [BYPASSES ENCRYPTION] ✅
+  │  └─ If false: write_with_options() [NORMAL ENCRYPTION]
+  │
+  ↓
+Mux/ICE/UDP Layers
+  ├─ Endpoint::send_with_options()
+  ├─ AgentConn::send_with_options()
+  ├─ UdpSocket::send_with_options()
+  │
+  ↓
+UDP Packet (cleartext when bypassed, encrypted otherwise) ✅
+```
+
+**Key points**:
+- Bypass is **opt-in per packet** via `bypass_dtls` flag in `SendOptions`
+- Default behavior (`bypass_dtls: false`) maintains DTLS encryption
+- Only MTU tests use bypass for precise packet size control
+- See [DTLS_BYPASS_FEATURE.md](DTLS_BYPASS_FEATURE.md) for complete details
 
 ### Components
 
