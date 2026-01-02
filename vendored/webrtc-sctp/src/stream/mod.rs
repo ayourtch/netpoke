@@ -358,15 +358,11 @@ impl Stream {
             .map(|opts| opts.bypass_sctp_fragmentation)
             .unwrap_or(false);
         
-        if bypass_fragmentation {
-            log::debug!("🔵 Stream::packetize: BYPASSING SCTP FRAGMENTATION - Sending {} bytes as single chunk", raw.len());
-        }
-        
         while remaining != 0 {
             // If bypass_sctp_fragmentation is enabled, send entire payload as one chunk
             // Otherwise, respect max_payload_size
             let fragment_size = if bypass_fragmentation {
-                remaining  // Send all remaining data in one chunk
+                remaining  // Send all remaining data in one chunk (bypasses normal fragmentation)
             } else {
                 std::cmp::min(self.max_payload_size as usize, remaining)
             };
@@ -391,8 +387,8 @@ impl Stream {
             };
             
             if let Some(ref opts) = udp_send_options {
-                log::debug!("🔵 Stream::packetize: Set UDP options on chunk: TTL={:?}, TOS={:?}, DF={:?}, bypass_sctp_frag={}", 
-                    opts.ttl, opts.tos, opts.df_bit, opts.bypass_sctp_fragmentation);
+                log::debug!("🔵 Stream::packetize: Created chunk {} bytes (bypass_sctp_frag={}, TTL={:?}, TOS={:?}, DF={:?})", 
+                    fragment_size, opts.bypass_sctp_fragmentation, opts.ttl, opts.tos, opts.df_bit);
             }
 
             chunks.push(chunk);
