@@ -512,7 +512,7 @@ pub async fn run_single_traceroute_round(session: Arc<ClientSession>) {
 /// Run MTU traceroute round with specified packet size
 pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: u32) {
     const MAX_TTL: u8 = 16;
-    const TTL_SEND_INTERVAL_MS: u64 = 250;
+    const TTL_SEND_INTERVAL_MS: u64 = 500;  // Increased from 250ms to be gentler
     
     tracing::info!("Running MTU traceroute round for session {} with packet_size={}", session.id, packet_size);
     

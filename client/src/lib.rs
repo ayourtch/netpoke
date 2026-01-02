@@ -32,6 +32,8 @@ const DEFAULT_WEBRTC_CONNECTION_DELAY_MS: u32 = 50;
 const DEFAULT_TRACEROUTE_STAGGER_DELAY_MS: u32 = 100;
 // Minimum wait time between traceroute rounds for the same connection (3000ms)
 const TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 3000;
+// Minimum wait time between MTU traceroute rounds (10 seconds for gentler testing)
+const MTU_TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 10000;
 // Number of traceroute rounds
 const TRACEROUTE_ROUNDS: u32 = 5;
 // Number of MTU traceroute rounds
@@ -733,7 +735,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             sleep_ms(DEFAULT_TRACEROUTE_STAGGER_DELAY_MS).await;
         }
         
-        sleep_ms(TRACEROUTE_ROUND_MIN_WAIT_MS).await;
+        sleep_ms(MTU_TRACEROUTE_ROUND_MIN_WAIT_MS).await;
     }
     
     log::info!("PHASE 2 complete: MTU traceroute finished");
