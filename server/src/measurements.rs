@@ -627,9 +627,8 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
                 let rtt = event.icmp_received_at.duration_since(event.sent_at);
                 let rtt_ms = rtt.as_secs_f64() * 1000.0;
                 
-                // TODO: Extract MTU from ICMP "Fragmentation Needed" message if present
-                // For now, we set it to None
-                let mtu: Option<u16> = None;
+                // Extract MTU from ICMP "Fragmentation Needed" message if present
+                let mtu = extract_mtu_from_icmp(&event.icmp_packet);
                 
                 let mtu_message = common::ControlMessage::MtuHop(
                     common::MtuHopMessage {
@@ -654,6 +653,52 @@ pub async fn run_mtu_traceroute_round(session: Arc<ClientSession>, packet_size: 
     }
     
     tracing::info!("Completed MTU traceroute round for session {} with packet_size={}", session.id, packet_size);
+}
+
+/// Extract MTU value from an ICMP packet
+/// 
+/// For ICMP Type 3 (Destination Unreachable), Code 4 (Fragmentation Needed),
+/// the MTU of the next hop is stored in bytes 6-7 of the ICMP header.
+/// 
+/// ICMP packet structure for Type 3, Code 4:
+/// - Bytes 0-19: Outer IP header
+/// - Byte 20: ICMP Type (3 = Destination Unreachable)
+/// - Byte 21: ICMP Code (4 = Fragmentation Needed)
+/// - Bytes 22-23: Checksum
+/// - Bytes 24-25: Unused (should be 0)
+/// - Bytes 26-27: Next-Hop MTU (big-endian u16)
+/// - Bytes 28+: Original IP packet that caused the error
+fn extract_mtu_from_icmp(icmp_packet: &[u8]) -> Option<u16> {
+    // Need at least 28 bytes: IP header (20) + ICMP header (8)
+    if icmp_packet.len() < 28 {
+        return None;
+    }
+    
+    // Check ICMP Type (offset 20) - must be 3 (Destination Unreachable)
+    let icmp_type = icmp_packet[20];
+    if icmp_type != 3 {
+        return None;
+    }
+    
+    // Check ICMP Code (offset 21) - must be 4 (Fragmentation Needed)
+    let icmp_code = icmp_packet[21];
+    if icmp_code != 4 {
+        return None;
+    }
+    
+    // Extract MTU from bytes 26-27 (big-endian)
+    let mtu = u16::from_be_bytes([icmp_packet[26], icmp_packet[27]]);
+    
+    // MTU must be > 0 to be valid
+    // Per IPv4 RFC 791, minimum MTU is 68 bytes
+    // Per IPv6 RFC 2460, minimum MTU is 1280 bytes
+    if mtu > 0 {
+        tracing::debug!("Extracted MTU {} from ICMP Type 3 Code 4 message", mtu);
+        Some(mtu)
+    } else {
+        tracing::debug!("Invalid MTU value {} in ICMP message", mtu);
+        None
+    }
 }
 
 fn current_time_ms() -> u64 {

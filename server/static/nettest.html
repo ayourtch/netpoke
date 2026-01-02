@@ -568,6 +568,8 @@
                 }
             }
             
+            console.log('[MTU Debug] Determined IP version:', ipVersion, 'for conn_id:', connId);
+            
             // MTU Message Processing Logic:
             // When we receive an MTU message about hop N (e.g., from ICMP "Fragmentation Needed"),
             // the MTU value indicates the maximum packet size for the path segment TO that hop.
@@ -584,6 +586,8 @@
             if (mtuValue != null && mtuValue > 0 && hopNum > 0) {
                 const targetHop = hopNum - 1;
                 
+                console.log('[MTU Debug] MTU value is valid, storing at target hop:', targetHop);
+                
                 // Initialize connection MTU tracking if needed
                 if (!mtuData[ipVersion][connId]) {
                     mtuData[ipVersion][connId] = {};
@@ -593,13 +597,21 @@
                 // Store the minimum MTU seen for this hop on this connection
                 if (mtuData[ipVersion][connId][targetHop] === undefined) {
                     mtuData[ipVersion][connId][targetHop] = mtuValue;
+                    console.log('[MTU Debug] Stored new MTU', mtuValue, 'for hop', targetHop, 'on', ipVersion, 'connection', connId);
                 } else {
                     // Set to the smaller value (minimum MTU) as path MTU is limited by the smallest link
-                    mtuData[ipVersion][connId][targetHop] = Math.min(mtuData[ipVersion][connId][targetHop], mtuValue);
+                    const oldMtu = mtuData[ipVersion][connId][targetHop];
+                    mtuData[ipVersion][connId][targetHop] = Math.min(oldMtu, mtuValue);
+                    console.log('[MTU Debug] Updated MTU from', oldMtu, 'to', mtuData[ipVersion][connId][targetHop], 'for hop', targetHop);
                 }
+                
+                console.log('[MTU Debug] Current mtuData state:', JSON.stringify(mtuData, null, 2));
                 
                 // Re-render the visualization to show updated MTU data
                 renderTracerouteGraph();
+                console.log('[MTU Debug] Triggered re-render of traceroute graph');
+            } else {
+                console.log('[MTU Debug] MTU value is invalid or missing - mtuValue:', mtuValue, 'hopNum:', hopNum, '- not storing');
             }
         }
         
@@ -621,6 +633,8 @@
         function renderTracerouteGraphForVersion(ipVersion) {
             const graphContainer = document.getElementById(`traceroute-graph-${ipVersion}`);
             if (!graphContainer) return;
+            
+            console.log('[MTU Debug] Rendering traceroute for', ipVersion, '- mtuData:', mtuData[ipVersion]);
             
             const connections = tracerouteData[ipVersion];
             const connIds = Object.keys(connections);
@@ -668,6 +682,10 @@
                         });
                     }
                 });
+                
+                if (hopMtuValues.length > 0) {
+                    console.log('[MTU Debug] Found MTU values for hop', hopNum, 'in', ipVersion, ':', hopMtuValues);
+                }
                 
                 if (hopsAtThisLevel.length === 0) {
                     html += '<div style="color: #999; font-style: italic;">No response</div>';
