@@ -474,6 +474,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -502,6 +503,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -551,6 +553,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -694,6 +697,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         // Track a packet
@@ -739,6 +743,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -793,6 +798,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -839,6 +845,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest1 = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -920,6 +927,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -971,6 +979,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);
@@ -1019,6 +1028,7 @@ mod tests {
             tos: None,
             flow_label: None,
             track_for_ms: 5000,
+            bypass_dtls: false,
         };
         
         let dest = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 8080);

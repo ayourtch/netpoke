@@ -498,6 +498,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tos: None,
                     flow_label: None,
                     track_for_ms: 5000, // Track for 5 seconds
+                    bypass_dtls: false,  // For testing, use DTLS encryption
                 },
                 sent_at,
                 conn_id,

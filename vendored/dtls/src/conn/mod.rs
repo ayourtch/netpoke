@@ -164,12 +164,21 @@ impl Conn for DTLSConn {
     /// Send data with UDP options through the DTLS encryption layer
     /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
     /// This ensures the data is encrypted before being sent with custom UDP options
+    /// If bypass_dtls is set in options, sends cleartext directly without DTLS encryption
     #[cfg(target_os = "linux")]
     async fn send_with_options(
         &self,
         buf: &[u8],
         options: &UdpSendOptions,
     ) -> UtilResult<usize> {
+        // Check if we should bypass DTLS encryption
+        if options.bypass_dtls {
+            log::debug!("🔵 DTLSConn::send_with_options: BYPASSING DTLS - Sending cleartext {} bytes with TTL={:?}, TOS={:?}, DF={:?}",
+                buf.len(), options.ttl, options.tos, options.df_bit);
+            // Send cleartext directly to underlying connection
+            return self.conn.send_with_options(buf, options).await;
+        }
+        
         log::debug!("🔵 DTLSConn::send_with_options: Sending encrypted data with TTL={:?}, TOS={:?}, DF={:?}",
             options.ttl, options.tos, options.df_bit);
         self.write_with_options(buf, options, None).await.map_err(util::Error::from_std)

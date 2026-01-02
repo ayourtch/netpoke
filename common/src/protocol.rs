@@ -53,6 +53,12 @@ pub struct SendOptions {
     
     /// Track this packet for ICMP correlation (milliseconds, 0 = no tracking)
     pub track_for_ms: u32,
+    
+    /// Bypass DTLS encryption and send cleartext directly to UDP
+    /// This is useful for MTU tests where DTLS framing would interfere with packet size control
+    /// WARNING: Only use for diagnostic packets, not sensitive data
+    #[serde(default)]
+    pub bypass_dtls: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -476,6 +482,7 @@ mod tests {
                 tos: None,
                 flow_label: None,
                 track_for_ms: 5000,
+                bypass_dtls: false,
             }),
             conn_id: String::new(),
         };

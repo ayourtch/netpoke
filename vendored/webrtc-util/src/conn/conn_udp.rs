@@ -93,6 +93,10 @@ pub struct UdpSendOptions {
     /// Connection ID for ICMP correlation (passed through to packet tracker)
     /// Defaults to empty string for backward compatibility
     pub conn_id: String,
+    /// Bypass DTLS encryption and send cleartext directly to UDP
+    /// This is useful for MTU tests where DTLS framing would interfere with packet size control
+    /// WARNING: Only use for diagnostic packets, not sensitive data
+    pub bypass_dtls: bool,
 }
 
 #[cfg(target_os = "linux")]
