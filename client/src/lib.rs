@@ -176,6 +176,66 @@ pub fn main() {
     wasm_logger::init(wasm_logger::Config::default());
 
     log::info!("WASM client initialized");
+    
+    // Set up visibility change handler to stop testing when page loses focus
+    setup_visibility_change_handler();
+}
+
+/// Set up a visibility change handler to stop testing when the browser window loses focus
+fn setup_visibility_change_handler() {
+    use wasm_bindgen::closure::Closure;
+    
+    let win = match web_sys::window() {
+        Some(w) => w,
+        None => return,
+    };
+    
+    let doc = match win.document() {
+        Some(d) => d,
+        None => return,
+    };
+    
+    let handler = Closure::wrap(Box::new(move || {
+        // Check if page is hidden
+        let win_inner = match web_sys::window() {
+            Some(w) => w,
+            None => return,
+        };
+        
+        let doc_inner = match win_inner.document() {
+            Some(d) => d,
+            None => return,
+        };
+        
+        // Get document.hidden property
+        let hidden = js_sys::Reflect::get(&doc_inner, &JsValue::from_str("hidden"))
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        
+        if hidden {
+            log::info!("Browser window lost focus - stopping testing");
+            
+            // Set abort flag to stop ongoing phases
+            set_abort_testing(true);
+            
+            // Stop all active testing
+            if is_testing_active() {
+                stop_testing();
+            }
+        }
+    }) as Box<dyn FnMut()>);
+    
+    // Add visibilitychange event listener
+    let _ = doc.add_event_listener_with_callback(
+        "visibilitychange",
+        handler.as_ref().unchecked_ref()
+    );
+    
+    // Prevent the closure from being garbage collected
+    handler.forget();
+    
+    log::info!("Visibility change handler set up");
 }
 
 /// Request a wake lock to prevent the device from sleeping
@@ -831,9 +891,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     // Add a brief pause between phases to allow server processing to complete
     // sleep_ms(1000).await;
 
-    // PHASE 3: Get measuring time and start measurements
-    log::info!("PHASE 3: Getting measuring time and starting measurements...");
-    set_doc_status("PHASE 3: Getting measuring time and starting measurements...");
+    // PHASE 3: Get measuring time and start probe streams for baseline measurement
+    log::info!("PHASE 3: Starting probe streams for baseline measurement...");
+    set_doc_status("PHASE 3: Starting probe streams for baseline measurement...");
     
     // Send GetMeasuringTime to first connection
     if let Some(first_conn) = ipv4_connections.first() {
@@ -848,17 +908,13 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         log::info!("Received measuring time: {:?}ms", measuring_time);
     }
         
-    log::info!("AYXX: temporary - Testing aborted before measurement phase");
-    set_doc_status("Done: temporarily not doing measurements, as they need refactoring");
-    return Ok(());
-    
     if should_abort_testing() {
         log::info!("Testing aborted before measurement phase");
         return Ok(());
     }
     
     // Clear metrics before starting measurements
-    log::info!("Clearing metrics before measurement phase...");
+    log::info!("Clearing metrics before probe stream phase...");
     for conn in &ipv4_connections {
         conn.state.borrow_mut().clear_metrics();
     }
@@ -873,18 +929,98 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     });
     log::info!("Chart data collection will begin in {} seconds", CHART_COLLECTION_DELAY_MS / 1000);
 
-    // Send StartServerTraffic to all connections
+    // Send StartProbeStreams to all connections
     for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
         if should_abort_testing() {
             return Ok(());
         }
         
-        if let Err(e) = conn.send_start_server_traffic(&survey_session_id).await {
-            log::warn!("Failed to send StartServerTraffic: {:?}", e);
+        if let Err(e) = conn.send_start_probe_streams(&survey_session_id).await {
+            log::warn!("Failed to send StartProbeStreams: {:?}", e);
         }
     }
     
-    log::info!("StartServerTraffic sent to all connections");
+    log::info!("StartProbeStreams sent to all connections");
+    
+    // Start client-side probe sender for each connection
+    for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
+        let state = conn.state.clone();
+        let probe_channel = conn.get_probe_channel();
+        let conn_id = conn.conn_id.clone();
+        
+        if let Some(channel) = probe_channel {
+            // Start sending measurement probes at 100pps
+            let interval = gloo_timers::callback::Interval::new(10, move || {
+                let mut state = state.borrow_mut();
+                if !state.probe_streams_active {
+                    return;
+                }
+                
+                let seq = state.measurement_probe_seq;
+                state.measurement_probe_seq += 1;
+                let feedback = state.last_feedback.clone();
+                
+                let probe = common::MeasurementProbePacket {
+                    seq,
+                    sent_at_ms: current_time_ms(),
+                    direction: common::Direction::ClientToServer,
+                    conn_id: conn_id.clone(),
+                    feedback,
+                };
+                
+                if let Ok(json) = serde_json::to_string(&probe) {
+                    if let Err(e) = channel.send_with_str(&json) {
+                        log::error!("Failed to send measurement probe: {:?}", e);
+                    }
+                }
+            });
+            register_interval(interval);
+        }
+    }
+    
+    // Start per-second stats reporter on control channel
+    for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
+        let state = conn.state.clone();
+        let control_channel = conn.control_channel.clone();
+        let conn_id = conn.conn_id.clone();
+        let survey_id = survey_session_id.clone();
+        
+        let interval = gloo_timers::callback::Interval::new(1000, move || {
+            let state_ref = state.borrow();
+            if !state_ref.probe_streams_active {
+                return;
+            }
+            
+            // Calculate S2C stats from received measurement probes
+            let s2c_stats = calculate_client_s2c_stats(&state_ref);
+            
+            // Get server-reported C2S stats
+            let c2s_stats = state_ref.server_reported_c2s_stats.clone().unwrap_or_default();
+            
+            drop(state_ref);
+            
+            let report = common::ControlMessage::ProbeStats(common::ProbeStatsReport {
+                conn_id: conn_id.clone(),
+                survey_session_id: survey_id.clone(),
+                timestamp_ms: current_time_ms(),
+                c2s_stats,
+                s2c_stats: s2c_stats.clone(),
+            });
+            
+            // Store calculated S2C stats
+            state.borrow_mut().calculated_s2c_stats = Some(s2c_stats);
+            
+            // Send stats on control channel
+            if let Some(channel) = control_channel.borrow().as_ref() {
+                if let Ok(json) = serde_json::to_string(&report) {
+                    if let Err(e) = channel.send_with_str(&json) {
+                        log::error!("Failed to send probe stats: {:?}", e);
+                    }
+                }
+            }
+        });
+        register_interval(interval);
+    }
 
     // Collect states for calculation and UI updates
     let mut calc_states: Vec<Rc<RefCell<measurements::MeasurementState>>> = Vec::new();
@@ -948,6 +1084,109 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     log::info!("Network analysis complete, measurements running...");
 
     Ok(())
+}
+
+/// Calculate S2C stats from received measurement probes (called by client)
+fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common::DirectionStats {
+    let now_ms = current_time_ms();
+    let one_second_cutoff = now_ms.saturating_sub(1000);
+    
+    // Filter to probes received in the last second
+    let recent_probes: Vec<_> = state.received_measurement_probes.iter()
+        .filter(|p| p.received_at_ms >= one_second_cutoff)
+        .collect();
+    
+    if recent_probes.is_empty() {
+        return common::DirectionStats::default();
+    }
+
+    let baseline = if state.baseline_delay_count > 0 {
+        state.baseline_delay_sum / state.baseline_delay_count as f64
+    } else {
+        0.0
+    };
+
+    // Calculate delay deviations from baseline
+    let mut delay_deviations: Vec<f64> = recent_probes.iter()
+        .map(|p| {
+            let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+            delay - baseline
+        })
+        .collect();
+    
+    delay_deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Calculate percentiles
+    let len = delay_deviations.len();
+    let p50_idx = len / 2;
+    let p99_idx = (len * 99) / 100;
+    
+    let delay_deviation_ms = [
+        delay_deviations[p50_idx],                    // 50th percentile
+        delay_deviations[p99_idx.min(len - 1)],       // 99th percentile
+        *delay_deviations.first().unwrap_or(&0.0),    // min
+        *delay_deviations.last().unwrap_or(&0.0),     // max
+    ];
+
+    // Calculate jitter (consecutive delay differences)
+    let mut jitters: Vec<f64> = Vec::new();
+    let mut prev_delay: Option<f64> = None;
+    for p in &recent_probes {
+        let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+        if let Some(prev) = prev_delay {
+            jitters.push((delay - prev).abs());
+        }
+        prev_delay = Some(delay);
+    }
+    
+    jitters.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let jitter_len = jitters.len().max(1);
+    let jitter_ms = if jitters.is_empty() {
+        [0.0; 4]
+    } else {
+        [
+            jitters[jitter_len / 2],
+            jitters[(jitter_len * 99) / 100],
+            *jitters.first().unwrap_or(&0.0),
+            *jitters.last().unwrap_or(&0.0),
+        ]
+    };
+
+    // Calculate loss rate
+    let min_seq = recent_probes.iter().map(|p| p.seq).min().unwrap_or(0);
+    let max_seq = recent_probes.iter().map(|p| p.seq).max().unwrap_or(0);
+    let expected = (max_seq.saturating_sub(min_seq) + 1) as f64;
+    let received = recent_probes.len() as f64;
+    let loss_rate = if expected > 0.0 {
+        ((expected - received) / expected * 100.0).max(0.0)
+    } else {
+        0.0
+    };
+
+    // Calculate reorder rate
+    let mut reorders = 0;
+    let mut max_seq_seen = 0u64;
+    for p in &recent_probes {
+        if p.seq < max_seq_seen {
+            reorders += 1;
+        }
+        max_seq_seen = max_seq_seen.max(p.seq);
+    }
+    let reorder_rate = if !recent_probes.is_empty() {
+        (reorders as f64 / recent_probes.len() as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    common::DirectionStats {
+        delay_deviation_ms,
+        rtt_ms: [0.0; 4],  // RTT requires echo, not calculated here
+        jitter_ms,
+        loss_rate,
+        reorder_rate,
+        probe_count: recent_probes.len() as u32,
+        baseline_delay_ms: baseline,
+    }
 }
 
 fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {

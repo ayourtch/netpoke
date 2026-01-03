@@ -103,6 +103,19 @@ async fn handle_message(session: Arc<ClientSession>, channel: &str, msg: DataCha
 }
 
 async fn handle_probe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
+    // Try parsing as MeasurementProbePacket first if probe streams are active
+    {
+        let state = session.measurement_state.read().await;
+        if state.probe_streams_active {
+            drop(state);
+            if let Ok(_) = serde_json::from_slice::<common::MeasurementProbePacket>(&msg.data) {
+                // This is a measurement probe
+                measurements::handle_measurement_probe_packet(session, msg).await;
+                return;
+            }
+        }
+    }
+    // Fall back to regular probe handling
     measurements::handle_probe_packet(session, msg).await;
 }
 
@@ -358,6 +371,89 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             }
             
             tracing::info!("Stopped server traffic for session {}", session.id);
+        }
+        
+        common::ControlMessage::StartProbeStreams(start_msg) => {
+            if start_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StartProbeStreamsMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    start_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            // Update survey session ID if provided
+            if !start_msg.survey_session_id.is_empty() {
+                let mut survey_id = session.survey_session_id.write().await;
+                *survey_id = start_msg.survey_session_id.clone();
+            }
+            
+            tracing::info!("Received StartProbeStreams for session {} (survey: {})", 
+                session.id, start_msg.survey_session_id);
+            
+            // Set probe_streams_active flag
+            {
+                let mut state = session.measurement_state.write().await;
+                state.probe_streams_active = true;
+                // Clear previous probe data for fresh measurement
+                state.measurement_probe_seq = 0;
+                state.received_measurement_probes.clear();
+                state.probe_stats.clear();
+                tracing::info!("Started probe streams for session {}", session.id);
+            }
+            
+            // Start the probe stream sender
+            let session_for_probe = session.clone();
+            tokio::spawn(async move {
+                measurements::start_measurement_probe_sender(session_for_probe).await;
+            });
+            
+            // Start the stats reporter (once per second)
+            let session_for_stats = session.clone();
+            tokio::spawn(async move {
+                measurements::start_probe_stats_reporter(session_for_stats).await;
+            });
+        }
+        
+        common::ControlMessage::StopProbeStreams(stop_msg) => {
+            if stop_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "StopProbeStreamsMessage conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    stop_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            tracing::info!("Received StopProbeStreams for session {} (survey: {})", 
+                session.id, stop_msg.survey_session_id);
+            
+            // Set probe_streams_active flag to false to stop senders
+            {
+                let mut state = session.measurement_state.write().await;
+                state.probe_streams_active = false;
+            }
+            
+            tracing::info!("Stopped probe streams for session {}", session.id);
+        }
+        
+        common::ControlMessage::ProbeStats(stats_msg) => {
+            // Client is reporting its calculated stats - store them for dashboard
+            if stats_msg.conn_id != session.conn_id {
+                tracing::warn!(
+                    "ProbeStatsReport conn_id mismatch: received '{}' but session {} expects '{}', ignoring",
+                    stats_msg.conn_id, session.id, session.conn_id
+                );
+                return;
+            }
+            
+            tracing::debug!("Received ProbeStats from client for session {}: c2s_loss={:.2}%, s2c_loss={:.2}%",
+                session.id, stats_msg.c2s_stats.loss_rate, stats_msg.s2c_stats.loss_rate);
+            
+            // Store client-reported S2C stats
+            {
+                let mut state = session.measurement_state.write().await;
+                state.client_reported_s2c_stats = Some(stats_msg.s2c_stats);
+            }
         }
         
         common::ControlMessage::StopTraceroute(stop_msg) => {

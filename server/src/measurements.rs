@@ -904,6 +904,296 @@ pub async fn handle_testprobe_echo_packet(
     }
 }
 
+/// Start the measurement probe sender for baseline measurement (100pps)
+/// Uses the probe channel (unreliable, unordered)
+pub async fn start_measurement_probe_sender(session: Arc<ClientSession>) {
+    let mut interval = interval(Duration::from_millis(10)); // 100 Hz = 100pps
+
+    tracing::info!("Starting measurement probe sender for session {} at 100pps", session.id);
+
+    loop {
+        interval.tick().await;
+
+        // Check if probe streams should still be active
+        let (active, seq, feedback) = {
+            let mut state = session.measurement_state.write().await;
+            if !state.probe_streams_active {
+                tracing::info!("Stopping measurement probe sender for session {} (probe_streams_active=false)", session.id);
+                return;
+            }
+            let seq = state.measurement_probe_seq;
+            state.measurement_probe_seq += 1;
+            let feedback = state.last_feedback.clone();
+            (true, seq, feedback)
+        };
+
+        if !active {
+            break;
+        }
+
+        // Check if probe channel is ready
+        let channels = session.data_channels.read().await;
+        let probe_channel = match &channels.probe {
+            Some(ch) if ch.ready_state() == RTCDataChannelState::Open => ch.clone(),
+            _ => {
+                drop(channels);
+                continue;
+            }
+        };
+        drop(channels);
+
+        // Create and send measurement probe packet
+        let sent_at_ms = current_time_ms();
+        
+        let probe = common::MeasurementProbePacket {
+            seq,
+            sent_at_ms,
+            direction: Direction::ServerToClient,
+            conn_id: session.conn_id.clone(),
+            feedback,
+        };
+
+        if let Ok(json) = serde_json::to_vec(&probe) {
+            if let Err(e) = probe_channel.send(&json.into()).await {
+                tracing::error!("Failed to send measurement probe: {}", e);
+                break;
+            }
+        }
+    }
+}
+
+/// Handle incoming measurement probe packets
+pub async fn handle_measurement_probe_packet(
+    session: Arc<ClientSession>,
+    msg: DataChannelMessage,
+) {
+    if let Ok(probe) = serde_json::from_slice::<common::MeasurementProbePacket>(&msg.data) {
+        // Validate conn_id
+        if probe.conn_id != session.conn_id {
+            return;
+        }
+
+        let now_ms = current_time_ms();
+        let delay = now_ms.saturating_sub(probe.sent_at_ms) as f64;
+
+        let mut state = session.measurement_state.write().await;
+        
+        if !state.probe_streams_active {
+            return;
+        }
+
+        // Store received probe
+        state.received_measurement_probes.push_back(crate::state::ReceivedMeasurementProbe {
+            seq: probe.seq,
+            sent_at_ms: probe.sent_at_ms,
+            received_at_ms: now_ms,
+            feedback: probe.feedback.clone(),
+        });
+
+        // Update baseline delay (exponential moving average with outlier exclusion)
+        // Only include delays within 3x of current baseline
+        let baseline = if state.baseline_delay_count > 0 {
+            state.baseline_delay_sum / state.baseline_delay_count as f64
+        } else {
+            delay
+        };
+        
+        if state.baseline_delay_count < 10 || delay < baseline * 3.0 {
+            state.baseline_delay_sum += delay;
+            state.baseline_delay_count += 1;
+        }
+
+        // Update feedback for outgoing probes
+        state.last_feedback.highest_seq = state.last_feedback.highest_seq.max(probe.seq);
+        state.last_feedback.highest_seq_received_at_ms = now_ms;
+        
+        // Keep only last 2 seconds of probes for stats calculation
+        let cutoff = now_ms.saturating_sub(2000);
+        while let Some(p) = state.received_measurement_probes.front() {
+            if p.received_at_ms < cutoff {
+                state.received_measurement_probes.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        // Count recent probes and reorders for feedback
+        let mut recent_count = 0u32;
+        let mut recent_reorders = 0u32;
+        let mut last_seq = 0u64;
+        let one_second_cutoff = now_ms.saturating_sub(1000);
+        for p in state.received_measurement_probes.iter() {
+            if p.received_at_ms >= one_second_cutoff {
+                recent_count += 1;
+                if p.seq < last_seq {
+                    recent_reorders += 1;
+                }
+                last_seq = last_seq.max(p.seq);
+            }
+        }
+        state.last_feedback.recent_count = recent_count;
+        state.last_feedback.recent_reorders = recent_reorders;
+    }
+}
+
+/// Start the per-second stats reporter
+pub async fn start_probe_stats_reporter(session: Arc<ClientSession>) {
+    let mut interval = interval(Duration::from_millis(1000)); // 1 Hz
+
+    tracing::info!("Starting probe stats reporter for session {}", session.id);
+
+    loop {
+        interval.tick().await;
+
+        // Check if probe streams should still be active
+        {
+            let state = session.measurement_state.read().await;
+            if !state.probe_streams_active {
+                tracing::info!("Stopping probe stats reporter for session {} (probe_streams_active=false)", session.id);
+                return;
+            }
+        }
+
+        // Calculate stats from received probes
+        let stats = calculate_probe_stream_stats(&session).await;
+
+        // Get survey session ID
+        let survey_session_id = session.survey_session_id.read().await.clone();
+
+        // Get client-reported S2C stats
+        let s2c_stats = {
+            let state = session.measurement_state.read().await;
+            state.client_reported_s2c_stats.clone().unwrap_or_default()
+        };
+
+        // Create stats report
+        let report = common::ControlMessage::ProbeStats(common::ProbeStatsReport {
+            conn_id: session.conn_id.clone(),
+            survey_session_id,
+            timestamp_ms: current_time_ms(),
+            c2s_stats: stats,  // C2S stats are what the server measures
+            s2c_stats,         // S2C stats come from client reports
+        });
+
+        // Send stats report on control channel
+        let channels = session.data_channels.read().await;
+        if let Some(control) = &channels.control {
+            if control.ready_state() == RTCDataChannelState::Open {
+                if let Ok(msg_json) = serde_json::to_vec(&report) {
+                    if let Err(e) = control.send(&msg_json.into()).await {
+                        tracing::error!("Failed to send probe stats report: {}", e);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Calculate probe stream stats from received measurement probes
+async fn calculate_probe_stream_stats(session: &Arc<ClientSession>) -> common::DirectionStats {
+    let state = session.measurement_state.read().await;
+    
+    let now_ms = current_time_ms();
+    let one_second_cutoff = now_ms.saturating_sub(1000);
+    
+    // Filter to probes received in the last second
+    let recent_probes: Vec<_> = state.received_measurement_probes.iter()
+        .filter(|p| p.received_at_ms >= one_second_cutoff)
+        .collect();
+    
+    if recent_probes.is_empty() {
+        return common::DirectionStats::default();
+    }
+
+    let baseline = if state.baseline_delay_count > 0 {
+        state.baseline_delay_sum / state.baseline_delay_count as f64
+    } else {
+        0.0
+    };
+
+    // Calculate delay deviations from baseline
+    let mut delay_deviations: Vec<f64> = recent_probes.iter()
+        .map(|p| {
+            let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+            delay - baseline
+        })
+        .collect();
+    
+    delay_deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Calculate percentiles
+    let len = delay_deviations.len();
+    let p50_idx = len / 2;
+    let p99_idx = (len * 99) / 100;
+    
+    let delay_deviation_ms = [
+        delay_deviations[p50_idx],                    // 50th percentile
+        delay_deviations[p99_idx.min(len - 1)],       // 99th percentile
+        *delay_deviations.first().unwrap_or(&0.0),    // min
+        *delay_deviations.last().unwrap_or(&0.0),     // max
+    ];
+
+    // Calculate jitter (consecutive delay differences)
+    let mut jitters: Vec<f64> = Vec::new();
+    let mut prev_delay: Option<f64> = None;
+    for p in &recent_probes {
+        let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+        if let Some(prev) = prev_delay {
+            jitters.push((delay - prev).abs());
+        }
+        prev_delay = Some(delay);
+    }
+    
+    jitters.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let jitter_len = jitters.len().max(1);
+    let jitter_ms = if jitters.is_empty() {
+        [0.0; 4]
+    } else {
+        [
+            jitters[jitter_len / 2],
+            jitters[(jitter_len * 99) / 100],
+            *jitters.first().unwrap_or(&0.0),
+            *jitters.last().unwrap_or(&0.0),
+        ]
+    };
+
+    // Calculate loss rate
+    let min_seq = recent_probes.iter().map(|p| p.seq).min().unwrap_or(0);
+    let max_seq = recent_probes.iter().map(|p| p.seq).max().unwrap_or(0);
+    let expected = (max_seq.saturating_sub(min_seq) + 1) as f64;
+    let received = recent_probes.len() as f64;
+    let loss_rate = if expected > 0.0 {
+        ((expected - received) / expected * 100.0).max(0.0)
+    } else {
+        0.0
+    };
+
+    // Calculate reorder rate
+    let mut reorders = 0;
+    let mut max_seq_seen = 0u64;
+    for p in &recent_probes {
+        if p.seq < max_seq_seen {
+            reorders += 1;
+        }
+        max_seq_seen = max_seq_seen.max(p.seq);
+    }
+    let reorder_rate = if recent_probes.len() > 0 {
+        (reorders as f64 / recent_probes.len() as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    common::DirectionStats {
+        delay_deviation_ms,
+        rtt_ms: [0.0; 4],  // RTT requires echo, not calculated here
+        jitter_ms,
+        loss_rate,
+        reorder_rate,
+        probe_count: recent_probes.len() as u32,
+        baseline_delay_ms: baseline,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

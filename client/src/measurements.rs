@@ -25,6 +25,15 @@ pub struct MeasurementState {
     pub measuring_time_ms: Option<u64>,
     // The first TTL that successfully reaches the client on this conn
     pub path_ttl: Option<i32>,
+    // Probe stream fields
+    pub probe_streams_active: bool,
+    pub measurement_probe_seq: u64,
+    pub received_measurement_probes: VecDeque<ReceivedMeasurementProbe>,
+    pub baseline_delay_sum: f64,
+    pub baseline_delay_count: u64,
+    pub last_feedback: common::ProbeFeedback,
+    pub server_reported_c2s_stats: Option<common::DirectionStats>,
+    pub calculated_s2c_stats: Option<common::DirectionStats>,
 }
 
 #[derive(Clone, Debug)]
@@ -38,6 +47,15 @@ pub struct ReceivedProbe {
 pub struct ReceivedBulk {
     pub bytes: u64,
     pub received_at_ms: u64,
+}
+
+/// Received measurement probe for probe stream measurements
+#[derive(Clone, Debug)]
+pub struct ReceivedMeasurementProbe {
+    pub seq: u64,
+    pub sent_at_ms: u64,
+    pub received_at_ms: u64,
+    pub feedback: common::ProbeFeedback,
 }
 
 impl MeasurementState {
@@ -62,6 +80,15 @@ impl MeasurementState {
             server_side_ready: false,
             measuring_time_ms: None,
             path_ttl: None,
+            // Probe stream fields
+            probe_streams_active: false,
+            measurement_probe_seq: 0,
+            received_measurement_probes: VecDeque::new(),
+            baseline_delay_sum: 0.0,
+            baseline_delay_count: 0,
+            last_feedback: common::ProbeFeedback::default(),
+            server_reported_c2s_stats: None,
+            calculated_s2c_stats: None,
         }
     }
 
@@ -201,6 +228,74 @@ pub fn setup_probe_channel(
         //if let Some(txt) = ev.data().as_string() {
         if true {
             let txt = s.clone();
+            
+            // Try to parse as MeasurementProbePacket first if probe streams are active
+            {
+                let probe_streams_active = state_receiver.borrow().probe_streams_active;
+                if probe_streams_active {
+                    if let Ok(probe) = serde_json::from_str::<common::MeasurementProbePacket>(&txt) {
+                        let now_ms = current_time_ms();
+                        let delay = now_ms.saturating_sub(probe.sent_at_ms) as f64;
+                        
+                        let mut state = state_receiver.borrow_mut();
+                        
+                        // Store received probe
+                        state.received_measurement_probes.push_back(ReceivedMeasurementProbe {
+                            seq: probe.seq,
+                            sent_at_ms: probe.sent_at_ms,
+                            received_at_ms: now_ms,
+                            feedback: probe.feedback.clone(),
+                        });
+                        
+                        // Update baseline delay (exponential moving average with outlier exclusion)
+                        let baseline = if state.baseline_delay_count > 0 {
+                            state.baseline_delay_sum / state.baseline_delay_count as f64
+                        } else {
+                            delay
+                        };
+                        
+                        if state.baseline_delay_count < 10 || delay < baseline * 3.0 {
+                            state.baseline_delay_sum += delay;
+                            state.baseline_delay_count += 1;
+                        }
+                        
+                        // Update feedback for outgoing probes
+                        state.last_feedback.highest_seq = state.last_feedback.highest_seq.max(probe.seq);
+                        state.last_feedback.highest_seq_received_at_ms = now_ms;
+                        
+                        // Keep only last 2 seconds of probes for stats calculation
+                        let cutoff = now_ms.saturating_sub(2000);
+                        while let Some(p) = state.received_measurement_probes.front() {
+                            if p.received_at_ms < cutoff {
+                                state.received_measurement_probes.pop_front();
+                            } else {
+                                break;
+                            }
+                        }
+                        
+                        // Count recent probes and reorders for feedback
+                        let mut recent_count = 0u32;
+                        let mut recent_reorders = 0u32;
+                        let mut last_seq = 0u64;
+                        let one_second_cutoff = now_ms.saturating_sub(1000);
+                        for p in state.received_measurement_probes.iter() {
+                            if p.received_at_ms >= one_second_cutoff {
+                                recent_count += 1;
+                                if p.seq < last_seq {
+                                    recent_reorders += 1;
+                                }
+                                last_seq = last_seq.max(p.seq);
+                            }
+                        }
+                        state.last_feedback.recent_count = recent_count;
+                        state.last_feedback.recent_reorders = recent_reorders;
+                        
+                        return;  // Handled as measurement probe
+                    }
+                }
+            }
+            
+            // Fall back to regular probe handling
             if let Ok(mut probe) = serde_json::from_str::<ProbePacket>(&txt) {
                 let now_ms = current_time_ms();
                 let mut state = state_receiver.borrow_mut();
@@ -445,6 +540,27 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
                         ));
                     }
                     
+                    common::ControlMessage::ProbeStats(stats_msg) => {
+                        // Server is reporting its calculated stats (C2S) and our previously sent S2C stats
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && stats_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "ProbeStatsReport conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                stats_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        
+                        log::debug!("Received ProbeStats from server: c2s_loss={:.2}%, s2c_loss={:.2}%",
+                            stats_msg.c2s_stats.loss_rate, stats_msg.s2c_stats.loss_rate);
+                        
+                        // Store server-reported C2S stats for visualization
+                        state_for_handler.borrow_mut().server_reported_c2s_stats = Some(stats_msg.c2s_stats.clone());
+                        
+                        // Update the visualization with the stats
+                        update_probe_stats_visualization(&stats_msg);
+                    }
+                    
                     // Client-to-server messages (should not be received here)
                     x => {
                         log::warn!("Received unexpected client-to-server control message type: {:?}", &x);
@@ -567,6 +683,70 @@ fn update_mtu_visualization(mtu_msg: &common::MtuHopMessage) {
             }
         } else {
             log::warn!("addMtuHop function not found in window object");
+        }
+    }
+}
+
+/// Update the probe stats visualization
+fn update_probe_stats_visualization(stats_msg: &common::ProbeStatsReport) {
+    use wasm_bindgen::JsValue;
+    use web_sys::window;
+    
+    if let Some(window) = window() {
+        // Create a JavaScript object with the stats data
+        let js_obj = js_sys::Object::new();
+        
+        // Set connection info
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("conn_id"), &JsValue::from_str(&stats_msg.conn_id)).ok();
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("timestamp_ms"), &JsValue::from_f64(stats_msg.timestamp_ms as f64)).ok();
+        
+        // Helper to create stats object
+        let create_stats_obj = |stats: &common::DirectionStats| -> js_sys::Object {
+            let obj = js_sys::Object::new();
+            
+            // Delay deviation array
+            let delay_arr = js_sys::Array::new();
+            for &v in &stats.delay_deviation_ms {
+                delay_arr.push(&JsValue::from_f64(v));
+            }
+            js_sys::Reflect::set(&obj, &JsValue::from_str("delay_deviation_ms"), &delay_arr).ok();
+            
+            // RTT array
+            let rtt_arr = js_sys::Array::new();
+            for &v in &stats.rtt_ms {
+                rtt_arr.push(&JsValue::from_f64(v));
+            }
+            js_sys::Reflect::set(&obj, &JsValue::from_str("rtt_ms"), &rtt_arr).ok();
+            
+            // Jitter array
+            let jitter_arr = js_sys::Array::new();
+            for &v in &stats.jitter_ms {
+                jitter_arr.push(&JsValue::from_f64(v));
+            }
+            js_sys::Reflect::set(&obj, &JsValue::from_str("jitter_ms"), &jitter_arr).ok();
+            
+            // Scalar values
+            js_sys::Reflect::set(&obj, &JsValue::from_str("loss_rate"), &JsValue::from_f64(stats.loss_rate)).ok();
+            js_sys::Reflect::set(&obj, &JsValue::from_str("reorder_rate"), &JsValue::from_f64(stats.reorder_rate)).ok();
+            js_sys::Reflect::set(&obj, &JsValue::from_str("probe_count"), &JsValue::from_f64(stats.probe_count as f64)).ok();
+            js_sys::Reflect::set(&obj, &JsValue::from_str("baseline_delay_ms"), &JsValue::from_f64(stats.baseline_delay_ms)).ok();
+            
+            obj
+        };
+        
+        let c2s_obj = create_stats_obj(&stats_msg.c2s_stats);
+        let s2c_obj = create_stats_obj(&stats_msg.s2c_stats);
+        
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("c2s_stats"), &c2s_obj).ok();
+        js_sys::Reflect::set(&js_obj, &JsValue::from_str("s2c_stats"), &s2c_obj).ok();
+        
+        // Call the JavaScript function
+        if let Ok(update_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("updateProbeStats")) {
+            if let Ok(update_fn) = update_fn.dyn_into::<js_sys::Function>() {
+                if let Err(e) = update_fn.call1(&JsValue::NULL, &js_obj) {
+                    log::warn!("Failed to call updateProbeStats JavaScript function: {:?}", e);
+                }
+            }
         }
     }
 }

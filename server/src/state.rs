@@ -116,6 +116,15 @@ pub struct MeasurementState {
     pub sent_testprobes_map: HashMap<u64, SentProbe>,  // Fast lookup by seq for test probes
     pub echoed_testprobes: VecDeque<EchoedProbe>,  // Track echoed test probes
     pub last_received_seq: Option<u64>,
+    // Probe stream measurement fields
+    pub probe_streams_active: bool,  // Flag to indicate probe streams are active
+    pub measurement_probe_seq: u64,  // Sequence for measurement probes
+    pub received_measurement_probes: VecDeque<ReceivedMeasurementProbe>,  // Received measurement probes
+    pub probe_stats: VecDeque<common::DirectionStats>,  // Per-second calculated stats
+    pub client_reported_s2c_stats: Option<common::DirectionStats>,  // Stats reported by client
+    pub baseline_delay_sum: f64,  // Sum of delays for baseline calculation
+    pub baseline_delay_count: u64,  // Count for baseline calculation
+    pub last_feedback: common::ProbeFeedback,  // Last feedback to include in outgoing probes
 }
 
 #[derive(Clone)]
@@ -148,6 +157,15 @@ pub struct EchoedProbe {
     pub seq: u64,
     pub sent_at_ms: u64,
     pub echoed_at_ms: u64,  // When client received it and echoed back
+}
+
+/// Received measurement probe for probe stream measurements
+#[derive(Clone)]
+pub struct ReceivedMeasurementProbe {
+    pub seq: u64,
+    pub sent_at_ms: u64,
+    pub received_at_ms: u64,
+    pub feedback: common::ProbeFeedback,
 }
 
 impl AppState {
@@ -206,6 +224,15 @@ impl MeasurementState {
             sent_testprobes_map: HashMap::new(),
             echoed_testprobes: VecDeque::new(),
             last_received_seq: None,
+            // Probe stream fields
+            probe_streams_active: false,
+            measurement_probe_seq: 0,
+            received_measurement_probes: VecDeque::new(),
+            probe_stats: VecDeque::new(),
+            client_reported_s2c_stats: None,
+            baseline_delay_sum: 0.0,
+            baseline_delay_count: 0,
+            last_feedback: common::ProbeFeedback::default(),
         }
     }
 }

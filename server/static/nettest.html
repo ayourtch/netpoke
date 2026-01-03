@@ -169,6 +169,30 @@
         </div>
     </div>
 
+    <div id="probe-stats-container" style="margin-top: 20px;">
+        <h2>Probe Stream Statistics (Baseline Measurement)</h2>
+        <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
+            <em>Real-time statistics from 100pps probe streams. Delay deviation shows deviation from incrementally calculated baseline. Bands show 50th/99th percentile and full range.</em>
+        </p>
+        <div class="dual-stack-container">
+            <div class="stack-column">
+                <h3 style="color: #2196F3;">IPv4 Statistics</h3>
+                <div id="probe-stats-ipv4" style="padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; min-height: 120px;">
+                    <div style="text-align: center; color: #999;">Waiting for probe data...</div>
+                </div>
+            </div>
+            <div class="stack-column">
+                <h3 style="color: #FF9800;">IPv6 Statistics</h3>
+                <div id="probe-stats-ipv6" style="padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; min-height: 120px;">
+                    <div style="text-align: center; color: #999;">Waiting for probe data...</div>
+                </div>
+            </div>
+        </div>
+        <div id="probe-stats-chart-container" style="margin-top: 20px;">
+            <canvas id="probe-stats-chart" height="300"></canvas>
+        </div>
+    </div>
+
     <div id="chart-container">
         <h2>Live Metrics Graph</h2>
         <div class="chart-controls">
@@ -1077,6 +1101,206 @@
         window.registerPeerConnection = registerPeerConnection;
         window.updatePeerConnectionAddresses = updatePeerConnectionAddresses;
         window.clearPeerConnectionsData = clearPeerConnectionsData;
+        
+        // Probe stats data storage
+        let probeStatsData = {
+            // conn_id -> { c2s_stats, s2c_stats, timestamp_ms, ipVersion }
+        };
+        
+        // Probe stats chart
+        let probeStatsChart = null;
+        const probeStatsHistory = {
+            timestamps: [],
+            // conn_id -> { c2s_delay: [], c2s_jitter: [], s2c_delay: [], s2c_jitter: [], ... }
+        };
+        const MAX_PROBE_HISTORY = 60; // 60 seconds of history
+        
+        // Initialize probe stats chart
+        function initProbeStatsChart() {
+            const ctx = document.getElementById('probe-stats-chart');
+            if (!ctx) return;
+            
+            probeStatsChart = new Chart(ctx.getContext('2d'), {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: []
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            title: { display: true, text: 'Time' },
+                            time: {
+                                displayFormats: { second: 'HH:mm:ss' },
+                                tooltipFormat: 'HH:mm:ss'
+                            }
+                        },
+                        y: {
+                            title: { display: true, text: 'Delay/Jitter (ms)' },
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: { display: true, position: 'top' },
+                        zoom: {
+                            pan: { enabled: true, mode: 'x' },
+                            zoom: { wheel: { enabled: true }, mode: 'x' }
+                        }
+                    },
+                    animation: false
+                }
+            });
+        }
+        
+        // Initialize chart when window loads
+        window.addEventListener('load', () => {
+            setTimeout(initProbeStatsChart, 500); // Delay to ensure Chart.js is loaded
+        });
+        
+        // Function to update probe stats visualization
+        function updateProbeStats(statsData) {
+            const connId = statsData.conn_id;
+            const shortConnId = connId.length > 8 ? connId.substring(0, 8) : connId;
+            
+            // Determine IP version from registered connections
+            let ipVersion = getIpVersionForConnId(connId);
+            if (!ipVersion) ipVersion = 'ipv4'; // Default fallback
+            
+            // Store stats
+            probeStatsData[connId] = {
+                ...statsData,
+                ipVersion
+            };
+            
+            // Update history for charting
+            const now = Date.now();
+            if (!probeStatsHistory[connId]) {
+                probeStatsHistory[connId] = {
+                    c2s_delay: [], c2s_jitter: [], c2s_loss: [],
+                    s2c_delay: [], s2c_jitter: [], s2c_loss: []
+                };
+            }
+            
+            const hist = probeStatsHistory[connId];
+            hist.c2s_delay.push({ x: now, y: statsData.c2s_stats.delay_deviation_ms[0] || 0 });
+            hist.c2s_jitter.push({ x: now, y: statsData.c2s_stats.jitter_ms[0] || 0 });
+            hist.c2s_loss.push({ x: now, y: statsData.c2s_stats.loss_rate || 0 });
+            hist.s2c_delay.push({ x: now, y: statsData.s2c_stats.delay_deviation_ms[0] || 0 });
+            hist.s2c_jitter.push({ x: now, y: statsData.s2c_stats.jitter_ms[0] || 0 });
+            hist.s2c_loss.push({ x: now, y: statsData.s2c_stats.loss_rate || 0 });
+            
+            // Trim old data
+            Object.keys(hist).forEach(key => {
+                while (hist[key].length > MAX_PROBE_HISTORY) {
+                    hist[key].shift();
+                }
+            });
+            
+            // Render statistics panel
+            renderProbeStatsPanel(ipVersion);
+            
+            // Update chart
+            updateProbeStatsChart();
+        }
+        
+        function renderProbeStatsPanel(ipVersion) {
+            const container = document.getElementById(`probe-stats-${ipVersion}`);
+            if (!container) return;
+            
+            // Get all connections of this IP version
+            const conns = Object.entries(probeStatsData).filter(([_, data]) => data.ipVersion === ipVersion);
+            
+            if (conns.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #999;">Waiting for probe data...</div>';
+                return;
+            }
+            
+            let html = '<div style="display: grid; gap: 10px;">';
+            
+            for (const [connId, data] of conns) {
+                const shortId = connId.length > 8 ? connId.substring(0, 8) : connId;
+                const c2s = data.c2s_stats;
+                const s2c = data.s2c_stats;
+                
+                html += `
+                <div style="background: white; padding: 10px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">[${shortId}]</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 11px;">
+                        <div>
+                            <div style="font-weight: bold; color: #666; margin-bottom: 4px;">↑ C→S</div>
+                            <div>Delay: <span style="color: #2196F3;">${c2s.delay_deviation_ms[0].toFixed(1)}ms</span> (p99: ${c2s.delay_deviation_ms[1].toFixed(1)}ms)</div>
+                            <div>Jitter: <span style="color: #2196F3;">${c2s.jitter_ms[0].toFixed(2)}ms</span></div>
+                            <div>Loss: <span style="color: ${c2s.loss_rate > 1 ? '#f44336' : '#4caf50'};">${c2s.loss_rate.toFixed(2)}%</span></div>
+                            <div>Reorder: ${c2s.reorder_rate.toFixed(2)}%</div>
+                        </div>
+                        <div>
+                            <div style="font-weight: bold; color: #666; margin-bottom: 4px;">↓ S→C</div>
+                            <div>Delay: <span style="color: #FF9800;">${s2c.delay_deviation_ms[0].toFixed(1)}ms</span> (p99: ${s2c.delay_deviation_ms[1].toFixed(1)}ms)</div>
+                            <div>Jitter: <span style="color: #FF9800;">${s2c.jitter_ms[0].toFixed(2)}ms</span></div>
+                            <div>Loss: <span style="color: ${s2c.loss_rate > 1 ? '#f44336' : '#4caf50'};">${s2c.loss_rate.toFixed(2)}%</span></div>
+                            <div>Reorder: ${s2c.reorder_rate.toFixed(2)}%</div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 6px; font-size: 10px; color: #999;">
+                        Probes: C→S ${c2s.probe_count}, S→C ${s2c.probe_count} | Baseline: C→S ${c2s.baseline_delay_ms.toFixed(1)}ms, S→C ${s2c.baseline_delay_ms.toFixed(1)}ms
+                    </div>
+                </div>`;
+            }
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+        
+        function updateProbeStatsChart() {
+            if (!probeStatsChart) return;
+            
+            const datasets = [];
+            const colors = {
+                ipv4: { c2s: 'rgba(33, 150, 243, 0.8)', s2c: 'rgba(33, 150, 243, 0.4)' },
+                ipv6: { c2s: 'rgba(255, 152, 0, 0.8)', s2c: 'rgba(255, 152, 0, 0.4)' }
+            };
+            
+            for (const [connId, hist] of Object.entries(probeStatsHistory)) {
+                const data = probeStatsData[connId];
+                if (!data) continue;
+                
+                const color = colors[data.ipVersion] || colors.ipv4;
+                const shortId = connId.length > 8 ? connId.substring(0, 8) : connId;
+                
+                datasets.push({
+                    label: `[${shortId}] C→S Delay`,
+                    data: hist.c2s_delay,
+                    borderColor: color.c2s,
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.2,
+                    pointRadius: 0
+                });
+                
+                datasets.push({
+                    label: `[${shortId}] S→C Delay`,
+                    data: hist.s2c_delay,
+                    borderColor: color.s2c,
+                    backgroundColor: 'transparent',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.2,
+                    pointRadius: 0
+                });
+            }
+            
+            probeStatsChart.data.datasets = datasets;
+            probeStatsChart.update('none');
+        }
+        
+        // Make probe stats function globally available
+        window.updateProbeStats = updateProbeStats;
         
         // Function to generate metrics tables for multiple connections
         function generateMultiConnectionTables(connCount) {

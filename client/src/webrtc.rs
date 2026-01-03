@@ -187,6 +187,7 @@ pub struct WebRtcConnection {
     pub conn_id: String,
     pub state: Rc<RefCell<measurements::MeasurementState>>,
     pub control_channel: Rc<RefCell<Option<web_sys::RtcDataChannel>>>,
+    pub probe_channel: Rc<RefCell<Option<web_sys::RtcDataChannel>>>,
     // Set to true when ICE fails
     pub failed: bool,
 }
@@ -257,6 +258,7 @@ impl WebRtcConnection {
         probe_init.set_ordered(false);
         probe_init.set_max_retransmits(0);
         let probe_channel = peer.create_data_channel_with_data_channel_dict("probe", &probe_init);
+        let probe_channel_ref = Rc::new(RefCell::new(Some(probe_channel.clone())));
         measurements::setup_probe_channel(probe_channel, state.clone());
 
         // Create bulk channel (unreliable, unordered) for realistic throughput measurement
@@ -485,7 +487,7 @@ impl WebRtcConnection {
 
         log::info!("WebRTC connection established for peer [{}][{}]", &ip_version, &short_client_id);
 
-        Ok(Self { peer, client_id, conn_id: server_conn_id, state, control_channel: control_channel_ref, failed: false })
+        Ok(Self { peer, client_id, conn_id: server_conn_id, state, control_channel: control_channel_ref, probe_channel: probe_channel_ref, failed: false })
     }
     
     /// Helper method to send a serializable message over the control channel
@@ -644,6 +646,48 @@ impl WebRtcConnection {
             }
         );
         self.send_control_message(&msg, "stop server traffic")
+    }
+    
+    /// Send start probe streams message to the server
+    pub async fn send_start_probe_streams(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let msg = common::ControlMessage::StartProbeStreams(
+            common::StartProbeStreamsMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
+        
+        // Enable probe streams on client side
+        {
+            let mut state = self.state.borrow_mut();
+            state.probe_streams_active = true;
+            state.measurement_probe_seq = 0;
+            state.received_measurement_probes.clear();
+            state.baseline_delay_sum = 0.0;
+            state.baseline_delay_count = 0;
+        }
+        
+        self.send_control_message(&msg, "start probe streams")
+    }
+    
+    /// Send stop probe streams message to the server
+    pub async fn send_stop_probe_streams(&self, survey_session_id: &str) -> Result<(), JsValue> {
+        let msg = common::ControlMessage::StopProbeStreams(
+            common::StopProbeStreamsMessage {
+                conn_id: self.conn_id.clone(),
+                survey_session_id: survey_session_id.to_string(),
+            }
+        );
+        
+        // Disable probe streams on client side
+        self.state.borrow_mut().probe_streams_active = false;
+        
+        self.send_control_message(&msg, "stop probe streams")
+    }
+    
+    /// Get the probe channel for sending measurement probes
+    pub fn get_probe_channel(&self) -> Option<web_sys::RtcDataChannel> {
+        self.probe_channel.borrow().clone()
     }
     
     /// Enable traceroute mode (prevents measurement data collection)

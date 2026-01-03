@@ -424,6 +424,119 @@ pub struct StopServerTrafficMessage {
     pub survey_session_id: String,
 }
 
+/// Message sent from client to server to start probe streams for baseline measurement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartProbeStreamsMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+/// Message sent from client to server to stop probe streams
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StopProbeStreamsMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+/// Statistics for a single direction of probe stream
+/// Contains 50th percentile, 99th percentile, and full range values
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DirectionStats {
+    /// One-way delay deviation from baseline in milliseconds
+    /// [0] = 50th percentile (median), [1] = 99th percentile, [2] = min, [3] = max
+    pub delay_deviation_ms: [f64; 4],
+    
+    /// RTT in milliseconds (if available from echo)
+    /// [0] = 50th percentile, [1] = 99th percentile, [2] = min, [3] = max
+    pub rtt_ms: [f64; 4],
+    
+    /// Jitter in milliseconds
+    /// [0] = 50th percentile, [1] = 99th percentile, [2] = min, [3] = max
+    pub jitter_ms: [f64; 4],
+    
+    /// Loss rate as percentage
+    pub loss_rate: f64,
+    
+    /// Reorder rate as percentage
+    pub reorder_rate: f64,
+    
+    /// Number of probes used in this calculation
+    pub probe_count: u32,
+    
+    /// Baseline average delay in milliseconds (incrementally calculated)
+    pub baseline_delay_ms: f64,
+}
+
+/// Per-second statistics report sent on control channel
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeStatsReport {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+    
+    /// Timestamp when this report was generated (ms since epoch)
+    pub timestamp_ms: u64,
+    
+    /// Client-to-server direction statistics (measured by server)
+    pub c2s_stats: DirectionStats,
+    
+    /// Server-to-client direction statistics (measured by client)
+    pub s2c_stats: DirectionStats,
+}
+
+/// Compact feedback about received probes from the other direction
+/// Included in each probe to allow the sender to calculate stats without waiting
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProbeFeedback {
+    /// Highest sequence number received so far
+    pub highest_seq: u64,
+    
+    /// Timestamp when highest seq was received (ms since epoch)
+    pub highest_seq_received_at_ms: u64,
+    
+    /// Count of probes received in the last second
+    pub recent_count: u32,
+    
+    /// Count of out-of-order probes in the last second
+    pub recent_reorders: u32,
+}
+
+/// Probe packet for bidirectional measurement streams
+/// Sent at 100pps on the "probe" channel (unreliable, unordered)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeasurementProbePacket {
+    /// Sequence number (monotonically increasing per direction)
+    pub seq: u64,
+    
+    /// Timestamp when this probe was sent (ms since epoch)
+    pub sent_at_ms: u64,
+    
+    /// Direction of this probe
+    pub direction: Direction,
+    
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Feedback about probes received from the other direction
+    #[serde(default)]
+    pub feedback: ProbeFeedback,
+}
+
 /// Enum wrapping all control message types for proper serialization/deserialization
 /// This ensures each message type has a distinct JSON representation with a "type" tag
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -443,6 +556,10 @@ pub enum ControlMessage {
     StartServerTraffic(StartServerTrafficMessage),
     StopServerTraffic(StopServerTrafficMessage),
     TestProbeMessageEcho(TestProbePacket),
+    // Probe stream messages for baseline measurement
+    StartProbeStreams(StartProbeStreamsMessage),
+    StopProbeStreams(StopProbeStreamsMessage),
+    ProbeStats(ProbeStatsReport),
 }
 
 /// Event generated when an ICMP error matches a tracked packet
@@ -740,6 +857,7 @@ mod tests {
                 survey_session_id: "survey4".to_string(),
                 packet_size: 1500,
                 path_ttl: 15,
+                collect_timeout_ms: 5000,
             }),
             ControlMessage::GetMeasuringTime(GetMeasuringTimeMessage {
                 conn_id: "conn5".to_string(),
