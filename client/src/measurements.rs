@@ -146,14 +146,13 @@ impl MeasurementState {
                 }
 
                 // Calculate reordering rate
-                // Track max sequence seen so far; any packet with seq < max is reordered
                 let mut reorders = 0;
-                let mut max_seq_seen = 0u64;
+                let mut last_seq = 0u64;
                 for p in &recent_probes {
-                    if p.seq < max_seq_seen {
+                    if p.seq < last_seq {
                         reorders += 1;
                     }
-                    max_seq_seen = max_seq_seen.max(p.seq);
+                    last_seq = p.seq;
                 }
                 self.metrics.s2c_reorder_rate[i] = (reorders as f64 / recent_probes.len() as f64) * 100.0;
             }

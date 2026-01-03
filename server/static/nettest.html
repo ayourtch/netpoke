@@ -317,7 +317,8 @@
                             },
                             zoom: {
                                 wheel: {
-                                    enabled: true
+                                    enabled: true,
+				    modifierKey: 'ctrl'
                                 },
                                 pinch: {
                                     enabled: true
@@ -1156,7 +1157,7 @@
                         legend: { display: true, position: 'top' },
                         zoom: {
                             pan: { enabled: true, mode: 'x' },
-                            zoom: { wheel: { enabled: true }, mode: 'x' }
+                            zoom: { wheel: { enabled: true, modifierKey: 'ctrl' }, mode: 'x' }
                         }
                     },
                     animation: false
