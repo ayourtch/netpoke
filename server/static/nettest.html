@@ -160,6 +160,14 @@
                 <span id="capture-status" style="color: #666; font-size: 14px;">Checking capture status...</span>
             </div>
             <div style="display: flex; flex-direction: column; gap: 5px;">
+                <button id="download-survey-pcap-btn" onclick="downloadSurveyPcap()" 
+                   style="padding: 10px 20px; background-color: #9C27B0; color: white; border: none; border-radius: 4px; font-weight: bold; text-align: center; cursor: pointer;" 
+                   disabled>
+                    📥 Download Survey PCAP
+                </button>
+                <span id="survey-pcap-status" style="color: #666; font-size: 14px;">Start a survey session first</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
                 <a id="download-tracing-btn" href="/api/tracing/download" 
                    style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-align: center;">
                     📋 Download Tracing Log
@@ -1415,6 +1423,46 @@
         // Make functions globally available
         window.generateMultiConnectionTables = generateMultiConnectionTables;
         window.updateConnectionMetrics = updateConnectionMetrics;
+        
+        // Survey session tracking for survey-specific PCAP downloads
+        let currentSurveySessionId = null;
+        
+        // Set the current survey session ID (called from WASM when session starts)
+        function setSurveySessionId(sessionId) {
+            currentSurveySessionId = sessionId;
+            const btn = document.getElementById('download-survey-pcap-btn');
+            const statusEl = document.getElementById('survey-pcap-status');
+            
+            if (sessionId && sessionId.length > 0) {
+                btn.disabled = false;
+                btn.style.backgroundColor = '#9C27B0';
+                btn.style.cursor = 'pointer';
+                const shortId = sessionId.length > 8 ? sessionId.substring(0, 8) + '...' : sessionId;
+                statusEl.textContent = `Session: ${shortId}`;
+                statusEl.style.color = '#9C27B0';
+            } else {
+                btn.disabled = true;
+                btn.style.backgroundColor = '#ccc';
+                btn.style.cursor = 'not-allowed';
+                statusEl.textContent = 'Start a survey session first';
+                statusEl.style.color = '#666';
+            }
+        }
+        
+        // Download PCAP for current survey session
+        function downloadSurveyPcap() {
+            if (!currentSurveySessionId) {
+                alert('No survey session active. Start "Analyze Network" first.');
+                return;
+            }
+            
+            const url = `/api/capture/download/session?survey_session_id=${encodeURIComponent(currentSurveySessionId)}`;
+            window.location.href = url;
+        }
+        
+        // Make survey functions globally available
+        window.setSurveySessionId = setSurveySessionId;
+        window.downloadSurveyPcap = downloadSurveyPcap;
     </script>
     <script type="module">
         const errorEl = document.getElementById('error');

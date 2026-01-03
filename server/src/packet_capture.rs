@@ -7,8 +7,11 @@
 /// - Thread-safe access via parking_lot RwLock
 /// - PCAP file export using libpcap's native format
 /// - Support for interface selection and promiscuous mode
+/// - Survey session tagging for per-session packet downloads
 
 use std::sync::Arc;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use parking_lot::RwLock;
 
 /// Captured packet with timestamp and metadata from libpcap
@@ -22,6 +25,8 @@ pub struct CapturedPacket {
     pub orig_len: u32,
     /// Captured packet data (may be truncated to snaplen)
     pub data: Vec<u8>,
+    /// Optional survey session ID that this packet belongs to
+    pub survey_session_id: Option<String>,
 }
 
 /// Configuration for packet capture
@@ -83,12 +88,13 @@ impl PacketRingBuffer {
     }
 
     /// Add a packet to the ring buffer
-    pub fn add_packet(&mut self, ts_sec: i64, ts_usec: i64, orig_len: u32, data: Vec<u8>) {
+    pub fn add_packet(&mut self, ts_sec: i64, ts_usec: i64, orig_len: u32, data: Vec<u8>, survey_session_id: Option<String>) {
         let packet = CapturedPacket {
             ts_sec,
             ts_usec,
             orig_len,
             data,
+            survey_session_id,
         };
 
         if self.packets.len() < self.config.max_packets {
@@ -101,6 +107,15 @@ impl PacketRingBuffer {
 
         self.write_pos = (self.write_pos + 1) % self.config.max_packets;
         self.total_captured += 1;
+    }
+    
+    /// Get packets filtered by survey session ID
+    pub fn get_packets_for_session(&self, survey_session_id: &str) -> Vec<CapturedPacket> {
+        let all_packets = self.get_packets();
+        all_packets
+            .into_iter()
+            .filter(|p| p.survey_session_id.as_deref() == Some(survey_session_id))
+            .collect()
     }
 
     /// Get all packets in chronological order
@@ -155,12 +170,68 @@ pub struct CaptureStats {
     pub snaplen: u32,
 }
 
+/// Registry for mapping socket addresses to survey session IDs
+/// This allows tagging captured packets with their survey session
+#[derive(Default)]
+pub struct SessionRegistry {
+    /// Map of (client_ip, client_port) -> survey_session_id
+    /// This maps client-side addresses to survey sessions
+    address_to_session: HashMap<SocketAddr, String>,
+    /// Map of server port to survey_session_id for cases where we only know the server port
+    server_port_to_session: HashMap<u16, Vec<String>>,
+}
+
+impl SessionRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    
+    /// Register a client address with a survey session ID
+    pub fn register(&mut self, client_addr: SocketAddr, server_port: u16, survey_session_id: String) {
+        tracing::debug!(
+            "Registering session: client={}, server_port={}, session_id={}",
+            client_addr, server_port, survey_session_id
+        );
+        self.address_to_session.insert(client_addr, survey_session_id.clone());
+        
+        // Also register by server port for ICMP matching
+        self.server_port_to_session
+            .entry(server_port)
+            .or_insert_with(Vec::new)
+            .push(survey_session_id);
+    }
+    
+    /// Unregister a client address
+    pub fn unregister(&mut self, client_addr: &SocketAddr) {
+        self.address_to_session.remove(client_addr);
+    }
+    
+    /// Look up survey session ID by client address
+    pub fn lookup(&self, addr: &SocketAddr) -> Option<&String> {
+        self.address_to_session.get(addr)
+    }
+    
+    /// Look up survey session ID by either source or destination address
+    /// Returns the first match found
+    pub fn lookup_by_either(&self, src: &SocketAddr, dst: &SocketAddr) -> Option<&String> {
+        self.address_to_session.get(src)
+            .or_else(|| self.address_to_session.get(dst))
+    }
+    
+    /// Look up by server port (for ICMP packets where we only have the embedded destination)
+    pub fn lookup_by_server_port(&self, port: u16) -> Option<&String> {
+        self.server_port_to_session.get(&port).and_then(|v| v.first())
+    }
+}
+
 /// Thread-safe packet capture service
 pub struct PacketCaptureService {
     /// Ring buffer protected by RwLock
     buffer: RwLock<PacketRingBuffer>,
     /// Configuration
     config: CaptureConfig,
+    /// Session registry for mapping addresses to survey session IDs
+    session_registry: RwLock<SessionRegistry>,
 }
 
 impl PacketCaptureService {
@@ -169,6 +240,7 @@ impl PacketCaptureService {
         Arc::new(Self {
             buffer: RwLock::new(PacketRingBuffer::new(config.clone())),
             config,
+            session_registry: RwLock::new(SessionRegistry::new()),
         })
     }
 
@@ -196,18 +268,349 @@ impl PacketCaptureService {
     pub fn set_datalink(&self, datalink: i32) {
         self.buffer.write().set_datalink(datalink);
     }
+    
+    /// Register a session with the capture service
+    /// This allows the capture to tag packets with the survey session ID
+    pub fn register_session(&self, client_addr: SocketAddr, server_port: u16, survey_session_id: String) {
+        self.session_registry.write().register(client_addr, server_port, survey_session_id);
+    }
+    
+    /// Unregister a session from the capture service
+    pub fn unregister_session(&self, client_addr: &SocketAddr) {
+        self.session_registry.write().unregister(client_addr);
+    }
 
     /// Add a captured packet (called from capture thread)
+    /// The packet will be tagged with a survey session ID if one can be determined
     pub fn add_packet(&self, ts_sec: i64, ts_usec: i64, orig_len: u32, data: Vec<u8>) {
         if self.config.enabled {
-            self.buffer.write().add_packet(ts_sec, ts_usec, orig_len, data);
+            // Try to extract addresses from packet and find matching session
+            let survey_session_id = self.extract_session_id_from_packet(&data);
+            self.buffer.write().add_packet(ts_sec, ts_usec, orig_len, data, survey_session_id);
         }
+    }
+    
+    /// Extract survey session ID from a captured packet
+    /// Parses the packet to find source/destination addresses and looks up in registry
+    fn extract_session_id_from_packet(&self, data: &[u8]) -> Option<String> {
+        // Parse Ethernet + IP header to get addresses
+        let (src_addr, dst_addr) = self.parse_packet_addresses(data)?;
+        
+        let registry = self.session_registry.read();
+        
+        // First try direct address lookup
+        if let Some(session_id) = registry.lookup_by_either(&src_addr, &dst_addr) {
+            return Some(session_id.clone());
+        }
+        
+        // For ICMP packets, try to extract the embedded original packet destination
+        if self.is_icmp_error_packet(data) {
+            if let Some(embedded_dst) = self.extract_embedded_destination(data) {
+                // Look up by the embedded destination port (which is our server port)
+                if let Some(session_id) = registry.lookup_by_server_port(embedded_dst.port()) {
+                    return Some(session_id.clone());
+                }
+                // Also try direct lookup of embedded destination
+                if let Some(session_id) = registry.lookup(&embedded_dst) {
+                    return Some(session_id.clone());
+                }
+            }
+        }
+        
+        None
+    }
+    
+    /// Parse packet addresses (source and destination) from raw packet data
+    /// Returns (src_addr, dst_addr) if the packet is UDP
+    fn parse_packet_addresses(&self, data: &[u8]) -> Option<(SocketAddr, SocketAddr)> {
+        // Minimum: Ethernet (14) + IP header (20) + UDP header (8) = 42 bytes
+        if data.len() < 42 {
+            return None;
+        }
+        
+        // Check EtherType - we support both raw IP and Ethernet frames
+        let ip_start = if data.len() >= 14 {
+            let ethertype = u16::from_be_bytes([data[12], data[13]]);
+            match ethertype {
+                0x0800 => 14,  // IPv4
+                0x86DD => 14,  // IPv6
+                _ if (data[0] >> 4) == 4 || (data[0] >> 4) == 6 => 0, // Raw IP (Linux cooked capture)
+                _ => return None,
+            }
+        } else {
+            0 // Assume raw IP for short packets
+        };
+        
+        if ip_start >= data.len() {
+            return None;
+        }
+        
+        let ip_version = (data[ip_start] >> 4) & 0x0F;
+        
+        match ip_version {
+            4 => self.parse_ipv4_udp_addresses(data, ip_start),
+            6 => self.parse_ipv6_udp_addresses(data, ip_start),
+            _ => None,
+        }
+    }
+    
+    /// Parse IPv4 UDP addresses
+    fn parse_ipv4_udp_addresses(&self, data: &[u8], ip_start: usize) -> Option<(SocketAddr, SocketAddr)> {
+        if data.len() < ip_start + 20 {
+            return None;
+        }
+        
+        let ihl = ((data[ip_start] & 0x0F) * 4) as usize;
+        let protocol = data[ip_start + 9];
+        
+        // Only process UDP (17) and ICMP (1)
+        if protocol != 17 && protocol != 1 {
+            return None;
+        }
+        
+        let src_ip = IpAddr::V4(std::net::Ipv4Addr::new(
+            data[ip_start + 12],
+            data[ip_start + 13],
+            data[ip_start + 14],
+            data[ip_start + 15],
+        ));
+        
+        let dst_ip = IpAddr::V4(std::net::Ipv4Addr::new(
+            data[ip_start + 16],
+            data[ip_start + 17],
+            data[ip_start + 18],
+            data[ip_start + 19],
+        ));
+        
+        let udp_start = ip_start + ihl;
+        if data.len() < udp_start + 8 {
+            // For ICMP, use port 0
+            if protocol == 1 {
+                return Some((
+                    SocketAddr::new(src_ip, 0),
+                    SocketAddr::new(dst_ip, 0),
+                ));
+            }
+            return None;
+        }
+        
+        // For ICMP, use port 0
+        if protocol == 1 {
+            return Some((
+                SocketAddr::new(src_ip, 0),
+                SocketAddr::new(dst_ip, 0),
+            ));
+        }
+        
+        let src_port = u16::from_be_bytes([data[udp_start], data[udp_start + 1]]);
+        let dst_port = u16::from_be_bytes([data[udp_start + 2], data[udp_start + 3]]);
+        
+        Some((
+            SocketAddr::new(src_ip, src_port),
+            SocketAddr::new(dst_ip, dst_port),
+        ))
+    }
+    
+    /// Parse IPv6 UDP addresses
+    fn parse_ipv6_udp_addresses(&self, data: &[u8], ip_start: usize) -> Option<(SocketAddr, SocketAddr)> {
+        if data.len() < ip_start + 40 {
+            return None;
+        }
+        
+        let next_header = data[ip_start + 6];
+        
+        // Only process UDP (17) and ICMPv6 (58)
+        if next_header != 17 && next_header != 58 {
+            return None;
+        }
+        
+        let src_bytes: [u8; 16] = data[ip_start + 8..ip_start + 24].try_into().ok()?;
+        let dst_bytes: [u8; 16] = data[ip_start + 24..ip_start + 40].try_into().ok()?;
+        
+        let src_ip = IpAddr::V6(std::net::Ipv6Addr::from(src_bytes));
+        let dst_ip = IpAddr::V6(std::net::Ipv6Addr::from(dst_bytes));
+        
+        let udp_start = ip_start + 40;
+        
+        // For ICMPv6, use port 0
+        if next_header == 58 {
+            return Some((
+                SocketAddr::new(src_ip, 0),
+                SocketAddr::new(dst_ip, 0),
+            ));
+        }
+        
+        if data.len() < udp_start + 8 {
+            return None;
+        }
+        
+        let src_port = u16::from_be_bytes([data[udp_start], data[udp_start + 1]]);
+        let dst_port = u16::from_be_bytes([data[udp_start + 2], data[udp_start + 3]]);
+        
+        Some((
+            SocketAddr::new(src_ip, src_port),
+            SocketAddr::new(dst_ip, dst_port),
+        ))
+    }
+    
+    /// Check if packet is an ICMP error packet
+    fn is_icmp_error_packet(&self, data: &[u8]) -> bool {
+        // Minimum size check
+        if data.len() < 34 {  // Ethernet + IP + ICMP type
+            return false;
+        }
+        
+        // Determine IP start
+        let ip_start = if data.len() >= 14 {
+            let ethertype = u16::from_be_bytes([data[12], data[13]]);
+            match ethertype {
+                0x0800 | 0x86DD => 14,
+                _ if (data[0] >> 4) == 4 || (data[0] >> 4) == 6 => 0,
+                _ => return false,
+            }
+        } else {
+            0
+        };
+        
+        if ip_start >= data.len() {
+            return false;
+        }
+        
+        let ip_version = (data[ip_start] >> 4) & 0x0F;
+        
+        match ip_version {
+            4 => {
+                if data.len() < ip_start + 21 {
+                    return false;
+                }
+                let protocol = data[ip_start + 9];
+                if protocol != 1 {  // ICMP
+                    return false;
+                }
+                let ihl = ((data[ip_start] & 0x0F) * 4) as usize;
+                if data.len() < ip_start + ihl + 1 {
+                    return false;
+                }
+                let icmp_type = data[ip_start + ihl];
+                // ICMP error types: 3 (Dest Unreachable), 11 (Time Exceeded), 12 (Parameter Problem)
+                matches!(icmp_type, 3 | 11 | 12)
+            }
+            6 => {
+                if data.len() < ip_start + 41 {
+                    return false;
+                }
+                let next_header = data[ip_start + 6];
+                if next_header != 58 {  // ICMPv6
+                    return false;
+                }
+                let icmpv6_type = data[ip_start + 40];
+                // ICMPv6 error types: 1 (Dest Unreachable), 2 (Packet Too Big), 3 (Time Exceeded)
+                matches!(icmpv6_type, 1 | 2 | 3)
+            }
+            _ => false,
+        }
+    }
+    
+    /// Extract the embedded original packet destination from an ICMP error
+    fn extract_embedded_destination(&self, data: &[u8]) -> Option<SocketAddr> {
+        // Determine IP start
+        let ip_start = if data.len() >= 14 {
+            let ethertype = u16::from_be_bytes([data[12], data[13]]);
+            match ethertype {
+                0x0800 | 0x86DD => 14,
+                _ if (data[0] >> 4) == 4 || (data[0] >> 4) == 6 => 0,
+                _ => return None,
+            }
+        } else {
+            0
+        };
+        
+        let ip_version = (data[ip_start] >> 4) & 0x0F;
+        
+        match ip_version {
+            4 => self.extract_embedded_ipv4_destination(data, ip_start),
+            6 => self.extract_embedded_ipv6_destination(data, ip_start),
+            _ => None,
+        }
+    }
+    
+    /// Extract embedded IPv4 destination from ICMP error
+    fn extract_embedded_ipv4_destination(&self, data: &[u8], ip_start: usize) -> Option<SocketAddr> {
+        let ihl = ((data[ip_start] & 0x0F) * 4) as usize;
+        let icmp_start = ip_start + ihl;
+        
+        // ICMP header is 8 bytes, then embedded IP packet
+        let embedded_ip_start = icmp_start + 8;
+        
+        if data.len() < embedded_ip_start + 28 {  // Embedded IP (20) + UDP header (8)
+            return None;
+        }
+        
+        let embedded_ihl = ((data[embedded_ip_start] & 0x0F) * 4) as usize;
+        let embedded_protocol = data[embedded_ip_start + 9];
+        
+        // Only handle UDP
+        if embedded_protocol != 17 {
+            return None;
+        }
+        
+        let dst_ip = std::net::Ipv4Addr::new(
+            data[embedded_ip_start + 16],
+            data[embedded_ip_start + 17],
+            data[embedded_ip_start + 18],
+            data[embedded_ip_start + 19],
+        );
+        
+        let embedded_udp_start = embedded_ip_start + embedded_ihl;
+        if data.len() < embedded_udp_start + 4 {
+            return None;
+        }
+        
+        let dst_port = u16::from_be_bytes([data[embedded_udp_start + 2], data[embedded_udp_start + 3]]);
+        
+        Some(SocketAddr::new(IpAddr::V4(dst_ip), dst_port))
+    }
+    
+    /// Extract embedded IPv6 destination from ICMPv6 error
+    fn extract_embedded_ipv6_destination(&self, data: &[u8], ip_start: usize) -> Option<SocketAddr> {
+        let icmpv6_start = ip_start + 40;  // IPv6 header is fixed 40 bytes
+        
+        // ICMPv6 header is 8 bytes, then embedded IPv6 packet
+        let embedded_ip_start = icmpv6_start + 8;
+        
+        if data.len() < embedded_ip_start + 48 {  // Embedded IPv6 (40) + UDP header (8)
+            return None;
+        }
+        
+        let embedded_next_header = data[embedded_ip_start + 6];
+        
+        // Only handle UDP
+        if embedded_next_header != 17 {
+            return None;
+        }
+        
+        let dst_bytes: [u8; 16] = data[embedded_ip_start + 24..embedded_ip_start + 40].try_into().ok()?;
+        let dst_ip = std::net::Ipv6Addr::from(dst_bytes);
+        
+        let embedded_udp_start = embedded_ip_start + 40;
+        if data.len() < embedded_udp_start + 4 {
+            return None;
+        }
+        
+        let dst_port = u16::from_be_bytes([data[embedded_udp_start + 2], data[embedded_udp_start + 3]]);
+        
+        Some(SocketAddr::new(IpAddr::V6(dst_ip), dst_port))
     }
 
     /// Get all captured packets in chronological order
     #[allow(dead_code)]
     pub fn get_packets(&self) -> Vec<CapturedPacket> {
         self.buffer.read().get_packets()
+    }
+    
+    /// Get packets for a specific survey session
+    pub fn get_packets_for_session(&self, survey_session_id: &str) -> Vec<CapturedPacket> {
+        self.buffer.read().get_packets_for_session(survey_session_id)
     }
 
     /// Get capture statistics
@@ -229,6 +632,22 @@ impl PacketCaptureService {
         let snaplen = self.config.snaplen as u32;
         drop(buffer);
 
+        Self::packets_to_pcap(&packets, datalink, snaplen)
+    }
+    
+    /// Generate PCAP file contents for a specific survey session
+    pub fn generate_pcap_for_session(&self, survey_session_id: &str) -> Vec<u8> {
+        let buffer = self.buffer.read();
+        let packets = buffer.get_packets_for_session(survey_session_id);
+        let datalink = buffer.datalink();
+        let snaplen = self.config.snaplen as u32;
+        drop(buffer);
+
+        Self::packets_to_pcap(&packets, datalink, snaplen)
+    }
+    
+    /// Convert packets to PCAP format
+    fn packets_to_pcap(packets: &[CapturedPacket], datalink: i32, snaplen: u32) -> Vec<u8> {
         let mut output = Vec::new();
 
         // PCAP file header (24 bytes) - same format as tcpdump/libpcap
@@ -361,9 +780,9 @@ mod tests {
         let mut buffer = PacketRingBuffer::new(config);
 
         // Add 3 packets
-        buffer.add_packet(1000, 0, 3, vec![1, 2, 3]);
-        buffer.add_packet(1001, 0, 3, vec![4, 5, 6]);
-        buffer.add_packet(1002, 0, 3, vec![7, 8, 9]);
+        buffer.add_packet(1000, 0, 3, vec![1, 2, 3], None);
+        buffer.add_packet(1001, 0, 3, vec![4, 5, 6], None);
+        buffer.add_packet(1002, 0, 3, vec![7, 8, 9], None);
 
         let packets = buffer.get_packets();
         assert_eq!(packets.len(), 3);
@@ -382,11 +801,11 @@ mod tests {
         let mut buffer = PacketRingBuffer::new(config);
 
         // Add 5 packets (wraps around)
-        buffer.add_packet(1000, 0, 1, vec![1]);
-        buffer.add_packet(1001, 0, 1, vec![2]);
-        buffer.add_packet(1002, 0, 1, vec![3]);
-        buffer.add_packet(1003, 0, 1, vec![4]);
-        buffer.add_packet(1004, 0, 1, vec![5]);
+        buffer.add_packet(1000, 0, 1, vec![1], None);
+        buffer.add_packet(1001, 0, 1, vec![2], None);
+        buffer.add_packet(1002, 0, 1, vec![3], None);
+        buffer.add_packet(1003, 0, 1, vec![4], None);
+        buffer.add_packet(1004, 0, 1, vec![5], None);
 
         let packets = buffer.get_packets();
         assert_eq!(packets.len(), 3);
@@ -409,7 +828,7 @@ mod tests {
         // Set datalink type (Ethernet)
         service.set_datalink(1);
 
-        // Add a test packet
+        // Add a test packet (packet too short to extract session)
         service.add_packet(1700000000, 123456, 4, vec![0x45, 0x00, 0x00, 0x20]);
 
         let pcap = service.generate_pcap();
@@ -430,5 +849,54 @@ mod tests {
         // Check datalink type
         let datalink = u32::from_le_bytes([pcap[20], pcap[21], pcap[22], pcap[23]]);
         assert_eq!(datalink, 1); // DLT_EN10MB
+    }
+    
+    #[test]
+    fn test_session_registry() {
+        let mut registry = SessionRegistry::new();
+        
+        let addr1 = SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 100)), 54321);
+        let addr2 = SocketAddr::new(IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 101)), 54322);
+        
+        registry.register(addr1, 443, "session-a".to_string());
+        registry.register(addr2, 443, "session-b".to_string());
+        
+        assert_eq!(registry.lookup(&addr1), Some(&"session-a".to_string()));
+        assert_eq!(registry.lookup(&addr2), Some(&"session-b".to_string()));
+        
+        // Look up by server port
+        assert!(registry.lookup_by_server_port(443).is_some());
+        
+        registry.unregister(&addr1);
+        assert_eq!(registry.lookup(&addr1), None);
+    }
+    
+    #[test]
+    fn test_packets_for_session() {
+        let config = CaptureConfig {
+            max_packets: 10,
+            snaplen: 100,
+            ..Default::default()
+        };
+        let mut buffer = PacketRingBuffer::new(config);
+        
+        // Add packets with different session IDs
+        buffer.add_packet(1000, 0, 3, vec![1, 2, 3], Some("session-a".to_string()));
+        buffer.add_packet(1001, 0, 3, vec![4, 5, 6], Some("session-b".to_string()));
+        buffer.add_packet(1002, 0, 3, vec![7, 8, 9], Some("session-a".to_string()));
+        buffer.add_packet(1003, 0, 3, vec![10, 11, 12], None);
+        
+        let session_a_packets = buffer.get_packets_for_session("session-a");
+        assert_eq!(session_a_packets.len(), 2);
+        assert_eq!(session_a_packets[0].data, vec![1, 2, 3]);
+        assert_eq!(session_a_packets[1].data, vec![7, 8, 9]);
+        
+        let session_b_packets = buffer.get_packets_for_session("session-b");
+        assert_eq!(session_b_packets.len(), 1);
+        assert_eq!(session_b_packets[0].data, vec![4, 5, 6]);
+        
+        // All packets
+        let all_packets = buffer.get_packets();
+        assert_eq!(all_packets.len(), 4);
     }
 }

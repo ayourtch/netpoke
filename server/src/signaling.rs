@@ -148,6 +148,7 @@ pub async fn signaling_start(
         packet_tracker: state.packet_tracker.clone(), // Share global packet tracker
         icmp_error_count: Arc::new(tokio::sync::Mutex::new(0)),
         last_icmp_error: Arc::new(tokio::sync::Mutex::new(None)),
+        capture_service: state.capture_service.clone(), // For survey-specific pcap
     });
 
     // Set up data channel handlers

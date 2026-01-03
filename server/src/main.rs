@@ -76,9 +76,10 @@ fn get_make_service(
     // Capture API routes - accessible with hybrid auth (both user and magic key)
     let capture_routes = Router::new()
         .route("/api/capture/download", get(capture_api::download_pcap))
+        .route("/api/capture/download/session", get(capture_api::download_pcap_for_session))
         .route("/api/capture/stats", get(capture_api::capture_stats))
         .route("/api/capture/clear", post(capture_api::clear_capture))
-        .with_state(capture_service);
+        .with_state(capture_service.clone());
     
     // Tracing API routes - accessible with hybrid auth (both user and magic key)
     let tracing_routes = Router::new()
@@ -526,6 +527,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         promiscuous: config.capture.promiscuous,
     };
     let capture_service = packet_capture::PacketCaptureService::new(capture_config);
+    
+    // Set capture service on app_state for session registration
+    let mut app_state = app_state;  // Make mutable to set capture service
+    app_state.set_capture_service(capture_service.clone());
     
     // Start packet capture if enabled
     if config.capture.enabled {

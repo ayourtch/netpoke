@@ -178,6 +178,33 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                 let mut survey_id = session.survey_session_id.write().await;
                 *survey_id = start_survey_msg.survey_session_id.clone();
             }
+            
+            // Register with capture service for survey-specific pcap downloads
+            // We need the peer address which should be available after connection is established
+            if let Some(capture_service) = &session.capture_service {
+                let peer_addr = session.peer_address.lock().await;
+                if let Some((ip_str, port)) = peer_addr.as_ref() {
+                    if let Ok(ip) = ip_str.parse::<std::net::IpAddr>() {
+                        let client_addr = std::net::SocketAddr::new(ip, *port);
+                        // Use a default server port - we don't have the exact server port here
+                        // but the capture service will match by client address
+                        capture_service.register_session(
+                            client_addr,
+                            0,  // Server port not strictly needed for client addr lookup
+                            start_survey_msg.survey_session_id.clone(),
+                        );
+                        tracing::info!(
+                            "Registered session {} with capture service: client={}, survey_session_id={}",
+                            session.id, client_addr, start_survey_msg.survey_session_id
+                        );
+                    }
+                } else {
+                    tracing::debug!(
+                        "Peer address not yet available for session {}, capture registration deferred",
+                        session.id
+                    );
+                }
+            }
 
 
             let (control_channel, all_channels_ready) = {

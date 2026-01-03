@@ -7,6 +7,7 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::data_channel::RTCDataChannel;
 use common::ClientMetrics;
 use crate::packet_tracker::{PacketTracker, UdpPacketInfo};
+use crate::packet_capture::PacketCaptureService;
 use tokio::sync::mpsc;
 
 
@@ -19,6 +20,8 @@ pub struct AppState {
     /// Channel for sending peer connections that need to be closed
     /// This is used when signaling fails to prevent resource leaks
     pub peer_cleanup_sender: mpsc::UnboundedSender<Arc<RTCPeerConnection>>,
+    /// Packet capture service for survey-specific pcap downloads
+    pub capture_service: Option<Arc<PacketCaptureService>>,
 }
 
 #[derive(Debug)]
@@ -88,6 +91,8 @@ pub struct ClientSession {
     // ICMP error tracking for session cleanup
     pub icmp_error_count: Arc<Mutex<u32>>,
     pub last_icmp_error: Arc<Mutex<Option<Instant>>>,
+    /// Packet capture service for survey-specific pcap registration
+    pub capture_service: Option<Arc<PacketCaptureService>>,
 }
 
 pub struct DataChannels {
@@ -180,8 +185,14 @@ impl AppState {
             tracking_sender: tx,
             server_start_time: Instant::now(),
             peer_cleanup_sender: cleanup_tx,
+            capture_service: None, // Will be set after initialization
         };
         (state, cleanup_rx)
+    }
+    
+    /// Set the capture service for survey-specific pcap downloads
+    pub fn set_capture_service(&mut self, capture_service: Arc<PacketCaptureService>) {
+        self.capture_service = Some(capture_service);
     }
 }
 

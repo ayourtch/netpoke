@@ -591,6 +591,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let survey_session_id = generate_uuid();
     set_survey_session_id(survey_session_id.clone());
     log::info!("Generated survey session ID: {}", survey_session_id);
+    
+    // Notify JavaScript of the survey session ID for PCAP downloads
+    notify_survey_session_id_js(&survey_session_id);
 
     // Fetch client configuration from server
     let client_config = fetch_client_config().await;
@@ -1272,6 +1275,31 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
 
     // Update chart with metrics data
     call_add_metrics_data(ipv4_metrics, ipv6_metrics);
+}
+
+/// Notify JavaScript of the current survey session ID for survey-specific PCAP downloads.
+/// 
+/// # Parameters
+/// - `survey_session_id`: The unique survey session ID (UUID) for this test run
+fn notify_survey_session_id_js(survey_session_id: &str) {
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen::JsCast;
+    
+    let window = match window() {
+        Some(w) => w,
+        None => return,
+    };
+    
+    // Call JavaScript function setSurveySessionId(sessionId)
+    if let Ok(set_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("setSurveySessionId")) {
+        if let Some(func) = set_fn.dyn_ref::<js_sys::Function>() {
+            if let Err(e) = func.call1(&JsValue::NULL, &JsValue::from_str(survey_session_id)) {
+                log::warn!("Failed to call setSurveySessionId: {:?}", e);
+            } else {
+                log::info!("Notified JavaScript of survey session ID: {}", survey_session_id);
+            }
+        }
+    }
 }
 
 /// Register a peer connection with JavaScript for display in the peer connections list.
