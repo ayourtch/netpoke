@@ -17,8 +17,11 @@ This directory contains all documentation for the wifi-verify project.
 - **[ALLOWED_USERS_GUIDE.md](ALLOWED_USERS_GUIDE.md)** - Guide for configuring allowed users access control
 
 ### Technical Features
+- **[MEASURING_FUNCTIONALITY.md](MEASURING_FUNCTIONALITY.md)** - Complete guide to the network measurement system, including probe streams, metrics, and analysis phases
 - **[UDP_PACKET_OPTIONS.md](UDP_PACKET_OPTIONS.md)** - Comprehensive guide to per-packet UDP socket options (TTL, TOS, DF bit)
 - **[DIAGNOSTICS.md](DIAGNOSTICS.md)** - Server diagnostics endpoint for troubleshooting WebRTC connection issues
+- **[DTLS_BYPASS_FEATURE.md](DTLS_BYPASS_FEATURE.md)** - DTLS encryption bypass for MTU discovery
+- **[SCTP_FRAGMENTATION_BYPASS.md](SCTP_FRAGMENTATION_BYPASS.md)** - SCTP fragmentation bypass for large packets
 
 ### Planning and Design Documents
 - **[plans/](plans/)** - Design documents and implementation plans for features
@@ -47,9 +50,10 @@ Documentation for vendored dependencies (README.md, CHANGELOG.md) remains in the
 
 1. For initial setup, start with [AUTHENTICATION.md](AUTHENTICATION.md) to configure access control
 2. For HTTPS deployment, see [HTTPS_SETUP.md](HTTPS_SETUP.md)
-3. For technical details on the UDP options feature, see [UDP_PACKET_OPTIONS.md](UDP_PACKET_OPTIONS.md)
-4. For troubleshooting traceroute, see [VERIFICATION_GUIDE.md](VERIFICATION_GUIDE.md)
-5. For diagnosing WebRTC connection issues, see [DIAGNOSTICS.md](DIAGNOSTICS.md)
+3. **For understanding the measurement system, see [MEASURING_FUNCTIONALITY.md](MEASURING_FUNCTIONALITY.md)**
+4. For technical details on the UDP options feature, see [UDP_PACKET_OPTIONS.md](UDP_PACKET_OPTIONS.md)
+5. For troubleshooting traceroute, see [VERIFICATION_GUIDE.md](VERIFICATION_GUIDE.md)
+6. For diagnosing WebRTC connection issues, see [DIAGNOSTICS.md](DIAGNOSTICS.md)
 
 ## Contributing
 
