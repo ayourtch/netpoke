@@ -949,8 +949,8 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         let conn_id = conn.conn_id.clone();
         
         if let Some(channel) = probe_channel {
-            // Start sending measurement probes at 100pps
-            let interval = gloo_timers::callback::Interval::new(10, move || {
+            // Start sending measurement probes at configured rate
+            let interval = gloo_timers::callback::Interval::new(common::PROBE_INTERVAL_MS, move || {
                 let mut state = state.borrow_mut();
                 if !state.probe_streams_active {
                     return;
@@ -1089,11 +1089,11 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 /// Calculate S2C stats from received measurement probes (called by client)
 fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common::DirectionStats {
     let now_ms = current_time_ms();
-    let one_second_cutoff = now_ms.saturating_sub(1000);
+    let stats_cutoff = now_ms.saturating_sub(common::PROBE_FEEDBACK_WINDOW_MS);
     
-    // Filter to probes received in the last second
+    // Filter to probes received in the stats window
     let recent_probes: Vec<_> = state.received_measurement_probes.iter()
-        .filter(|p| p.received_at_ms >= one_second_cutoff)
+        .filter(|p| p.received_at_ms >= stats_cutoff)
         .collect();
     
     if recent_probes.is_empty() {

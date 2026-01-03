@@ -30,6 +30,27 @@ impl IpFamily {
     }
 }
 
+// ============ Probe Stream Constants ============
+// These constants ensure consistency between client and server implementations
+
+/// Probe stream rate in packets per second
+pub const PROBE_STREAM_PPS: u32 = 100;
+
+/// Probe interval in milliseconds (derived from PPS)
+pub const PROBE_INTERVAL_MS: u32 = 1000 / PROBE_STREAM_PPS;
+
+/// Minimum sample count before applying outlier exclusion for baseline calculation
+pub const BASELINE_MIN_SAMPLES: u64 = 10;
+
+/// Multiplier for outlier exclusion (values > baseline * this are excluded)
+pub const BASELINE_OUTLIER_MULTIPLIER: f64 = 3.0;
+
+/// Duration to keep probes for stats calculation (milliseconds)
+pub const PROBE_STATS_WINDOW_MS: u64 = 2000;
+
+/// Duration to keep probes for feedback calculation (milliseconds)  
+pub const PROBE_FEEDBACK_WINDOW_MS: u64 = 1000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Direction {
     ClientToServer,

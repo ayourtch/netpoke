@@ -904,12 +904,14 @@ pub async fn handle_testprobe_echo_packet(
     }
 }
 
-/// Start the measurement probe sender for baseline measurement (100pps)
+/// Start the measurement probe sender for baseline measurement
 /// Uses the probe channel (unreliable, unordered)
 pub async fn start_measurement_probe_sender(session: Arc<ClientSession>) {
-    let mut interval = interval(Duration::from_millis(10)); // 100 Hz = 100pps
+    let interval_ms = common::PROBE_INTERVAL_MS as u64;
+    let mut interval = interval(Duration::from_millis(interval_ms));
 
-    tracing::info!("Starting measurement probe sender for session {} at 100pps", session.id);
+    tracing::info!("Starting measurement probe sender for session {} at {}pps", 
+        session.id, common::PROBE_STREAM_PPS);
 
     loop {
         interval.tick().await;
@@ -991,14 +993,15 @@ pub async fn handle_measurement_probe_packet(
         });
 
         // Update baseline delay (exponential moving average with outlier exclusion)
-        // Only include delays within 3x of current baseline
+        // Only include delays within BASELINE_OUTLIER_MULTIPLIER of current baseline
         let baseline = if state.baseline_delay_count > 0 {
             state.baseline_delay_sum / state.baseline_delay_count as f64
         } else {
             delay
         };
         
-        if state.baseline_delay_count < 10 || delay < baseline * 3.0 {
+        if state.baseline_delay_count < common::BASELINE_MIN_SAMPLES || 
+           delay < baseline * common::BASELINE_OUTLIER_MULTIPLIER {
             state.baseline_delay_sum += delay;
             state.baseline_delay_count += 1;
         }
@@ -1007,8 +1010,8 @@ pub async fn handle_measurement_probe_packet(
         state.last_feedback.highest_seq = state.last_feedback.highest_seq.max(probe.seq);
         state.last_feedback.highest_seq_received_at_ms = now_ms;
         
-        // Keep only last 2 seconds of probes for stats calculation
-        let cutoff = now_ms.saturating_sub(2000);
+        // Keep only last PROBE_STATS_WINDOW_MS of probes for stats calculation
+        let cutoff = now_ms.saturating_sub(common::PROBE_STATS_WINDOW_MS);
         while let Some(p) = state.received_measurement_probes.front() {
             if p.received_at_ms < cutoff {
                 state.received_measurement_probes.pop_front();
@@ -1021,9 +1024,9 @@ pub async fn handle_measurement_probe_packet(
         let mut recent_count = 0u32;
         let mut recent_reorders = 0u32;
         let mut last_seq = 0u64;
-        let one_second_cutoff = now_ms.saturating_sub(1000);
+        let feedback_cutoff = now_ms.saturating_sub(common::PROBE_FEEDBACK_WINDOW_MS);
         for p in state.received_measurement_probes.iter() {
-            if p.received_at_ms >= one_second_cutoff {
+            if p.received_at_ms >= feedback_cutoff {
                 recent_count += 1;
                 if p.seq < last_seq {
                     recent_reorders += 1;
@@ -1094,11 +1097,11 @@ async fn calculate_probe_stream_stats(session: &Arc<ClientSession>) -> common::D
     let state = session.measurement_state.read().await;
     
     let now_ms = current_time_ms();
-    let one_second_cutoff = now_ms.saturating_sub(1000);
+    let stats_cutoff = now_ms.saturating_sub(common::PROBE_FEEDBACK_WINDOW_MS);
     
-    // Filter to probes received in the last second
+    // Filter to probes received in the last PROBE_FEEDBACK_WINDOW_MS
     let recent_probes: Vec<_> = state.received_measurement_probes.iter()
-        .filter(|p| p.received_at_ms >= one_second_cutoff)
+        .filter(|p| p.received_at_ms >= stats_cutoff)
         .collect();
     
     if recent_probes.is_empty() {

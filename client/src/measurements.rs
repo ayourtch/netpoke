@@ -254,7 +254,8 @@ pub fn setup_probe_channel(
                             delay
                         };
                         
-                        if state.baseline_delay_count < 10 || delay < baseline * 3.0 {
+                        if state.baseline_delay_count < common::BASELINE_MIN_SAMPLES || 
+                           delay < baseline * common::BASELINE_OUTLIER_MULTIPLIER {
                             state.baseline_delay_sum += delay;
                             state.baseline_delay_count += 1;
                         }
@@ -263,8 +264,8 @@ pub fn setup_probe_channel(
                         state.last_feedback.highest_seq = state.last_feedback.highest_seq.max(probe.seq);
                         state.last_feedback.highest_seq_received_at_ms = now_ms;
                         
-                        // Keep only last 2 seconds of probes for stats calculation
-                        let cutoff = now_ms.saturating_sub(2000);
+                        // Keep only last PROBE_STATS_WINDOW_MS of probes for stats calculation
+                        let cutoff = now_ms.saturating_sub(common::PROBE_STATS_WINDOW_MS);
                         while let Some(p) = state.received_measurement_probes.front() {
                             if p.received_at_ms < cutoff {
                                 state.received_measurement_probes.pop_front();
@@ -277,9 +278,9 @@ pub fn setup_probe_channel(
                         let mut recent_count = 0u32;
                         let mut recent_reorders = 0u32;
                         let mut last_seq = 0u64;
-                        let one_second_cutoff = now_ms.saturating_sub(1000);
+                        let feedback_cutoff = now_ms.saturating_sub(common::PROBE_FEEDBACK_WINDOW_MS);
                         for p in state.received_measurement_probes.iter() {
-                            if p.received_at_ms >= one_second_cutoff {
+                            if p.received_at_ms >= feedback_cutoff {
                                 recent_count += 1;
                                 if p.seq < last_seq {
                                     recent_reorders += 1;
