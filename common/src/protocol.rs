@@ -45,6 +45,11 @@ pub const BASELINE_MIN_SAMPLES: u64 = 10;
 /// Multiplier for outlier exclusion (values > baseline * this are excluded)
 pub const BASELINE_OUTLIER_MULTIPLIER: f64 = 3.0;
 
+/// Minimum threshold for outlier detection in milliseconds.
+/// This ensures outlier detection works correctly even when baseline is near zero
+/// (e.g., with minimal clock skew or very low latency connections).
+pub const BASELINE_MIN_THRESHOLD_MS: f64 = 100.0;
+
 /// Duration to keep probes for stats calculation (milliseconds)
 pub const PROBE_STATS_WINDOW_MS: u64 = 2000;
 

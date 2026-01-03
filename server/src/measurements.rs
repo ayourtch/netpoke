@@ -1009,7 +1009,7 @@ pub async fn handle_measurement_probe_packet(
         let deviation_from_baseline = (delay - baseline).abs();
         let baseline_threshold = baseline.abs() * common::BASELINE_OUTLIER_MULTIPLIER;
         if state.baseline_delay_count < common::BASELINE_MIN_SAMPLES || 
-           deviation_from_baseline < baseline_threshold.max(100.0) {
+           deviation_from_baseline < baseline_threshold.max(common::BASELINE_MIN_THRESHOLD_MS) {
             state.baseline_delay_sum += delay;
             state.baseline_delay_count += 1;
         }
