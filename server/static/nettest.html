@@ -189,6 +189,11 @@
             </div>
         </div>
         <div id="probe-stats-chart-container" style="margin-top: 20px;">
+            <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; color: #1565c0;">
+                <strong>📊 Chart Controls:</strong> 
+                <span style="margin-left: 10px;">🖱️ <strong>Pan:</strong> Shift + Drag</span>
+                <span style="margin-left: 15px;">🔍 <strong>Zoom:</strong> Ctrl/Cmd + Scroll Wheel</span>
+            </div>
             <canvas id="probe-stats-chart" height="300"></canvas>
         </div>
     </div>
@@ -202,6 +207,12 @@
             <button onclick="toggleMetric('loss')">Toggle Loss</button>
             <button onclick="toggleMetric('reordering')">Toggle Reordering</button>
             <button onclick="resetZoom()">Reset Zoom</button>
+        </div>
+        <div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 13px; color: #1565c0;">
+            <strong>📊 Chart Controls:</strong> 
+            <span style="margin-left: 10px;">🖱️ <strong>Pan:</strong> Shift + Drag</span>
+            <span style="margin-left: 15px;">🔍 <strong>Zoom:</strong> Ctrl/Cmd + Scroll Wheel</span>
+            <span style="margin-left: 15px;">↩️ <strong>Reset:</strong> Click "Reset Zoom" button</span>
         </div>
         <canvas id="metrics-chart"></canvas>
     </div>
@@ -305,11 +316,13 @@
                         zoom: {
                             pan: {
                                 enabled: true,
-                                mode: 'x'
+                                mode: 'x',
+                                modifierKey: 'shift'
                             },
                             zoom: {
                                 wheel: {
-                                    enabled: true
+                                    enabled: true,
+                                    modifierKey: 'ctrl'
                                 },
                                 pinch: {
                                     enabled: true
@@ -1147,8 +1160,21 @@
                     plugins: {
                         legend: { display: true, position: 'top' },
                         zoom: {
-                            pan: { enabled: true, mode: 'x' },
-                            zoom: { wheel: { enabled: true }, mode: 'x' }
+                            pan: { 
+                                enabled: true, 
+                                mode: 'x',
+                                modifierKey: 'shift'
+                            },
+                            zoom: { 
+                                wheel: { 
+                                    enabled: true,
+                                    modifierKey: 'ctrl'
+                                }, 
+                                pinch: {
+                                    enabled: true
+                                },
+                                mode: 'x' 
+                            }
                         }
                     },
                     animation: false
@@ -1231,14 +1257,14 @@
                     <div style="font-weight: bold; margin-bottom: 8px; font-size: 12px;">[${shortId}]</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 11px;">
                         <div>
-                            <div style="font-weight: bold; color: #666; margin-bottom: 4px;">↑ C→S</div>
+                            <div style="font-weight: bold; color: #666; margin-bottom: 4px;">↑ C→S <span style="background: #e3f2fd; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; color: #1976d2;">Pkts: ${c2s.probe_count}</span></div>
                             <div>Delay: <span style="color: #2196F3;">${c2s.delay_deviation_ms[0].toFixed(1)}ms</span> (p99: ${c2s.delay_deviation_ms[1].toFixed(1)}ms)</div>
                             <div>Jitter: <span style="color: #2196F3;">${c2s.jitter_ms[0].toFixed(2)}ms</span></div>
                             <div>Loss: <span style="color: ${c2s.loss_rate > 1 ? '#f44336' : '#4caf50'};">${c2s.loss_rate.toFixed(2)}%</span></div>
                             <div>Reorder: ${c2s.reorder_rate.toFixed(2)}%</div>
                         </div>
                         <div>
-                            <div style="font-weight: bold; color: #666; margin-bottom: 4px;">↓ S→C</div>
+                            <div style="font-weight: bold; color: #666; margin-bottom: 4px;">↓ S→C <span style="background: #fff3e0; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; color: #f57c00;">Pkts: ${s2c.probe_count}</span></div>
                             <div>Delay: <span style="color: #FF9800;">${s2c.delay_deviation_ms[0].toFixed(1)}ms</span> (p99: ${s2c.delay_deviation_ms[1].toFixed(1)}ms)</div>
                             <div>Jitter: <span style="color: #FF9800;">${s2c.jitter_ms[0].toFixed(2)}ms</span></div>
                             <div>Loss: <span style="color: ${s2c.loss_rate > 1 ? '#f44336' : '#4caf50'};">${s2c.loss_rate.toFixed(2)}%</span></div>
@@ -1246,7 +1272,7 @@
                         </div>
                     </div>
                     <div style="margin-top: 6px; font-size: 10px; color: #999;">
-                        Probes: C→S ${c2s.probe_count}, S→C ${s2c.probe_count} | Baseline: C→S ${c2s.baseline_delay_ms.toFixed(1)}ms, S→C ${s2c.baseline_delay_ms.toFixed(1)}ms
+                        Baseline: C→S ${c2s.baseline_delay_ms.toFixed(1)}ms, S→C ${s2c.baseline_delay_ms.toFixed(1)}ms
                     </div>
                 </div>`;
             }
