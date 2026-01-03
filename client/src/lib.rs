@@ -36,13 +36,13 @@ const DEFAULT_TRACEROUTE_STAGGER_DELAY_MS: u32 = 1000;
 const TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 3000;
 
 // Minimum wait time between MTU traceroute rounds 
-const MTU_TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 100;
+const MTU_TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 500;
 // Number of traceroute rounds
-const TRACEROUTE_ROUNDS: u32 = 1;
+const TRACEROUTE_ROUNDS: u32 = 3;
 // Number of MTU traceroute rounds
-const MTU_TRACEROUTE_ROUNDS: u32 = 5;
+const MTU_TRACEROUTE_ROUNDS: u32 = 9;
 // MTU sizes to test (in bytes)
-const MTU_SIZES: [u32; 5] = [576, 1280, 1350, 1400, 1500];
+const MTU_SIZES: [u32; 9] = [576, 1280, 1350, 1400, 1450, 1472, 1490, 1500, 1500];
 // Timeout in milliseconds for control channels to be ready
 const CONTROL_CHANNEL_READY_TIMEOUT_MS: u32 = 2000;
 
@@ -544,6 +544,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // PHASE 0: Establish all connections
     log::info!("PHASE 0: Establishing WebRTC connections...");
+    set_doc_status("PHASE 0: Establishing WebRTC connections...");
     
     // Create IPv4 connections
     let mut ipv4_connections: Vec<webrtc::WebRtcConnection> = Vec::with_capacity(count);
@@ -616,6 +617,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // Wait for all control channels to be ready before sending StartSurveySession
     log::info!("Waiting for control channels to be ready...");
+    set_doc_status("PHASE 0.1: Waiting for control channels to be ready...");
     
     for (i, conn) in ipv4_connections.iter_mut().enumerate() {
         if should_abort_testing() {
@@ -653,6 +655,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // Wait for all ServerSideReady messages
     log::info!("Waiting for ServerSideReady from all connections...");
+    set_doc_status("PHASE 0.2: Waiting for server ready on all connections...");
     
     let timeout_ms: u32 = 30000; // 30 second timeout for all connections to be ready
     let start_time = current_time_ms();
@@ -687,6 +690,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // PHASE 1: Traceroute (5 rounds)
     log::info!("PHASE 1: Starting traceroute ({} rounds)...", TRACEROUTE_ROUNDS);
+    set_doc_status("PHASE 1: Starting traceroute with connection(s) 5-tuple(s)...");
     
     for round in 0..TRACEROUTE_ROUNDS {
         if should_abort_testing() {
@@ -721,7 +725,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 {
                     let st = conn.state.borrow();
                     let n_active = st.traceroute_started - st.traceroute_done;
-                    if count == 0 || n_active < total_probe_conns.min(4) {
+                    if count == 0 || n_active < total_probe_conns.min(3) {
                         break;
                     }
                     log::warn!("Active traceroutes: {}, countdown: {}", n_active, count);
@@ -731,18 +735,20 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         }
         
         // Wait at least TRACEROUTE_ROUND_MIN_WAIT_MS before next round
-        // sleep_ms(TRACEROUTE_ROUND_MIN_WAIT_MS).await;
+        sleep_ms(TRACEROUTE_ROUND_MIN_WAIT_MS).await;
     }
     
     log::info!("PHASE 1 complete: Traceroute finished");
     
     // Add a brief pause between phases to allow server processing to complete
-    sleep_ms(1000).await;
+    //sleep_ms(1000).await;
 
     // PHASE 2: MTU Traceroute (5 rounds with different packet sizes)
     log::info!("PHASE 2: Starting MTU traceroute ({} rounds with sizes {:?})...", MTU_TRACEROUTE_ROUNDS, MTU_SIZES);
     
     for (round, &packet_size) in MTU_SIZES.iter().enumerate() {
+        let status = format!("PHASE 2.{}: Doing MTU traceroute with size {}", round, &packet_size);
+        set_doc_status(&status);
         if should_abort_testing() {
             log::info!("Testing aborted during MTU traceroute phase");
             return Ok(());
@@ -821,11 +827,13 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     
     log::info!("PHASE 2 complete: MTU traceroute finished");
     
+    
     // Add a brief pause between phases to allow server processing to complete
-    sleep_ms(1000).await;
+    // sleep_ms(1000).await;
 
     // PHASE 3: Get measuring time and start measurements
     log::info!("PHASE 3: Getting measuring time and starting measurements...");
+    set_doc_status("PHASE 3: Getting measuring time and starting measurements...");
     
     // Send GetMeasuringTime to first connection
     if let Some(first_conn) = ipv4_connections.first() {
@@ -841,6 +849,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     }
         
     log::info!("AYXX: temporary - Testing aborted before measurement phase");
+    set_doc_status("Done: temporarily not doing measurements, as they need refactoring");
     return Ok(());
     
     if should_abort_testing() {
@@ -986,6 +995,7 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
        format!("{} = {}", current_time_ms(), dbg_message)
     };
     set_element_text(&document, "ayxx", &dtm);
+
 
     // Update IPv4 metrics
     set_element_text(&document, "ipv4-s2c-tp-1", &format_bytes(ipv4_metrics.s2c_throughput[0]));
@@ -1160,6 +1170,19 @@ fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &co
             }
         }
     }
+}
+
+fn set_doc_status(status_text: &str) {
+    let window = match window() {
+        Some(w) => w,
+        None => return,
+    };
+
+    let document = match window.document() {
+        Some(d) => d,
+        None => return,
+    };
+    set_element_text(&document, "status", status_text);
 }
 
 fn update_ui(metrics: &common::ClientMetrics) {
