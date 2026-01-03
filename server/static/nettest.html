@@ -1427,6 +1427,9 @@
         // Survey session tracking for survey-specific PCAP downloads
         let currentSurveySessionId = null;
         
+        // Length of session ID prefix shown in UI (matches server-side truncation)
+        const SESSION_ID_DISPLAY_LENGTH = 8;
+        
         // Set the current survey session ID (called from WASM when session starts)
         function setSurveySessionId(sessionId) {
             currentSurveySessionId = sessionId;
@@ -1437,7 +1440,9 @@
                 btn.disabled = false;
                 btn.style.backgroundColor = '#9C27B0';
                 btn.style.cursor = 'pointer';
-                const shortId = sessionId.length > 8 ? sessionId.substring(0, 8) + '...' : sessionId;
+                const shortId = sessionId.length > SESSION_ID_DISPLAY_LENGTH 
+                    ? sessionId.substring(0, SESSION_ID_DISPLAY_LENGTH) + '...' 
+                    : sessionId;
                 statusEl.textContent = `Session: ${shortId}`;
                 statusEl.style.color = '#9C27B0';
             } else {

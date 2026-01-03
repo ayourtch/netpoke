@@ -186,7 +186,11 @@ impl SessionRegistry {
         Self::default()
     }
     
-    /// Register a client address with a survey session ID
+    /// Register a client address with a survey session ID.
+    /// 
+    /// The server_port is used as a fallback for ICMP packet matching where
+    /// only the destination port is available from the embedded packet.
+    /// When server_port is 0, only client address lookup is available.
     pub fn register(&mut self, client_addr: SocketAddr, server_port: u16, survey_session_id: String) {
         tracing::debug!(
             "Registering session: client={}, server_port={}, session_id={}",
@@ -194,11 +198,13 @@ impl SessionRegistry {
         );
         self.address_to_session.insert(client_addr, survey_session_id.clone());
         
-        // Also register by server port for ICMP matching
-        self.server_port_to_session
-            .entry(server_port)
-            .or_insert_with(Vec::new)
-            .push(survey_session_id);
+        // Also register by server port for ICMP matching (skip if port is 0)
+        if server_port > 0 {
+            self.server_port_to_session
+                .entry(server_port)
+                .or_insert_with(Vec::new)
+                .push(survey_session_id);
+        }
     }
     
     /// Unregister a client address
@@ -218,7 +224,11 @@ impl SessionRegistry {
             .or_else(|| self.address_to_session.get(dst))
     }
     
-    /// Look up by server port (for ICMP packets where we only have the embedded destination)
+    /// Look up by server port (for ICMP packets where we only have the embedded destination).
+    /// 
+    /// Returns the first registered session for this port. When multiple sessions
+    /// share a port, this is a best-effort match. The primary lookup should use
+    /// client addresses; port-based lookup is a fallback for ICMP error packets.
     pub fn lookup_by_server_port(&self, port: u16) -> Option<&String> {
         self.server_port_to_session.get(&port).and_then(|v| v.first())
     }
