@@ -270,6 +270,20 @@ pub struct StartTracerouteMessage {
     pub survey_session_id: String,
 }
 
+/// Message sent from server to client when traceroute probes are done
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TracerouteCompletedMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    /// Defaults to empty string for backwards compatibility
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+}
+
+
 /// Message sent from client to server to start a survey session
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartSurveySessionMessage {
@@ -296,6 +310,27 @@ pub struct ServerSideReadyMessage {
 /// Message sent from client to server to start MTU traceroute probes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartMtuTracerouteMessage {
+    /// Connection ID for multi-path ECMP testing (UUID string)
+    #[serde(default)]
+    pub conn_id: String,
+    
+    /// Survey session ID (UUID) for cross-correlation
+    #[serde(default)]
+    pub survey_session_id: String,
+    
+    /// Target packet size to probe (including headers)
+    pub packet_size: u32,
+
+    /// Max TTL to try to traceroute with
+    pub path_ttl: i32,
+
+    /// For how long to wait with the timeouts
+    pub collect_timeout_ms: usize,
+}
+
+/// Message sent from server client when MTU traceroute probes are done
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtuTracerouteCompletedMessage {
     /// Connection ID for multi-path ECMP testing (UUID string)
     #[serde(default)]
     pub conn_id: String,
@@ -396,15 +431,18 @@ pub struct StopServerTrafficMessage {
 pub enum ControlMessage {
     StartTraceroute(StartTracerouteMessage),
     StopTraceroute(StopTracerouteMessage),
+    TracerouteCompleted(TracerouteCompletedMessage),
     StartSurveySession(StartSurveySessionMessage),
     ServerSideReady(ServerSideReadyMessage),
     StartMtuTraceroute(StartMtuTracerouteMessage),
+    MtuTracerouteCompleted(MtuTracerouteCompletedMessage),
     TraceHop(TraceHopMessage),
     MtuHop(MtuHopMessage),
     GetMeasuringTime(GetMeasuringTimeMessage),
     MeasuringTimeResponse(MeasuringTimeResponseMessage),
     StartServerTraffic(StartServerTrafficMessage),
     StopServerTraffic(StopServerTrafficMessage),
+    TestProbeMessageEcho(TestProbePacket),
 }
 
 /// Event generated when an ICMP error matches a tracked packet
@@ -415,6 +453,9 @@ pub struct TrackedPacketEvent {
     
     /// Original UDP packet that was sent
     pub udp_packet: Vec<u8>,
+
+    /// Original IP packet length
+    pub tracked_ip_length: usize,
     
     /// Original cleartext data that was sent
     pub cleartext: Vec<u8>,
@@ -698,6 +739,7 @@ mod tests {
                 conn_id: "conn4".to_string(),
                 survey_session_id: "survey4".to_string(),
                 packet_size: 1500,
+                path_ttl: 15,
             }),
             ControlMessage::GetMeasuringTime(GetMeasuringTimeMessage {
                 conn_id: "conn5".to_string(),

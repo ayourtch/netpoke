@@ -16,9 +16,15 @@ pub struct MeasurementState {
     pub metrics: ClientMetrics,
     pub received_probes: VecDeque<ReceivedProbe>,
     pub received_bulk_bytes: VecDeque<ReceivedBulk>,
+    pub traceroute_started: usize,
+    pub traceroute_done: usize,
+    pub mtu_traceroute_started: usize,
+    pub mtu_traceroute_done: usize,
     pub traceroute_active: bool,
     pub server_side_ready: bool,
     pub measuring_time_ms: Option<u64>,
+    // The first TTL that successfully reaches the client on this conn
+    pub path_ttl: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -48,9 +54,14 @@ impl MeasurementState {
             metrics: ClientMetrics::default(),
             received_probes: VecDeque::new(),
             received_bulk_bytes: VecDeque::new(),
+            traceroute_started: 0,
+            traceroute_done: 0,
+            mtu_traceroute_started: 0,
+            mtu_traceroute_done: 0,
             traceroute_active: false,
             server_side_ready: false,
             measuring_time_ms: None,
+            path_ttl: None,
         }
     }
 
@@ -142,9 +153,10 @@ pub fn setup_probe_channel(
     let channel_clone = channel.clone();
 
     let onopen = Closure::wrap(Box::new(move || {
-        log::info!("Probe channel opened");
+        log::info!("Probe channel opened - no probe sending for now");
+        return;
 
-        // Start sending probes every 50ms
+        // Start sending probes every 
         let state = state_sender.clone();
         let channel = channel_clone.clone();
         
@@ -349,6 +361,28 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
                         log::info!("Received MeasuringTimeResponse: {}ms for conn_id: {}", time_msg.max_duration_ms, time_msg.conn_id);
                         state_for_handler.borrow_mut().measuring_time_ms = Some(time_msg.max_duration_ms);
                     }
+                    common::ControlMessage::TracerouteCompleted(traceroute_completed_msg) => {
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && traceroute_completed_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "TracerouteCompleted conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                traceroute_completed_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        state_for_handler.borrow_mut().traceroute_done += 1;
+                    }
+                    common::ControlMessage::MtuTracerouteCompleted(mtu_traceroute_completed_msg) => {
+                        let expected_conn_id = state_for_handler.borrow().conn_id.clone();
+                        if !expected_conn_id.is_empty() && mtu_traceroute_completed_msg.conn_id != expected_conn_id {
+                            log::warn!(
+                                "MtuTracerouteCompleted conn_id mismatch: received '{}' but expected '{}', ignoring",
+                                mtu_traceroute_completed_msg.conn_id, expected_conn_id
+                            );
+                            return;
+                        }
+                        state_for_handler.borrow_mut().mtu_traceroute_done += 1;
+                    }
                     
                     common::ControlMessage::MtuHop(mtu_msg) => {
                         let expected_conn_id = state_for_handler.borrow().conn_id.clone();
@@ -412,8 +446,8 @@ pub fn setup_control_channel(channel: RtcDataChannel, state: Rc<RefCell<Measurem
                     }
                     
                     // Client-to-server messages (should not be received here)
-                    _ => {
-                        log::warn!("Received unexpected client-to-server control message type");
+                    x => {
+                        log::warn!("Received unexpected client-to-server control message type: {:?}", &x);
                     }
                 }
             }
@@ -541,7 +575,7 @@ pub fn current_time_ms() -> u64 {
     js_sys::Date::now() as u64
 }
 
-pub fn setup_testprobe_channel(channel: RtcDataChannel, state: Rc<RefCell<MeasurementState>>) {
+pub fn setup_testprobe_channel(channel: RtcDataChannel, control: Rc<RefCell<RtcDataChannel>>, state: Rc<RefCell<MeasurementState>>) {
     let onopen = Closure::wrap(Box::new(move || {
         log::info!("TestProbe channel opened");
     }) as Box<dyn FnMut()>);
@@ -553,6 +587,7 @@ pub fn setup_testprobe_channel(channel: RtcDataChannel, state: Rc<RefCell<Measur
     let channel_for_echo = channel.clone();
     let state_for_handler = state.clone();
     let onmessage = Closure::wrap(Box::new(move |ev: MessageEvent| {
+        use common::ControlMessage::TestProbeMessageEcho;
         let array = Uint8Array::new(&ev.data());
         let data = array.to_vec();
         let text = String::from_utf8_lossy(&data);
@@ -572,13 +607,18 @@ pub fn setup_testprobe_channel(channel: RtcDataChannel, state: Rc<RefCell<Measur
             let now_ms = current_time_ms();
             let ttl: i32 = testprobe.send_options.map(|so| so.ttl.map(|t| t as i32).unwrap_or(-1)).unwrap_or(-2);
             
-            log::debug!("conn {:?}: Received test probe test_seq {} ttl {} from server, echoing back", &testprobe.conn_id, testprobe.test_seq, ttl);
+            log::debug!("conn {:?}: Received test probe test_seq {} ttl {} from server, echoing back on control channel", &testprobe.conn_id, testprobe.test_seq, ttl);
+
+            if state_for_handler.borrow().path_ttl.is_none() {
+                state_for_handler.borrow_mut().path_ttl = Some(ttl);
+            }
             
             // Echo test probe back to server with received timestamp
             testprobe.timestamp_ms = now_ms;
+            let testprobe = TestProbeMessageEcho(testprobe);
             if let Ok(json) = serde_json::to_string(&testprobe) {
-                if let Err(e) = channel_for_echo.send_with_str(&json) {
-                    log::error!("Failed to echo test probe back: {:?}", e);
+                if let Err(e) = control.borrow_mut().send_with_str(&json) {
+                    log::error!("Failed to echo test probe back on control channel: {:?}", e);
                 }
             }
         }

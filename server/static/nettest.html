@@ -669,7 +669,7 @@
                     console.log('[MTU Debug] Updated MTU from', oldValue, '(explicit:', oldIsExplicit, ') to', newValue, '(explicit:', newIsExplicit, ') for hop', targetHop);
                 }
                 
-                console.log('[MTU Debug] Current mtuData state:', JSON.stringify(mtuData, null, 2));
+                // console.log('[MTU Debug] Current mtuData state:', JSON.stringify(mtuData, null, 2));
                 
                 // Re-render the visualization to show updated MTU data
                 renderTracerouteGraph();
@@ -750,7 +750,7 @@
                 });
                 
                 if (hopMtuValues.length > 0) {
-                    console.log('[MTU Debug] Found MTU values for hop', hopNum, 'in', ipVersion, ':', hopMtuValues);
+                    // console.log('[MTU Debug] Found MTU values for hop', hopNum, 'in', ipVersion, ':', hopMtuValues);
                 }
                 
                 if (hopsAtThisLevel.length === 0) {

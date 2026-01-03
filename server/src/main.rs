@@ -1,3 +1,4 @@
+#![deny(unused_must_use)]
 mod state;
 mod signaling;
 mod webrtc_manager;

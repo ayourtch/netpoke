@@ -274,7 +274,7 @@ impl Stream {
     /// Returns an error if the write half of this stream is shutdown or `p` is too large.
     pub async fn write_sctp(&self, p: &Bytes, ppi: PayloadProtocolIdentifier) -> Result<usize> {
         let chunks = self.prepare_write(p, ppi, None)?;
-        self.send_payload_data(chunks).await?;
+        self.send_payload_data(chunks, false).await?;
 
         Ok(p.len())
     }
@@ -290,8 +290,9 @@ impl Stream {
         ppi: PayloadProtocolIdentifier,
         options: Option<UdpSendOptions>,
     ) -> Result<usize> {
+        let send_immed = options.is_some();
         let chunks = self.prepare_write(p, ppi, options)?;
-        self.send_payload_data(chunks).await?;
+        self.send_payload_data(chunks, send_immed).await?;
 
         Ok(p.len())
     }
@@ -581,12 +582,12 @@ impl Stream {
         self.state.load(Ordering::SeqCst).into()
     }
 
-    fn awake_write_loop(&self) {
+    fn awake_write_loop(&self, send_immed: bool) {
         //log::debug!("[{}] awake_write_loop_ch.notify_one", self.name);
         let _ = self.awake_write_loop_ch.try_send(());
     }
 
-    async fn send_payload_data(&self, chunks: Vec<ChunkPayloadData>) -> Result<()> {
+    async fn send_payload_data(&self, chunks: Vec<ChunkPayloadData>, send_immed: bool) -> Result<()> {
         let state = self.get_state();
         if state != AssociationState::Established {
             return Err(Error::ErrPayloadDataStateNotExist);
@@ -595,7 +596,7 @@ impl Stream {
         // NOTE: append is used here instead of push in order to prevent chunks interlacing.
         self.pending_queue.append(chunks).await;
 
-        self.awake_write_loop();
+        self.awake_write_loop(send_immed);
         Ok(())
     }
 
@@ -617,7 +618,7 @@ impl Stream {
 
         self.pending_queue.push(c).await;
 
-        self.awake_write_loop();
+        self.awake_write_loop(false);
         Ok(())
     }
 }

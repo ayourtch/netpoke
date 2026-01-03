@@ -187,6 +187,8 @@ pub struct WebRtcConnection {
     pub conn_id: String,
     pub state: Rc<RefCell<measurements::MeasurementState>>,
     pub control_channel: Rc<RefCell<Option<web_sys::RtcDataChannel>>>,
+    // Set to true when ICE fails
+    pub failed: bool,
 }
 
 impl WebRtcConnection {
@@ -195,6 +197,7 @@ impl WebRtcConnection {
     }
 
     pub async fn new_with_ip_version_and_mode(ip_version: &str, parent_client_id: Option<String>, mode: Option<String>, conn_id: Option<String>) -> Result<Self, JsValue> {
+
         // Generate a UUID for this connection if not provided
         let generated_conn_id = conn_id.unwrap_or_else(|| {
             // Generate a simple UUID-like ID using random bytes
@@ -267,6 +270,8 @@ impl WebRtcConnection {
         let control_init = RtcDataChannelInit::new();
         let control_channel = peer.create_data_channel_with_data_channel_dict("control", &control_init);
         let control_channel_ref = Rc::new(RefCell::new(Some(control_channel.clone())));
+
+        let control_channel_for_testprobe = Rc::new(RefCell::new(control_channel.clone()));
         measurements::setup_control_channel(control_channel, state.clone());
 
         // Create testprobe channel (unreliable, unordered) for traceroute test probes
@@ -274,7 +279,7 @@ impl WebRtcConnection {
         testprobe_init.set_ordered(false);
         testprobe_init.set_max_retransmits(0);
         let testprobe_channel = peer.create_data_channel_with_data_channel_dict("testprobe", &testprobe_init);
-        measurements::setup_testprobe_channel(testprobe_channel, state.clone());
+        measurements::setup_testprobe_channel(testprobe_channel, control_channel_for_testprobe, state.clone());
 
         log::info!("Creating offer");
 
@@ -373,12 +378,16 @@ impl WebRtcConnection {
                 ip_version_for_ice_state, 
                 &client_id_for_ice_state[..CLIENT_ID_LOG_LENGTH.min(client_id_for_ice_state.len())],
                 ice_state);
+            if ice_state == "failed" {
+            }
         }) as Box<dyn FnMut(_)>);
         peer.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
         oniceconnectionstatechange.forget();
 
         // Set up ICE gathering state change handler for debugging
         let client_id_for_gathering = client_id.clone();
+        let short_client_id = &client_id_for_gathering[..CLIENT_ID_LOG_LENGTH.min(client_id_for_gathering.len())];
+        let short_client_id_for_gathering = short_client_id.clone();
         let ip_version_for_gathering = ip_version.to_string();
         let peer_for_gathering = peer.clone();
         let onicegatheringstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
@@ -388,7 +397,7 @@ impl WebRtcConnection {
                 .unwrap_or_else(|| "unknown".to_string());
             log::info!("[{}][{}] ICE gathering state: {}", 
                 ip_version_for_gathering,
-                &client_id_for_gathering[..CLIENT_ID_LOG_LENGTH.min(client_id_for_gathering.len())],
+                short_client_id_for_gathering,
                 gathering_state);
         }) as Box<dyn FnMut(_)>);
         peer.set_onicegatheringstatechange(Some(onicegatheringstatechange.as_ref().unchecked_ref()));
@@ -416,19 +425,10 @@ impl WebRtcConnection {
         let ip_version_for_poll = ip_version.to_string();
         wasm_bindgen_futures::spawn_local(async move {
             let mut poll_count = 0;
-            let max_polls = 3000; // Timeout after 3000 polls (about 5 minutes at 100ms intervals)
+            let POLL_SLEEP_MS = 500;
+            let max_polls = 10 * POLL_SLEEP_MS / 1000; // Timeout after 3000 polls (about 5 minutes at 100ms intervals)
 
             loop {
-                // Wait 100ms between polls
-                wasm_bindgen_futures::JsFuture::from(
-                    js_sys::Promise::new(&mut |resolve, _| {
-                        web_sys::window().unwrap()
-                            .set_timeout_with_callback_and_timeout_and_arguments_0(
-                                &resolve,
-                                100,
-                            ).unwrap();
-                    })
-                ).await.unwrap();
 
                 poll_count += 1;
 
@@ -479,17 +479,25 @@ impl WebRtcConnection {
                     log::info!("Stopping ICE candidate polling");
                     break;
                 }
+                crate::sleep_ms(POLL_SLEEP_MS).await;
             }
         });
 
-        log::info!("WebRTC connection established");
+        log::info!("WebRTC connection established for peer [{}][{}]", &ip_version, &short_client_id);
 
-        Ok(Self { peer, client_id, conn_id: server_conn_id, state, control_channel: control_channel_ref })
+        Ok(Self { peer, client_id, conn_id: server_conn_id, state, control_channel: control_channel_ref, failed: false })
     }
     
     /// Helper method to send a serializable message over the control channel
     /// Returns an error if the control channel is not ready (not open)
     fn send_control_message<T: serde::Serialize>(&self, msg: &T, msg_type: &str) -> Result<(), JsValue> {
+        if self.failed {
+                log::warn!("Connection is in the failed state, for {} message", msg_type);
+                return Err(JsValue::from_str(&format!(
+                    "Connection has failed - ignore"
+                )));
+        }
+       
         let json = serde_json::to_string(msg)
             .map_err(|e| {
                 log::error!("Failed to serialize {} message: {}", msg_type, e);
@@ -529,7 +537,7 @@ impl WebRtcConnection {
     
     /// Wait for the control channel to be ready with a timeout
     /// Returns true if the channel is ready, false if timeout occurred
-    pub async fn wait_for_control_channel_ready(&self, timeout_ms: u32) -> bool {
+    pub async fn wait_for_control_channel_ready(&mut self, timeout_ms: u32) -> bool {
         let start_time = crate::measurements::current_time_ms();
         let timeout = timeout_ms as u64;
         
@@ -541,8 +549,9 @@ impl WebRtcConnection {
             
             let elapsed = crate::measurements::current_time_ms() - start_time;
             if elapsed >= timeout {
-                log::warn!("Timeout waiting for control channel to open for conn_id: {} ({}ms)", 
+                log::warn!("Timeout waiting for control channel to open for conn_id: {} ({}ms), mark as failed", 
                     self.conn_id, timeout_ms);
+                self.failed = true;
                 return false;
             }
             
@@ -572,6 +581,7 @@ impl WebRtcConnection {
                 survey_session_id: survey_session_id.to_string(),
             }
         );
+        self.state.borrow_mut().traceroute_started += 1;
         self.send_control_message(&msg, "start traceroute")
     }
     
@@ -587,14 +597,17 @@ impl WebRtcConnection {
     }
     
     /// Send a start MTU traceroute message to the server
-    pub async fn send_start_mtu_traceroute(&self, survey_session_id: &str, packet_size: u32) -> Result<(), JsValue> {
+    pub async fn send_start_mtu_traceroute(&self, survey_session_id: &str, packet_size: u32, path_ttl: i32, collect_timeout_ms: usize) -> Result<(), JsValue> {
         let msg = common::ControlMessage::StartMtuTraceroute(
             common::StartMtuTracerouteMessage {
                 conn_id: self.conn_id.clone(),
                 survey_session_id: survey_session_id.to_string(),
                 packet_size,
+                path_ttl,
+                collect_timeout_ms,
             }
         );
+        self.state.borrow_mut().mtu_traceroute_started += 1;
         self.send_control_message(&msg, &format!("start MTU traceroute (size: {})", packet_size))
     }
     

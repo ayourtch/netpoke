@@ -234,6 +234,7 @@ impl PacketTracker {
         &self,
         icmp_packet: Vec<u8>,
         icmp_class: IcmpMessageClass,
+        is_ip6: bool,
         embedded_udp_info: EmbeddedUdpInfo,
         router_ip: Option<String>,
     ) {
@@ -272,10 +273,17 @@ impl PacketTracker {
         if let Some(tracked) = matched {
             tracing::debug!("MATCH FOUND via {}: dest={}, udp_length={}, conn_id={}", 
                 match_type, embedded_udp_info.dest_addr, embedded_udp_info.udp_length, tracked.conn_id);
+            let tracked_ip_length = if is_ip6 {
+                embedded_udp_info.udp_length + 40
+            } else {
+                embedded_udp_info.udp_length + 20
+            };
+            let tracked_ip_length: usize = tracked_ip_length.into();
             
             let event = TrackedPacketEvent {
                 icmp_packet,
-                udp_packet: tracked.udp_packet,
+                tracked_ip_length,
+                udp_packet: tracked.udp_packet.clone(),
                 cleartext: tracked.cleartext,
                 sent_at: tracked.sent_at,
                 icmp_received_at: Instant::now(),
@@ -323,7 +331,10 @@ impl PacketTracker {
     /// Get and remove queued events for a specific connection ID
     /// Only returns events matching the given conn_id, leaving other events in the queue
     pub async fn drain_events_for_conn_id(&self, conn_id: &str) -> Vec<TrackedPacketEvent> {
+        tracing::debug!("Acquire queue to grab messages for {}", conn_id);
         let mut queue = self.event_queue.write().await;
+        tracing::debug!("queue acquired to drain for {}, length: {}", conn_id, queue.len());
+
         
         // Partition events: matching conn_id vs. others
         let mut matching = Vec::new();
@@ -331,8 +342,10 @@ impl PacketTracker {
         
         for event in queue.drain(..) {
             if event.conn_id == conn_id {
+                tracing::debug!("Found a matching event: {:?}", &event);
                 matching.push(event);
             } else {
+                tracing::debug!("push bach a non-match event: {:?}", &event);
                 remaining.push(event);
             }
         }

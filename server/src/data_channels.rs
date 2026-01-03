@@ -24,6 +24,7 @@ pub async fn setup_data_channel_handlers(
         let label = dc.label().to_string();
         let session = session_clone.clone();
 
+        // tracing::info!("PRE Client {} opened data channel: {}", session.id, label);
         Box::pin(async move {
             tracing::info!("Client {} opened data channel: {}", session.id, label);
 
@@ -55,6 +56,7 @@ pub async fn setup_data_channel_handlers(
             dc.on_message(Box::new(move |msg: DataChannelMessage| {
                 let session = session_clone.clone();
                 let label = label_clone.clone();
+                tracing::info!("XXXXX {}", &label);
                 Box::pin(async move {
                     handle_message(session, &label, msg).await;
                 })
@@ -88,7 +90,7 @@ pub async fn setup_data_channel_handlers(
 }
 
 async fn handle_message(session: Arc<ClientSession>, channel: &str, msg: DataChannelMessage) {
-    tracing::debug!("Client {} received message on {}: {} bytes",
+    tracing::info!("Client {} received message on {}: {} bytes",
                    session.id, channel, msg.data.len());
 
     match channel {
@@ -140,6 +142,15 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
     
     // Handle the message based on its type
     match control_msg {
+        common::ControlMessage::TestProbeMessageEcho(msg) => {
+            measurements::handle_testprobe_echo_packet(session, msg).await;
+        }
+        common::ControlMessage::TracerouteCompleted(_) => {
+            tracing::warn!("TracerouteCompleted should not come from client! id {}", session.conn_id)
+        },
+        common::ControlMessage::MtuTracerouteCompleted(_) => {
+            tracing::warn!("MtuTracerouteCompleted should not come from client! id {}", session.conn_id)
+        }
         common::ControlMessage::StartSurveySession(start_survey_msg) => {
             if start_survey_msg.conn_id != session.conn_id {
                 tracing::warn!(
@@ -153,6 +164,35 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             {
                 let mut survey_id = session.survey_session_id.write().await;
                 *survey_id = start_survey_msg.survey_session_id.clone();
+            }
+
+
+            let (control_channel, all_channels_ready) = {
+                let mut chans = session.data_channels.write().await;
+                let all_channels_ready = chans.all_ready();
+                let control_channel = chans.control.clone();
+                drop(chans);
+                (control_channel, all_channels_ready)
+            };
+
+            if let Some(control) = control_channel {
+                if all_channels_ready {
+                    let survey_session_id = session.survey_session_id.read().await.clone();
+                    let ready_msg = common::ControlMessage::ServerSideReady(
+                        common::ServerSideReadyMessage {
+                            conn_id: session.conn_id.clone(),
+                            survey_session_id,
+                        }
+                    );
+
+                    if let Ok(msg_json) = serde_json::to_vec(&ready_msg) {
+                        if let Err(e) = control.send(&msg_json.into()).await {
+                            tracing::error!("Failed to send ServerSideReady message: {}", e);
+                        } else {
+                            tracing::info!("Sent ServerSideReady for session {} (conn_id: {})", session.id, session.conn_id);
+                        }
+                    }
+                }
             }
             
             tracing::info!("Started survey session {} for connection {}", 
@@ -206,7 +246,7 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             let session_clone = session.clone();
             let packet_size = mtu_msg.packet_size;
             tokio::spawn(async move {
-                measurements::run_mtu_traceroute_round(session_clone, packet_size).await;
+                measurements::run_mtu_traceroute_round(session_clone, packet_size, mtu_msg.path_ttl, mtu_msg.collect_timeout_ms).await;
             });
         }
         
@@ -356,19 +396,6 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             }
             
             tracing::info!("Traceroute stop flag set and metrics cleared for session {}", session.id);
-            
-            // Now start the probe and bulk senders for measurement phase
-            tracing::info!("Starting probe and bulk senders for measurement phase (session {})", session.id);
-            
-            let session_for_probe = session.clone();
-            tokio::spawn(async move {
-                measurements::start_probe_sender(session_for_probe).await;
-            });
-            
-            let session_for_bulk = session.clone();
-            tokio::spawn(async move {
-                measurements::start_bulk_sender(session_for_bulk).await;
-            });
         }
         
         // Server-to-client messages (not expected here but included for completeness)

@@ -40,7 +40,6 @@ impl<T> InstrumentedRwLock<T> {
         }
     }
 
-    #[track_caller]
     pub async fn read(&self, label: &'static str) -> tokio::sync::RwLockReadGuard<'_, T> {
         // tracing::debug!("{}: waiting for read lock", self.name);
         let guard = self.inner.read().await;
@@ -49,7 +48,6 @@ impl<T> InstrumentedRwLock<T> {
         guard
     }
 
-    #[track_caller]
     pub async fn write(&self, label: &'static str) -> tokio::sync::RwLockWriteGuard<'_, T> {
         // tracing::debug!("{}: waiting for write lock", self.name);
         let guard = self.inner.write().await;
@@ -103,6 +101,7 @@ pub struct MeasurementState {
     pub probe_seq: u64,
     pub testprobe_seq: u64,  // Separate sequence space for traceroute test probes
     pub current_ttl: u8,  // Current TTL for traceroute
+    pub path_ttl: Option<u8>, // TTL in the echoed probe packet
     pub stop_traceroute: bool,  // Flag to stop traceroute sender
     pub traceroute_started_at: Option<Instant>,  // When traceroute started (for timeout)
     pub traffic_active: bool,  // Flag to indicate when traffic sending is active
@@ -192,6 +191,7 @@ impl MeasurementState {
             probe_seq: 0,
             testprobe_seq: 0,
             current_ttl: 1,  // Start at TTL 1
+            path_ttl: None,
             stop_traceroute: false,  // Initialize to false
             traceroute_started_at: None,  // Not started yet
             traffic_active: false,  // Traffic not active until StartServerTraffic

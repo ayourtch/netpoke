@@ -84,7 +84,7 @@ async fn icmp_listener_task_v4(packet_tracker: Arc<PacketTracker>) -> std::io::R
                 // Parse ICMP packet
                 if let Some((embedded_info, msg_class)) = parse_icmp_error(&icmp_packet) {
                     tracing::debug!("Parsed IPv4 ICMP error successfully, matching against tracked packets");
-                    packet_tracker.match_icmp_error(icmp_packet, msg_class, embedded_info, router_ip).await;
+                    packet_tracker.match_icmp_error(icmp_packet, msg_class, false, embedded_info, router_ip).await;
                 } else {
                     tracing::debug!("IPv4 ICMP packet is not an error or failed to parse");
                 }
@@ -141,7 +141,7 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
                 // Parse ICMPv6 packet
                 if let Some((embedded_info, msg_class)) = parse_icmpv6_error(&icmp_packet) {
                     tracing::debug!("Parsed IPv6 ICMPv6 error successfully, matching against tracked packets");
-                    packet_tracker.match_icmp_error(icmp_packet, msg_class, embedded_info, router_ip).await;
+                    packet_tracker.match_icmp_error(icmp_packet, msg_class, true, embedded_info, router_ip).await;
                 } else {
                     tracing::debug!("IPv6 ICMPv6 packet is not an error or failed to parse");
                 }
