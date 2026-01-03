@@ -665,6 +665,9 @@ impl WebRtcConnection {
             state.received_measurement_probes.clear();
             state.baseline_delay_sum = 0.0;
             state.baseline_delay_count = 0;
+            state.last_feedback = common::ProbeFeedback::default();
+            state.server_reported_c2s_stats = None;
+            state.calculated_s2c_stats = None;
         }
         
         self.send_control_message(&msg, "start probe streams")

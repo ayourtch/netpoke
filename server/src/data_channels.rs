@@ -426,6 +426,11 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                 state.measurement_probe_seq = 0;
                 state.received_measurement_probes.clear();
                 state.probe_stats.clear();
+                // Reset baseline calculation for fresh measurement
+                state.baseline_delay_sum = 0.0;
+                state.baseline_delay_count = 0;
+                state.last_feedback = common::ProbeFeedback::default();
+                state.client_reported_s2c_stats = None;
                 tracing::info!("Started probe streams for session {}", session.id);
             }
             
