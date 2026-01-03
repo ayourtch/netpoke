@@ -1110,9 +1110,10 @@ fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common:
     };
 
     // Calculate delay deviations from baseline
+    // Use signed arithmetic to handle clock skew between client and server
     let mut delay_deviations: Vec<f64> = recent_probes.iter()
         .map(|p| {
-            let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+            let delay = (p.received_at_ms as i64 - p.sent_at_ms as i64) as f64;
             delay - baseline
         })
         .collect();
@@ -1132,10 +1133,11 @@ fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common:
     ];
 
     // Calculate jitter (consecutive delay differences)
+    // Use signed arithmetic to handle clock skew
     let mut jitters: Vec<f64> = Vec::new();
     let mut prev_delay: Option<f64> = None;
     for p in &recent_probes {
-        let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+        let delay = (p.received_at_ms as i64 - p.sent_at_ms as i64) as f64;
         if let Some(prev) = prev_delay {
             jitters.push((delay - prev).abs());
         }

@@ -235,7 +235,10 @@ pub fn setup_probe_channel(
                 if probe_streams_active {
                     if let Ok(probe) = serde_json::from_str::<common::MeasurementProbePacket>(&txt) {
                         let now_ms = current_time_ms();
-                        let delay = now_ms.saturating_sub(probe.sent_at_ms) as f64;
+                        // Use signed arithmetic to handle clock skew between client and server
+                        // If server clock is ahead, delay will be negative; if behind, it will be larger than actual
+                        // The baseline calculation will capture the clock offset, and deviations will be meaningful
+                        let delay = (now_ms as i64 - probe.sent_at_ms as i64) as f64;
                         
                         let mut state = state_receiver.borrow_mut();
                         
@@ -248,14 +251,19 @@ pub fn setup_probe_channel(
                         });
                         
                         // Update baseline delay (exponential moving average with outlier exclusion)
+                        // Use absolute difference to handle negative delays due to clock skew
                         let baseline = if state.baseline_delay_count > 0 {
                             state.baseline_delay_sum / state.baseline_delay_count as f64
                         } else {
                             delay
                         };
                         
+                        // Use absolute difference from baseline for outlier detection
+                        // This works correctly even with clock skew (negative delays)
+                        let deviation_from_baseline = (delay - baseline).abs();
+                        let baseline_threshold = baseline.abs() * common::BASELINE_OUTLIER_MULTIPLIER;
                         if state.baseline_delay_count < common::BASELINE_MIN_SAMPLES || 
-                           delay < baseline * common::BASELINE_OUTLIER_MULTIPLIER {
+                           deviation_from_baseline < baseline_threshold.max(100.0) {
                             state.baseline_delay_sum += delay;
                             state.baseline_delay_count += 1;
                         }

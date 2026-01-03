@@ -170,7 +170,7 @@ pub async fn handle_probe_packet(
                     echoed_at_ms: probe.timestamp_ms,
                 });
                 tracing::debug!("Matched echoed probe seq {}, delay: {}ms",
-                    probe.seq, probe.timestamp_ms.saturating_sub(sent_at_ms));
+                    probe.seq, probe.timestamp_ms as i64 - sent_at_ms as i64);
 
                 // Keep only last 60 seconds of echoed probes
                 let cutoff = now_ms - 60_000;
@@ -255,9 +255,9 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
             .collect();
 
         if !recent_probes.is_empty() {
-            // Calculate delay (use saturating_sub to prevent overflow if client clock is ahead)
+            // Calculate delay using signed arithmetic to handle clock skew
             let delays: Vec<f64> = recent_probes.iter()
-                .map(|p| (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64)
+                .map(|p| (p.received_at_ms as i64 - p.sent_at_ms as i64) as f64)
                 .collect();
 
             let avg_delay = delays.iter().sum::<f64>() / delays.len() as f64;
@@ -319,9 +319,9 @@ async fn calculate_metrics(session: Arc<ClientSession>) {
             .collect();
 
         if !recent_echoed_probes.is_empty() {
-            // Calculate delay (time from sent to echoed)
+            // Calculate delay using signed arithmetic to handle clock skew
             let delays: Vec<f64> = recent_echoed_probes.iter()
-                .map(|p| (p.echoed_at_ms.saturating_sub(p.sent_at_ms)) as f64)
+                .map(|p| (p.echoed_at_ms as i64 - p.sent_at_ms as i64) as f64)
                 .collect();
 
             let avg_delay = delays.iter().sum::<f64>() / delays.len() as f64;
@@ -879,7 +879,7 @@ pub async fn handle_testprobe_echo_packet(
                     echoed_at_ms: testprobe.timestamp_ms,
                 });
                 tracing::debug!("Matched echoed test probe test_seq {}, delay: {}ms",
-                    testprobe.test_seq, testprobe.timestamp_ms.saturating_sub(sent_at_ms));
+                    testprobe.test_seq, testprobe.timestamp_ms as i64 - sent_at_ms as i64);
 
                 // Keep only last 60 seconds of echoed test probes
                 let cutoff = now_ms - 60_000;
@@ -976,7 +976,10 @@ pub async fn handle_measurement_probe_packet(
         }
 
         let now_ms = current_time_ms();
-        let delay = now_ms.saturating_sub(probe.sent_at_ms) as f64;
+        // Use signed arithmetic to handle clock skew between client and server
+        // If client clock is ahead, delay will be negative; if behind, it will be larger than actual
+        // The baseline calculation will capture the clock offset, and deviations will be meaningful
+        let delay = (now_ms as i64 - probe.sent_at_ms as i64) as f64;
 
         let mut state = session.measurement_state.write().await;
         
@@ -994,14 +997,19 @@ pub async fn handle_measurement_probe_packet(
 
         // Update baseline delay (exponential moving average with outlier exclusion)
         // Only include delays within BASELINE_OUTLIER_MULTIPLIER of current baseline
+        // Use absolute difference to handle negative delays due to clock skew
         let baseline = if state.baseline_delay_count > 0 {
             state.baseline_delay_sum / state.baseline_delay_count as f64
         } else {
             delay
         };
         
+        // Use absolute difference from baseline for outlier detection
+        // This works correctly even with clock skew (negative delays)
+        let deviation_from_baseline = (delay - baseline).abs();
+        let baseline_threshold = baseline.abs() * common::BASELINE_OUTLIER_MULTIPLIER;
         if state.baseline_delay_count < common::BASELINE_MIN_SAMPLES || 
-           delay < baseline * common::BASELINE_OUTLIER_MULTIPLIER {
+           deviation_from_baseline < baseline_threshold.max(100.0) {
             state.baseline_delay_sum += delay;
             state.baseline_delay_count += 1;
         }
@@ -1115,9 +1123,10 @@ async fn calculate_probe_stream_stats(session: &Arc<ClientSession>) -> common::D
     };
 
     // Calculate delay deviations from baseline
+    // Use signed arithmetic to handle clock skew between client and server
     let mut delay_deviations: Vec<f64> = recent_probes.iter()
         .map(|p| {
-            let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+            let delay = (p.received_at_ms as i64 - p.sent_at_ms as i64) as f64;
             delay - baseline
         })
         .collect();
@@ -1137,10 +1146,11 @@ async fn calculate_probe_stream_stats(session: &Arc<ClientSession>) -> common::D
     ];
 
     // Calculate jitter (consecutive delay differences)
+    // Use signed arithmetic to handle clock skew
     let mut jitters: Vec<f64> = Vec::new();
     let mut prev_delay: Option<f64> = None;
     for p in &recent_probes {
-        let delay = (p.received_at_ms.saturating_sub(p.sent_at_ms)) as f64;
+        let delay = (p.received_at_ms as i64 - p.sent_at_ms as i64) as f64;
         if let Some(prev) = prev_delay {
             jitters.push((delay - prev).abs());
         }

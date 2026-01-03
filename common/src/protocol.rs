@@ -903,4 +903,72 @@ mod tests {
             assert_eq!(json, json2, "Roundtrip serialization should be stable");
         }
     }
+
+    /// Test that signed delay calculation handles clock skew correctly
+    /// This verifies the approach used to fix clock synchronization issues in measurements
+    #[test]
+    fn test_signed_delay_calculation() {
+        // Simulate a scenario where sender clock is ahead of receiver (negative delay)
+        let sender_timestamp: u64 = 1000000; // sender time
+        let receiver_timestamp: u64 = 999990; // receiver time (10ms behind sender)
+        
+        // Old approach with saturating_sub would give 0
+        let old_delay = receiver_timestamp.saturating_sub(sender_timestamp);
+        assert_eq!(old_delay, 0, "saturating_sub should give 0 for negative delay");
+        
+        // New approach with signed arithmetic gives -10
+        let new_delay = (receiver_timestamp as i64 - sender_timestamp as i64) as f64;
+        assert_eq!(new_delay, -10.0, "signed arithmetic should give -10ms");
+        
+        // Simulate scenario where sender clock is behind receiver (positive delay)
+        let sender_timestamp2: u64 = 999990;
+        let receiver_timestamp2: u64 = 1000000;
+        
+        let new_delay2 = (receiver_timestamp2 as i64 - sender_timestamp2 as i64) as f64;
+        assert_eq!(new_delay2, 10.0, "signed arithmetic should give +10ms");
+    }
+
+    /// Test that baseline calculation with clock skew produces meaningful deviations
+    /// This demonstrates that even with clock offset, delay deviations are still accurate
+    #[test]
+    fn test_baseline_with_clock_skew() {
+        // Simulate probes with sender clock ahead by 100ms (all delays appear as -100ms)
+        // But we have some jitter of ±5ms around that baseline
+        let clock_offset: i64 = -100;  // sender ahead by 100ms
+        let base_time: u64 = 1000000;
+        
+        let probes: Vec<(u64, u64)> = vec![
+            (base_time + 100, (base_time as i64 + clock_offset + 102) as u64), // +2ms jitter
+            (base_time + 200, (base_time as i64 + 100 + clock_offset + 99) as u64),  // -1ms jitter
+            (base_time + 300, (base_time as i64 + 200 + clock_offset + 103) as u64), // +3ms jitter
+            (base_time + 400, (base_time as i64 + 300 + clock_offset + 97) as u64),  // -3ms jitter
+            (base_time + 500, (base_time as i64 + 400 + clock_offset + 100) as u64), // 0ms jitter
+        ];
+        
+        // Calculate delays using signed arithmetic
+        let delays: Vec<f64> = probes.iter()
+            .map(|(sent, received)| (*received as i64 - *sent as i64) as f64)
+            .collect();
+        
+        // All delays should be around -100 (the clock offset)
+        for delay in &delays {
+            assert!(*delay < -90.0 && *delay > -110.0, 
+                "delay {} should be around -100ms", delay);
+        }
+        
+        // Calculate baseline
+        let baseline: f64 = delays.iter().sum::<f64>() / delays.len() as f64;
+        assert!((baseline + 99.8).abs() < 1.0, "baseline should be around -100ms, got {}", baseline);
+        
+        // Calculate deviations from baseline - these should be small (the actual jitter)
+        let deviations: Vec<f64> = delays.iter()
+            .map(|d| d - baseline)
+            .collect();
+        
+        // All deviations should be small (±5ms)
+        for dev in &deviations {
+            assert!(dev.abs() < 6.0, 
+                "deviation {} should be within ±5ms of baseline", dev);
+        }
+    }
 }
