@@ -259,6 +259,8 @@ impl State {
 
     /// key_log_data returns the key log data for the current state.
     pub fn key_log_data(&self) -> Result<KeyLogData> {
+
+        println!("AYXX DEBUG: key_log_data start");
         let mut local_random = vec![];
         {
             let mut writer = BufWriter::<&mut Vec<u8>>::new(local_random.as_mut());
@@ -269,6 +271,8 @@ impl State {
             let mut writer = BufWriter::<&mut Vec<u8>>::new(remote_random.as_mut());
             self.remote_random.marshal(&mut writer)?;
         }
+
+        println!("AYXX DEBUG: key_log_data: {:?} - {:?}", &local_random, &remote_random);
 
         Ok(KeyLogData {
             local_random,
