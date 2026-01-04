@@ -8,6 +8,7 @@ use webrtc::data_channel::RTCDataChannel;
 use common::ClientMetrics;
 use crate::packet_tracker::{PacketTracker, UdpPacketInfo};
 use crate::packet_capture::PacketCaptureService;
+use crate::dtls_keylog::DtlsKeylogService;
 use tokio::sync::mpsc;
 
 
@@ -22,6 +23,8 @@ pub struct AppState {
     pub peer_cleanup_sender: mpsc::UnboundedSender<Arc<RTCPeerConnection>>,
     /// Packet capture service for survey-specific pcap downloads
     pub capture_service: Option<Arc<PacketCaptureService>>,
+    /// DTLS keylog service for storing encryption keys by survey session
+    pub keylog_service: Option<Arc<DtlsKeylogService>>,
 }
 
 #[derive(Debug)]
@@ -93,6 +96,8 @@ pub struct ClientSession {
     pub last_icmp_error: Arc<Mutex<Option<Instant>>>,
     /// Packet capture service for survey-specific pcap registration
     pub capture_service: Option<Arc<PacketCaptureService>>,
+    /// DTLS keylog service for storing encryption keys by survey session
+    pub keylog_service: Option<Arc<DtlsKeylogService>>,
 }
 
 pub struct DataChannels {
@@ -186,6 +191,7 @@ impl AppState {
             server_start_time: Instant::now(),
             peer_cleanup_sender: cleanup_tx,
             capture_service: None, // Will be set after initialization
+            keylog_service: None,  // Will be set after initialization
         };
         (state, cleanup_rx)
     }
@@ -193,6 +199,11 @@ impl AppState {
     /// Set the capture service for survey-specific pcap downloads
     pub fn set_capture_service(&mut self, capture_service: Arc<PacketCaptureService>) {
         self.capture_service = Some(capture_service);
+    }
+    
+    /// Set the keylog service for DTLS key storage
+    pub fn set_keylog_service(&mut self, keylog_service: Arc<DtlsKeylogService>) {
+        self.keylog_service = Some(keylog_service);
     }
 }
 

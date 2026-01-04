@@ -168,6 +168,14 @@
                 <span id="survey-pcap-status" style="color: #666; font-size: 14px;">Start a survey session first</span>
             </div>
             <div style="display: flex; flex-direction: column; gap: 5px;">
+                <button id="download-survey-keylog-btn" onclick="downloadSurveyKeylog()" 
+                   style="padding: 10px 20px; background-color: #673AB7; color: white; border: none; border-radius: 4px; font-weight: bold; text-align: center; cursor: pointer;" 
+                   disabled>
+                    🔐 Download Survey DTLS keys
+                </button>
+                <span id="survey-keylog-status" style="color: #666; font-size: 14px;">Start a survey session first</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px;">
                 <a id="download-tracing-btn" href="/api/tracing/download" 
                    style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-align: center;">
                     📋 Download Tracing Log
@@ -1408,24 +1416,43 @@
         // Set the current survey session ID (called from WASM when session starts)
         function setSurveySessionId(sessionId) {
             currentSurveySessionId = sessionId;
-            const btn = document.getElementById('download-survey-pcap-btn');
-            const statusEl = document.getElementById('survey-pcap-status');
+            const pcapBtn = document.getElementById('download-survey-pcap-btn');
+            const pcapStatusEl = document.getElementById('survey-pcap-status');
+            const keylogBtn = document.getElementById('download-survey-keylog-btn');
+            const keylogStatusEl = document.getElementById('survey-keylog-status');
             
             if (sessionId && sessionId.length > 0) {
-                btn.disabled = false;
-                btn.style.backgroundColor = '#9C27B0';
-                btn.style.cursor = 'pointer';
                 const shortId = sessionId.length > SESSION_ID_DISPLAY_LENGTH 
                     ? sessionId.substring(0, SESSION_ID_DISPLAY_LENGTH) + '...' 
                     : sessionId;
-                statusEl.textContent = `Session: ${shortId}`;
-                statusEl.style.color = '#9C27B0';
+                
+                // Enable PCAP button
+                pcapBtn.disabled = false;
+                pcapBtn.style.backgroundColor = '#9C27B0';
+                pcapBtn.style.cursor = 'pointer';
+                pcapStatusEl.textContent = `Session: ${shortId}`;
+                pcapStatusEl.style.color = '#9C27B0';
+                
+                // Enable Keylog button
+                keylogBtn.disabled = false;
+                keylogBtn.style.backgroundColor = '#673AB7';
+                keylogBtn.style.cursor = 'pointer';
+                keylogStatusEl.textContent = `Session: ${shortId}`;
+                keylogStatusEl.style.color = '#673AB7';
             } else {
-                btn.disabled = true;
-                btn.style.backgroundColor = '#ccc';
-                btn.style.cursor = 'not-allowed';
-                statusEl.textContent = 'Start a survey session first';
-                statusEl.style.color = '#666';
+                // Disable PCAP button
+                pcapBtn.disabled = true;
+                pcapBtn.style.backgroundColor = '#ccc';
+                pcapBtn.style.cursor = 'not-allowed';
+                pcapStatusEl.textContent = 'Start a survey session first';
+                pcapStatusEl.style.color = '#666';
+                
+                // Disable Keylog button
+                keylogBtn.disabled = true;
+                keylogBtn.style.backgroundColor = '#ccc';
+                keylogBtn.style.cursor = 'not-allowed';
+                keylogStatusEl.textContent = 'Start a survey session first';
+                keylogStatusEl.style.color = '#666';
             }
         }
         
@@ -1440,9 +1467,21 @@
             window.location.href = url;
         }
         
+        // Download DTLS keylog for current survey session
+        function downloadSurveyKeylog() {
+            if (!currentSurveySessionId) {
+                alert('No survey session active. Start "Analyze Network" first.');
+                return;
+            }
+            
+            const url = `/api/keylog/download/session?survey_session_id=${encodeURIComponent(currentSurveySessionId)}`;
+            window.location.href = url;
+        }
+        
         // Make survey functions globally available
         window.setSurveySessionId = setSurveySessionId;
         window.downloadSurveyPcap = downloadSurveyPcap;
+        window.downloadSurveyKeylog = downloadSurveyKeylog;
     </script>
     <script type="module">
         const errorEl = document.getElementById('error');

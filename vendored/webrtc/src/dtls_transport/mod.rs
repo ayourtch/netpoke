@@ -112,6 +112,21 @@ impl RTCDtlsTransport {
         conn.clone()
     }
 
+    /// Returns the DTLS key log data for the current connection.
+    /// This contains the client random and master secret needed for
+    /// decrypting DTLS traffic in Wireshark.
+    /// 
+    /// Returns `None` if the DTLS connection is not established.
+    pub async fn get_key_log_data(&self) -> Option<dtls::state::KeyLogData> {
+        let conn = self.conn.lock().await;
+        if let Some(conn) = &*conn {
+            let conn_state = conn.connection_state().await;
+            conn_state.key_log_data().ok()
+        } else {
+            None
+        }
+    }
+
     /// returns the currently-configured ICETransport or None
     /// if one has not been configured
     pub fn ice_transport(&self) -> &RTCIceTransport {

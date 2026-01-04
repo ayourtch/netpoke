@@ -149,6 +149,7 @@ pub async fn signaling_start(
         icmp_error_count: Arc::new(tokio::sync::Mutex::new(0)),
         last_icmp_error: Arc::new(tokio::sync::Mutex::new(None)),
         capture_service: state.capture_service.clone(), // For survey-specific pcap
+        keylog_service: state.keylog_service.clone(),   // For DTLS key storage
     });
 
     // Set up data channel handlers

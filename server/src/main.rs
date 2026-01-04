@@ -19,6 +19,8 @@ mod tracing_buffer;
 mod tracing_api;
 mod client_config_api;
 mod auth_cache;
+mod dtls_keylog;
+mod dtls_keylog_api;
 
 use axum::{Router, routing::{delete, get, post}, extract::State, Json, middleware};
 use std::net::SocketAddr;
@@ -46,6 +48,7 @@ use packet_capture::PacketCaptureService;
 use tracing_buffer::TracingService;
 use client_config_api::ClientConfigState;
 use auth_cache::SharedAuthAddressCache;
+use dtls_keylog::DtlsKeylogService;
 
 
 fn get_make_service(
@@ -55,6 +58,7 @@ fn get_make_service(
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
+    keylog_service: Arc<DtlsKeylogService>,
 ) -> IntoMakeServiceWithConnectInfo<axum::Router, SocketAddr> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
@@ -87,6 +91,13 @@ fn get_make_service(
         .route("/api/tracing/stats", get(tracing_api::tracing_stats))
         .route("/api/tracing/clear", post(tracing_api::clear_tracing))
         .with_state(tracing_service);
+    
+    // DTLS Keylog API routes - accessible with hybrid auth (both user and magic key)
+    let keylog_routes = Router::new()
+        .route("/api/keylog/download/session", get(dtls_keylog_api::download_keylog_for_session))
+        .route("/api/keylog/stats", get(dtls_keylog_api::keylog_stats))
+        .route("/api/keylog/clear", post(dtls_keylog_api::clear_keylog))
+        .with_state(keylog_service);
     
     // Client config API routes - public, no auth required (needed by WASM client)
     let client_config_routes = Router::new()
@@ -135,6 +146,13 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session
                 ));
             
+            // Keylog routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_keylog = keylog_routes
+                .route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    survey_middleware::require_auth_or_survey_session
+                ));
+            
             // Protected dashboard routes - require full authentication
             let protected_dashboard = dashboard_routes
                 .route_layer(middleware::from_fn_with_state(
@@ -159,7 +177,7 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session
                 ));
             
-            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + tracing (hybrid auth) + dashboard (protected) + static (protected)
+            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + tracing (hybrid auth) + keylog (hybrid auth) + dashboard (protected) + static (protected)
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
@@ -171,6 +189,7 @@ fn get_make_service(
                 .merge(hybrid_signaling)
                 .merge(hybrid_capture)
                 .merge(hybrid_tracing)
+                .merge(hybrid_keylog)
                 .merge(protected_dashboard)
                 .merge(protected_static)
                 .layer(TraceLayer::new_for_http())
@@ -182,6 +201,7 @@ fn get_make_service(
                 .merge(dashboard_routes)
                 .merge(capture_routes)
                 .merge(tracing_routes)
+                .merge(keylog_routes)
                 .merge(client_config_routes)
                 .route_service("/", ServeFile::new("server/static/public/index.html"))
                 .nest_service("/public", ServeDir::new("server/static/public"))
@@ -196,6 +216,7 @@ fn get_make_service(
             .merge(dashboard_routes)
             .merge(capture_routes)
             .merge(tracing_routes)
+            .merge(keylog_routes)
             .merge(client_config_routes)
             .route_service("/", ServeFile::new("server/static/public/index.html"))
             .nest_service("/public", ServeDir::new("server/static/public"))
@@ -214,8 +235,9 @@ async fn http_server(
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
+    keylog_service: Arc<DtlsKeylogService>,
 ) {
-    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state, auth_cache);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state, auth_cache, keylog_service);
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
         tracing::warn!("Failed to parse host '{}': {}. Using 0.0.0.0", config.host, e);
@@ -244,8 +266,9 @@ async fn https_server(
     tracing_service: Arc<TracingService>,
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
+    keylog_service: Arc<DtlsKeylogService>,
 ) {
-    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state, auth_cache);
+    let srv = get_make_service(app_state, auth_state, capture_service, tracing_service, client_config_state, auth_cache, keylog_service);
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
     let key_path = config.ssl_key_path.as_deref().unwrap_or("server.key");
@@ -544,6 +567,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Packet capture disabled");
     }
     
+    // Initialize DTLS keylog service for storing encryption keys
+    let keylog_config = dtls_keylog::DtlsKeylogConfig {
+        max_sessions: 1000,
+        enabled: config.capture.enabled, // Enable keylog when capture is enabled
+    };
+    let keylog_service = dtls_keylog::DtlsKeylogService::new(keylog_config);
+    
+    if config.capture.enabled {
+        tracing::info!("DTLS keylog storage enabled (max {} sessions)", 1000);
+    } else {
+        tracing::info!("DTLS keylog storage disabled (requires packet capture)");
+    }
+    
+    // Set keylog service on app_state for session registration
+    app_state.set_keylog_service(keylog_service.clone());
+    
     // Initialize authentication service if enabled
     let auth_service = if config.auth.enable_auth {
         tracing::info!("Authentication enabled:");
@@ -679,8 +718,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tracing_svc = tracing_service.clone();
         let client_cfg = client_config_state.clone();
         let auth_cache_clone = auth_cache.clone();
+        let keylog_svc = keylog_service.clone();
         tasks.push(tokio::spawn(async move {
-            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg, auth_cache_clone).await
+            http_server(http_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg, auth_cache_clone, keylog_svc).await
         }));
     } else {
         tracing::info!("HTTP server disabled in configuration");
@@ -694,8 +734,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tracing_svc = tracing_service.clone();
         let client_cfg = client_config_state.clone();
         let auth_cache_clone = auth_cache.clone();
+        let keylog_svc = keylog_service.clone();
         tasks.push(tokio::spawn(async move {
-            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg, auth_cache_clone).await
+            https_server(https_config, app_state_clone, auth_state, capture_svc, tracing_svc, client_cfg, auth_cache_clone, keylog_svc).await
         }));
     } else {
         tracing::info!("HTTPS server disabled in configuration");

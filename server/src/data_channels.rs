@@ -205,6 +205,30 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                     );
                 }
             }
+            
+            // Capture DTLS keys for the survey session
+            // This allows decryption of the pcap in Wireshark
+            if let Some(keylog_service) = &session.keylog_service {
+                // Get the DTLS transport from the peer connection
+                let dtls_transport = session.peer_connection.dtls_transport();
+                if let Some(key_log_data) = dtls_transport.get_key_log_data().await {
+                    // Store the keys with the survey session ID
+                    keylog_service.add_keylog(
+                        start_survey_msg.survey_session_id.clone(),
+                        key_log_data.local_random,
+                        key_log_data.master_secret,
+                    );
+                    tracing::info!(
+                        "Captured DTLS keys for survey session {} (conn_id: {})",
+                        start_survey_msg.survey_session_id, session.conn_id
+                    );
+                } else {
+                    tracing::debug!(
+                        "DTLS connection not available for session {}, key capture skipped",
+                        session.id
+                    );
+                }
+            }
 
 
             let (control_channel, all_channels_ready) = {

@@ -4306,6 +4306,7 @@ dependencies = [
  "common",
  "config",
  "futures",
+ "hex",
  "iperf3-server",
  "libc",
  "parking_lot 0.12.5",

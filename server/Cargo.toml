@@ -34,3 +34,4 @@ base64 = "0.22"
 pcap = { version = "2.4.0", features = ["capture-stream"] }
 parking_lot = "0.12"
 chrono = "0.4"
+hex = "0.4"
