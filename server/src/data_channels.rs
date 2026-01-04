@@ -213,9 +213,11 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                 let dtls_transport = session.peer_connection.dtls_transport();
                 if let Some(key_log_data) = dtls_transport.get_key_log_data().await {
                     // Store the keys with the survey session ID
+                    // The SSLKEYLOGFILE format requires CLIENT_RANDOM, which from the 
+                    // server's perspective is the remote_random (client's random value)
                     keylog_service.add_keylog(
                         start_survey_msg.survey_session_id.clone(),
-                        key_log_data.local_random,
+                        key_log_data.remote_random,  // Client random for SSLKEYLOGFILE
                         key_log_data.master_secret,
                     );
                     tracing::info!(

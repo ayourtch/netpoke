@@ -35,6 +35,7 @@ impl DtlsKeylogEntry {
     }
     
     /// Format the entry as SSLKEYLOGFILE line
+    /// Uses lowercase hex encoding which is compatible with Wireshark
     pub fn to_sslkeylog_line(&self) -> String {
         let client_random_hex = hex::encode(&self.client_random);
         let master_secret_hex = hex::encode(&self.master_secret);
