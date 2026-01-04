@@ -17,3 +17,4 @@ server.log
 package.json
 package-lock.json
 *.orig
+server_config.toml
