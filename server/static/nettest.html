@@ -37,8 +37,8 @@
         }
         .running { color: green; }
         .error { color: red; }
-        #chart-container { margin-top: 40px; }
-        #metrics-chart { max-height: 600px; }
+        #probe-stats-chart-container { margin-top: 40px; }
+        #probe-stats-chart { max-height: 300px; }
         .chart-controls { margin: 20px 0; }
         .chart-controls button { margin-right: 10px; }
         #wake-lock-status { 
@@ -78,39 +78,6 @@
     <div id="status">Loading WASM module...</div>
     <div id="ayxx"></div>
     <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
-    <div id="metrics">
-        <h2>Dual-Stack Network Measurement</h2>
-        <div id="metrics-tables-container">
-            <!-- Dynamic connection tables will be inserted here by JavaScript -->
-            <div class="dual-stack-container" id="default-metrics">
-                <div class="stack-column">
-                    <h3>IPv4 Connection <span id="ipv4-0-conn-id" style="font-size: 0.8em; color: #666;"></span></h3>
-                    <table class="ipv4">
-                        <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
-                        <tr><td>Throughput</td><td id="ipv4-s2c-tp-1">-</td><td id="ipv4-s2c-tp-10">-</td><td id="ipv4-s2c-tp-60">-</td></tr>
-                        <tr><td>Delay (ms)</td><td id="ipv4-s2c-delay-1">-</td><td id="ipv4-s2c-delay-10">-</td><td id="ipv4-s2c-delay-60">-</td></tr>
-                        <tr><td>Jitter (ms)</td><td id="ipv4-s2c-jitter-1">-</td><td id="ipv4-s2c-jitter-10">-</td><td id="ipv4-s2c-jitter-60">-</td></tr>
-                        <tr><td>Loss Rate</td><td id="ipv4-s2c-loss-1">-</td><td id="ipv4-s2c-loss-10">-</td><td id="ipv4-s2c-loss-60">-</td></tr>
-                        <tr><td>Reordering</td><td id="ipv4-s2c-reorder-1">-</td><td id="ipv4-s2c-reorder-10">-</td><td id="ipv4-s2c-reorder-60">-</td></tr>
-                    </table>
-                </div>
-                <div class="stack-column">
-                    <h3>IPv6 Connection <span id="ipv6-0-conn-id" style="font-size: 0.8em; color: #666;"></span></h3>
-                    <table class="ipv6">
-                        <tr><th>Metric</th><th>1s</th><th>10s</th><th>60s</th></tr>
-                        <tr><td>Throughput</td><td id="ipv6-s2c-tp-1">-</td><td id="ipv6-s2c-tp-10">-</td><td id="ipv6-s2c-tp-60">-</td></tr>
-                        <tr><td>Delay (ms)</td><td id="ipv6-s2c-delay-1">-</td><td id="ipv6-s2c-delay-10">-</td><td id="ipv6-s2c-delay-60">-</td></tr>
-                        <tr><td>Jitter (ms)</td><td id="ipv6-s2c-jitter-1">-</td><td id="ipv6-s2c-jitter-10">-</td><td id="ipv6-s2c-jitter-60">-</td></tr>
-                        <tr><td>Loss Rate</td><td id="ipv6-s2c-loss-1">-</td><td id="ipv6-s2c-loss-10">-</td><td id="ipv6-s2c-loss-60">-</td></tr>
-                        <tr><td>Reordering</td><td id="ipv6-s2c-reorder-1">-</td><td id="ipv6-s2c-reorder-10">-</td><td id="ipv6-s2c-reorder-60">-</td></tr>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <h2>Client → Server Metrics</h2>
-        <p><em>C2S metrics are measured by the server and visible on the <a href="/static/dashboard.html">dashboard</a>.</em></p>
-    </div>
 
     <div id="peer-connections-container" style="margin-top: 20px;">
         <h2>Peer Connections</h2>
@@ -205,21 +172,11 @@
             </div>
         </div>
         <div id="probe-stats-chart-container" style="margin-top: 20px;">
+            <div class="probe-stats-chart-controls">
+                <button onclick="resetZoom()">Reset Zoom</button>
+            </div>
             <canvas id="probe-stats-chart" height="300"></canvas>
         </div>
-    </div>
-
-    <div id="chart-container">
-        <h2>Live Metrics Graph</h2>
-        <div class="chart-controls">
-            <button onclick="toggleMetric('throughput')">Toggle Throughput</button>
-            <button onclick="toggleMetric('delay')">Toggle Delay</button>
-            <button onclick="toggleMetric('jitter')">Toggle Jitter</button>
-            <button onclick="toggleMetric('loss')">Toggle Loss</button>
-            <button onclick="toggleMetric('reordering')">Toggle Reordering</button>
-            <button onclick="resetZoom()">Reset Zoom</button>
-        </div>
-        <canvas id="metrics-chart"></canvas>
     </div>
 
     <script src="/static/lib/chart.umd.js"></script>
@@ -1657,7 +1614,7 @@
                         await analyze_network_with_count(connCount);
                         
                         // Update UI to show measurements are now running
-                        statusEl.textContent = `Done running network measurements with ${connCount} connection(s)...`;
+                        statusEl.textContent = `Running ongoing network measurements with ${connCount} concurrent WebRTC connection(s)...`;
                         statusEl.className = 'running';
                         
                     } catch (e) {
