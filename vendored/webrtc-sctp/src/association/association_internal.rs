@@ -2023,13 +2023,18 @@ impl AssociationInternal {
         let mut packet_udp_options: Option<util::UdpSendOptions> = None;
 
         for c in chunks {
-            if let Some(udp_send_options) = c.udp_send_options.clone() {
-                if udp_send_options.bypass_sctp_fragmentation || true {
-                    let mut ooo_chunks = vec![];
+            #[cfg(target_os = "linux")]
+            {
+                if let Some(udp_send_options) = c.udp_send_options.clone() {
+                    if udp_send_options.bypass_sctp_fragmentation || true {
+                        let mut ooo_chunks = vec![];
 
-                    ooo_chunks.push(Box::new(c) as Box<dyn Chunk + Send + Sync>);
-                    packets.push(self.create_packet_with_options(ooo_chunks, Some(udp_send_options)));
-                    continue;
+                        ooo_chunks.push(Box::new(c) as Box<dyn Chunk + Send + Sync>);
+                        packets.push(
+                            self.create_packet_with_options(ooo_chunks, Some(udp_send_options)),
+                        );
+                        continue;
+                    }
                 }
             }
             // RFC 4960 sec 6.1.  Transmission of DATA Chunks
@@ -2040,7 +2045,8 @@ impl AssociationInternal {
             if bytes_in_packet + c.user_data.len() as u32 > self.mtu {
                 #[cfg(target_os = "linux")]
                 {
-                    packets.push(self.create_packet_with_options(chunks_to_send, packet_udp_options));
+                    packets
+                        .push(self.create_packet_with_options(chunks_to_send, packet_udp_options));
                 }
                 #[cfg(not(target_os = "linux"))]
                 {

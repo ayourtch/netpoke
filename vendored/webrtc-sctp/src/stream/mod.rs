@@ -273,12 +273,15 @@ impl Stream {
     ///
     /// Returns an error if the write half of this stream is shutdown or `p` is too large.
     pub async fn write_sctp(&self, p: &Bytes, ppi: PayloadProtocolIdentifier) -> Result<usize> {
+        #[cfg(target_os = "linux")]
         let chunks = self.prepare_write(p, ppi, None)?;
+        #[cfg(not(target_os = "linux"))]
+        let chunks = self.prepare_write(p, ppi)?;
         self.send_payload_data(chunks, false).await?;
 
         Ok(p.len())
     }
-    
+
     /// Writes `p` to the DTLS connection with the given Payload Protocol Identifier and UDP send options.
     /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
     ///
@@ -302,8 +305,7 @@ impl Stream {
         &self,
         p: &Bytes,
         ppi: PayloadProtocolIdentifier,
-        #[cfg(target_os = "linux")]
-        udp_send_options: Option<UdpSendOptions>,
+        #[cfg(target_os = "linux")] udp_send_options: Option<UdpSendOptions>,
     ) -> Result<Vec<ChunkPayloadData>> {
         if self.write_shutdown.load(Ordering::SeqCst) {
             return Err(Error::ErrStreamClosed);
@@ -352,18 +354,18 @@ impl Stream {
 
         let head_abandoned = Arc::new(AtomicBool::new(false));
         let head_all_inflight = Arc::new(AtomicBool::new(false));
-        
+
         // Check if we should bypass SCTP fragmentation for MTU testing
         let bypass_fragmentation = udp_send_options
             .as_ref()
             .map(|opts| opts.bypass_sctp_fragmentation)
             .unwrap_or(false);
-        
+
         while remaining != 0 {
             // If bypass_sctp_fragmentation is enabled, send entire payload as one chunk
             // Otherwise, respect max_payload_size
             let fragment_size = if bypass_fragmentation {
-                remaining  // Send all remaining data in one chunk (bypasses normal fragmentation)
+                remaining // Send all remaining data in one chunk (bypasses normal fragmentation)
             } else {
                 std::cmp::min(self.max_payload_size as usize, remaining)
             };
@@ -386,7 +388,7 @@ impl Stream {
                 udp_send_options: udp_send_options.clone(),
                 ..Default::default()
             };
-            
+
             if let Some(ref opts) = udp_send_options {
                 log::debug!("🔵 Stream::packetize: Created chunk {} bytes (bypass_sctp_frag={}, TTL={:?}, TOS={:?}, DF={:?})", 
                     fragment_size, opts.bypass_sctp_fragmentation, opts.ttl, opts.tos, opts.df_bit);
@@ -411,7 +413,7 @@ impl Stream {
 
         chunks
     }
-    
+
     #[cfg(not(target_os = "linux"))]
     fn packetize(&self, raw: &Bytes, ppi: PayloadProtocolIdentifier) -> Vec<ChunkPayloadData> {
         let mut i = 0;
@@ -587,7 +589,11 @@ impl Stream {
         let _ = self.awake_write_loop_ch.try_send(());
     }
 
-    async fn send_payload_data(&self, chunks: Vec<ChunkPayloadData>, send_immed: bool) -> Result<()> {
+    async fn send_payload_data(
+        &self,
+        chunks: Vec<ChunkPayloadData>,
+        send_immed: bool,
+    ) -> Result<()> {
         let state = self.get_state();
         if state != AssociationState::Established {
             return Err(Error::ErrPayloadDataStateNotExist);
