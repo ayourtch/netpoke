@@ -79,7 +79,7 @@ secure = false  # Set to true for HTTPS
 ### Integration
 
 ```rust
-use wifi_verify_auth::{AuthConfig, AuthService, auth_routes, require_auth};
+use netpoke_auth::{AuthConfig, AuthService, auth_routes, require_auth};
 use std::sync::Arc;
 use axum::{Router, middleware};
 

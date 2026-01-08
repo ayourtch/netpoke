@@ -3,7 +3,7 @@ use tokio::net::UdpSocket;
 
 use super::*;
 
-// UDP socket options support (added for wifi-verify)
+// UDP socket options support (added for netpoke)
 #[cfg(target_os = "linux")]
 use libc::{
     c_void, iovec, msghdr, sendmsg, IPPROTO_IP, IPPROTO_IPV6, IPV6_HOPLIMIT, IPV6_TCLASS, IP_TOS,
@@ -89,7 +89,7 @@ impl Conn for UdpSocket {
 }
 
 // ============================================================================
-// UDP Socket Options Support (added for wifi-verify project)
+// UDP Socket Options Support (added for netpoke project)
 // ============================================================================
 
 /// UDP send options for per-message configuration
@@ -443,14 +443,14 @@ fn sendmsg_with_options(
         log::debug!("sendmsg SUCCEEDED: sent {} bytes", result);
 
         // Track this packet for ICMP/ICMPv6 correlation if TTL/Hop Limit is set
-        // Call the extern function from wifi-verify-server
+        // Call the extern function from netpoke-server
         if let Some(ttl_value) = options.ttl {
             // Get the local address (source IP and port) from the socket
             let local_addr = get_local_addr(fd);
 
             // Declare extern functions once
             extern "C" {
-                fn wifi_verify_track_udp_packet(
+                fn netpoke_track_udp_packet(
                     src_ip_v4: u32,
                     src_port: u16,
                     dest_ip_v4: u32,
@@ -463,7 +463,7 @@ fn sendmsg_with_options(
                     conn_id_len: usize,
                 );
 
-                fn wifi_verify_track_udp_packet_v6(
+                fn netpoke_track_udp_packet_v6(
                     src_ip_v6_ptr: *const u8,
                     src_port: u16,
                     dest_ip_v6_ptr: *const u8,
@@ -499,12 +499,12 @@ fn sendmsg_with_options(
                         Err(_) => (0, 0xffff),
                     };
 
-                    log::debug!("Calling wifi_verify_track_udp_packet (IPv4): src={}:{}, dest={}:{}, udp_length={}, ttl={}, conn_id={}",
+                    log::debug!("Calling netpoke_track_udp_packet (IPv4): src={}:{}, dest={}:{}, udp_length={}, ttl={}, conn_id={}",
                         std::net::Ipv4Addr::from(src_ip), src_port,
                         addr_v4.ip(), addr_v4.port(), udp_length, ttl_value, options.conn_id);
 
                     unsafe {
-                        wifi_verify_track_udp_packet(
+                        netpoke_track_udp_packet(
                             src_ip,
                             src_port,
                             dest_ip,
@@ -534,12 +534,12 @@ fn sendmsg_with_options(
                         Err(_) => ([0u8; 16], 0),
                     };
 
-                    log::debug!("Calling wifi_verify_track_udp_packet_v6 (IPv6): src=[{}]:{}, dest=[{}]:{}, udp_length={}, hop_limit={}, conn_id={}",
+                    log::debug!("Calling netpoke_track_udp_packet_v6 (IPv6): src=[{}]:{}, dest=[{}]:{}, udp_length={}, hop_limit={}, conn_id={}",
                         std::net::Ipv6Addr::from(src_ip), src_port,
                         addr_v6.ip(), addr_v6.port(), udp_length, ttl_value, options.conn_id);
 
                     unsafe {
-                        wifi_verify_track_udp_packet_v6(
+                        netpoke_track_udp_packet_v6(
                             src_ip.as_ptr(),
                             src_port,
                             dest_ip.as_ptr(),

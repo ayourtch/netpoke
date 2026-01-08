@@ -9,7 +9,7 @@ use axum_extra::extract::cookie::{Key, PrivateCookieJar};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
-use wifi_verify_auth::{AuthState, SessionData};
+use netpoke_auth::{AuthState, SessionData};
 
 /// Combined state for auth handlers that need both AuthState and auth cache
 #[derive(Clone)]

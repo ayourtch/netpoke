@@ -1,6 +1,6 @@
-# HTTPS Setup for WiFi Verify Server
+# HTTPS Setup for NetPoke Server
 
-This guide explains how to enable HTTPS support for your WiFi Verify Server.
+This guide explains how to enable HTTPS support for your NetPoke Server.
 
 ## Quick Start
 
@@ -58,10 +58,10 @@ ssl_key_path = "certs/server.key"   # Path to private key file
 You can also configure the server using environment variables:
 
 ```bash
-export WIFI_VERIFY_SERVER_ENABLE_HTTPS=true
-export WIFI_VERIFY_SERVER_SSL_CERT_PATH=certs/server.crt
-export WIFI_VERIFY_SERVER_SSL_KEY_PATH=certs/server.key
-export WIFI_VERIFY_SERVER_HTTPS_PORT=8443
+export NETPOKE_SERVER_ENABLE_HTTPS=true
+export NETPOKE_SERVER_SSL_CERT_PATH=certs/server.crt
+export NETPOKE_SERVER_SSL_KEY_PATH=certs/server.key
+export NETPOKE_SERVER_HTTPS_PORT=8443
 cargo run
 ```
 

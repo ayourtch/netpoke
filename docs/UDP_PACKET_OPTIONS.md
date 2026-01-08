@@ -660,7 +660,7 @@ for size in (500..1500).step_by(100) {
 ### 1. Compilation Test
 
 ```bash
-cd /home/runner/work/wifi-verify/wifi-verify
+cd /home/runner/work/netpoke/netpoke
 cargo check --all
 cargo build --release
 ```
@@ -672,7 +672,7 @@ cargo build --release
 sudo tcpdump -i any -v -n 'udp' | grep -E 'ttl|DF'
 
 # Terminal 2: Run application with debug logging
-RUST_LOG=debug cargo run --bin wifi-verify-server
+RUST_LOG=debug cargo run --bin netpoke-server
 
 # Look for output like:
 # IP (tos 0x10, ttl 5, ..., flags [DF], proto UDP...)
@@ -697,7 +697,7 @@ The implementation includes debug logging at every layer:
 
 ```bash
 # Run with debug logging enabled
-RUST_LOG=debug cargo run --bin wifi-verify-server
+RUST_LOG=debug cargo run --bin netpoke-server
 
 # You'll see logs like:
 # DEBUG [association] sending packet with UDP options: TTL=Some(5), TOS=None, DF=Some(true)

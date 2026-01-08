@@ -2,7 +2,7 @@ use std::fmt;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-// Added for wifi-verify: UDP socket options support
+// Added for netpoke: UDP socket options support
 #[cfg(target_os = "linux")]
 use util::UdpSendOptions;
 
@@ -71,7 +71,7 @@ pub(crate) struct Packet {
     pub(crate) chunks: Vec<Box<dyn Chunk + Send + Sync>>,
     
     /// UDP socket options (TTL, TOS, DF bit) for this packet
-    /// Added for wifi-verify: enables per-packet UDP options
+    /// Added for netpoke: enables per-packet UDP options
     #[cfg(target_os = "linux")]
     pub(crate) udp_send_options: Option<UdpSendOptions>,
 }

@@ -197,7 +197,7 @@ pub fn calculate_udp_checksum_v6(
 /// C-compatible FFI function for tracking IPv4 UDP packets
 /// This can be called from the vendored webrtc-util code
 #[no_mangle]
-pub extern "C" fn wifi_verify_track_udp_packet(
+pub extern "C" fn netpoke_track_udp_packet(
     src_ip_v4: u32,         // Source IPv4 address as u32
     src_port: u16,          // Source port in host byte order
     dest_ip_v4: u32,        // Destination IPv4 address as u32
@@ -255,7 +255,7 @@ pub extern "C" fn wifi_verify_track_udp_packet(
 /// C-compatible FFI function for tracking IPv6 UDP packets
 /// This can be called from the vendored webrtc-util code
 #[no_mangle]
-pub extern "C" fn wifi_verify_track_udp_packet_v6(
+pub extern "C" fn netpoke_track_udp_packet_v6(
     src_ip_v6_ptr: *const u8,  // Pointer to 16-byte source IPv6 address
     src_port: u16,             // Source port in host byte order
     dest_ip_v6_ptr: *const u8, // Pointer to 16-byte destination IPv6 address

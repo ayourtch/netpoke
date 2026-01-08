@@ -1,6 +1,6 @@
 # Authentication Setup Guide
 
-This guide explains how to set up and use the authentication system in WiFi Verify.
+This guide explains how to set up and use the authentication system in NetPoke.
 
 ## Overview
 
@@ -78,8 +78,8 @@ export BLUESKY_REDIRECT_URL="http://localhost:3000/auth/bluesky/callback"
 ### 3. Run the Server
 
 ```bash
-cd /path/to/wifi-verify
-cargo run --bin wifi-verify-server
+cd /path/to/netpoke
+cargo run --bin netpoke-server
 ```
 
 Visit `http://localhost:3000` - you'll be redirected to the login page if authentication is enabled.
@@ -244,7 +244,7 @@ bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
 1. Go to https://github.com/settings/developers
 2. Click "New OAuth App"
 3. Fill in:
-   - Application name: WiFi Verify
+   - Application name: NetPoke
    - Homepage URL: http://localhost:3000
    - Authorization callback URL: http://localhost:3000/auth/github/callback
 4. Copy the Client ID and Client Secret
@@ -377,7 +377,7 @@ This is normal when:
 
 ## Architecture
 
-The authentication system is built as a separate reusable crate (`wifi-verify-auth`) that can be easily ported to other projects. Key components:
+The authentication system is built as a separate reusable crate (`netpoke-auth`) that can be easily ported to other projects. Key components:
 
 - **Providers**: Individual OAuth provider implementations
 - **Service**: Central authentication service managing sessions

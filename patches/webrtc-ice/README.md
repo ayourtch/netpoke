@@ -68,7 +68,7 @@ After applying patches:
    cargo test --package webrtc-ice
    ```
 
-3. Verify in integration with wifi-verify server
+3. Verify in integration with netpoke server
 
 ## Related Documentation
 

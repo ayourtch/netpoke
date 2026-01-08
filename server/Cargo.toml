@@ -1,11 +1,11 @@
 [package]
-name = "wifi-verify-server"
+name = "netpoke-server"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 common = { path = "../common" }
-wifi-verify-auth = { path = "../auth" }
+netpoke-auth = { path = "../auth" }
 iperf3-server = { path = "../iperf3-server" }
 tokio.workspace = true
 serde.workspace = true

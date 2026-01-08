@@ -101,7 +101,7 @@ pub trait Candidate: fmt::Display {
     /// Default implementation falls back to `write_to` without options for candidates
     /// that don't support per-packet options.
     /// 
-    /// Added for wifi-verify: enables per-packet UDP options
+    /// Added for netpoke: enables per-packet UDP options
     #[cfg(target_os = "linux")]
     async fn write_to_with_options(
         &self,
@@ -359,7 +359,7 @@ impl CandidatePair {
     }
 
     /// Write data with UDP socket options (TTL, TOS, DF bit)
-    /// Added for wifi-verify: enables per-packet UDP options
+    /// Added for netpoke: enables per-packet UDP options
     #[cfg(target_os = "linux")]
     pub async fn write_with_options(&self, b: &[u8], options: &util::UdpSendOptions) -> Result<usize> {
         self.local.write_to_with_options(b, &*self.remote, options).await

@@ -21,7 +21,7 @@ use crate::error::{Error, Result};
 use crate::queue::pending_queue::PendingQueue;
 use crate::queue::reassembly_queue::ReassemblyQueue;
 
-// Added for wifi-verify: UDP socket options support
+// Added for netpoke: UDP socket options support
 #[cfg(target_os = "linux")]
 use util::UdpSendOptions;
 
@@ -283,7 +283,7 @@ impl Stream {
     }
 
     /// Writes `p` to the DTLS connection with the given Payload Protocol Identifier and UDP send options.
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
     ///
     /// Returns an error if the write half of this stream is shutdown or `p` is too large.
     #[cfg(target_os = "linux")]

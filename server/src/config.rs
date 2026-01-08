@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use wifi_verify_auth::AuthConfig;
+use netpoke_auth::AuthConfig;
 
 // Re-export iperf3 config for convenience
 pub use iperf3_server::Iperf3Config;
@@ -208,7 +208,7 @@ impl Config {
         let config = config::Config::builder()
             .add_source(config::File::with_name("/etc/netpoke/server_config").required(false))
             .add_source(config::File::with_name("server_config").required(false))
-            .add_source(config::Environment::with_prefix("WIFI_VERIFY").separator("__"))
+            .add_source(config::Environment::with_prefix("NETPOKE").separator("__"))
             .build()?;
 
         config.try_deserialize()

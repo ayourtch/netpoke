@@ -65,7 +65,7 @@ pub mod buffer;
 #[cfg(feature = "conn")]
 pub mod conn;
 #[cfg(feature = "conn")]
-pub use crate::conn::UdpSendOptions; // Added for wifi-verify
+pub use crate::conn::UdpSendOptions; // Added for netpoke
 
 #[cfg(feature = "ifaces")]
 pub mod ifaces;

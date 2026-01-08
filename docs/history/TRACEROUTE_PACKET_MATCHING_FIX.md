@@ -102,7 +102,7 @@ For packets across different connections:
 
 ### Build Status
 ```bash
-$ cargo build --package wifi-verify-server
+$ cargo build --package netpoke-server
 ✅ Finished `dev` profile in 31.67s
 ```
 

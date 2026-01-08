@@ -1,8 +1,8 @@
-# WiFi-Verify: Organization & Access Model
+# NetPoke: Organization & Access Model
 
 ## Overview
 
-WiFi-Verify uses a hierarchical model for organizing users, projects, and survey data. This enables enterprise deployments where multiple teams or clients need isolated access to their own data.
+NetPoke uses a hierarchical model for organizing users, projects, and survey data. This enables enterprise deployments where multiple teams or clients need isolated access to their own data.
 
 ---
 
@@ -193,7 +193,7 @@ interface MagicKey {
 
 ### Survey
 
-A single walk-through assessment captured using WiFi-Verify.
+A single walk-through assessment captured using NetPoke.
 
 ```typescript
 interface Survey {
@@ -298,7 +298,7 @@ enum SurveyStatus {
 
 ### Creating a Magic Key
 
-1. User logs in to WiFi-Verify
+1. User logs in to NetPoke
 2. Navigates to project
 3. Clicks "Create Magic Key"
 4. Configures:
@@ -310,7 +310,7 @@ enum SurveyStatus {
 ### Magic Key URL Format
 
 ```
-https://app.wifi-verify.com/survey?key=field-survey-2024-abc123
+https://netpoke.com/survey?key=field-survey-2024-abc123
 ```
 
 Or with custom domain:

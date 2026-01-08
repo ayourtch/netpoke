@@ -28,9 +28,9 @@ When a client abruptly disconnects (e.g., browser closed, network interrupted), 
 
 1. **Start the server**:
    ```bash
-   cd /home/runner/work/wifi-verify/wifi-verify
-   cargo build --release --package wifi-verify-server
-   sudo target/release/wifi-verify-server
+   cd /home/runner/work/netpoke/netpoke
+   cargo build --release --package netpoke-server
+   sudo target/release/netpoke-server
    ```
 
 2. **Connect a client** via the web interface
@@ -98,7 +98,7 @@ error_threshold: 5, // Change this value
 - **Error**: "Failed to create IPv4 ICMP socket"
 - **Solution**: Run with `sudo` or grant CAP_NET_RAW capability:
   ```bash
-  sudo setcap cap_net_raw+ep target/release/wifi-verify-server
+  sudo setcap cap_net_raw+ep target/release/netpoke-server
   ```
 
 ### No cleanup happening

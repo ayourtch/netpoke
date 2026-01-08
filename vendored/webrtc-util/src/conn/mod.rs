@@ -4,7 +4,7 @@ pub mod conn_pipe;
 pub mod conn_udp;
 pub mod conn_udp_listener;
 
-// Re-export UDP socket options support (added for wifi-verify)
+// Re-export UDP socket options support (added for netpoke)
 pub use conn_udp::UdpSendOptions;
 
 #[cfg(test)]

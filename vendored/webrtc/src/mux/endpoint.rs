@@ -79,7 +79,7 @@ impl Conn for Endpoint {
     }
     
     /// Forward send_with_options to the underlying connection
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
     #[cfg(target_os = "linux")]
     async fn send_with_options(
         &self,
@@ -92,7 +92,7 @@ impl Conn for Endpoint {
     }
     
     /// Forward send_to_with_options to the underlying connection
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
     #[cfg(target_os = "linux")]
     async fn send_to_with_options(
         &self,

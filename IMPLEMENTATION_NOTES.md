@@ -75,7 +75,7 @@ Successfully merged the "Analyze Path" functionality into a unified "Analyze Net
 To test the implementation:
 
 1. Build the WASM client: `cd client && ./build.sh`
-2. Start the server: `cargo run --release --bin wifi-verify-server`
+2. Start the server: `cargo run --release --bin netpoke-server`
 3. Open browser to `http://localhost:3000/static/nettest.html`
 4. Click "Analyze Network" button
 5. Verify:

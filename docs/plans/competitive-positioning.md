@@ -1,14 +1,14 @@
-# WiFi-Verify: Competitive Positioning
+# NetPoke: Competitive Positioning
 
 ## Market Positioning
 
-WiFi-Verify occupies a unique position in the network measurement landscape, sitting at the intersection of several categories without directly competing with any of them.
+NetPoke occupies a unique position in the network measurement landscape, sitting at the intersection of several categories without directly competing with any of them.
 
 ```
                         Complexity / Cost
                               ▲
                               │
-        Enterprise NPM        │        WiFi-Verify
+        Enterprise NPM        │        NetPoke
         (ThousandEyes,        │        sits HERE
          Catchpoint)          │            ↓
         $20K-100K/yr          │        ┌─────────┐
@@ -46,7 +46,7 @@ WiFi-Verify occupies a unique position in the network measurement landscape, sit
 
 #### How They Compare
 
-| Capability | Speedtest | Fast.com | Cloudflare | WiFi-Verify |
+| Capability | Speedtest | Fast.com | Cloudflare | NetPoke |
 |------------|-----------|----------|------------|-------------|
 | Download speed | ✅ | ✅ | ✅ | ✅ |
 | Upload speed | ✅ | ✅ | ✅ | ✅ |
@@ -62,7 +62,7 @@ WiFi-Verify occupies a unique position in the network measurement landscape, sit
 
 #### Positioning vs Consumer Speed Tests
 
-> "Speedtest tells you how fast. WiFi-Verify tells you why."
+> "Speedtest tells you how fast. NetPoke tells you why."
 
 **Key Differentiators**:
 1. Traceroute shows the full path, not just endpoint speed
@@ -72,7 +72,7 @@ WiFi-Verify occupies a unique position in the network measurement landscape, sit
 
 **When to Use Each**:
 - **Speedtest**: Quick "is my internet working?" check
-- **WiFi-Verify**: Diagnosing why video calls drop, finding network problems
+- **NetPoke**: Diagnosing why video calls drop, finding network problems
 
 ---
 
@@ -86,7 +86,7 @@ WiFi-Verify occupies a unique position in the network measurement landscape, sit
 
 #### How They Compare
 
-| Capability | Ekahau | NetSpot | WiFi-Verify |
+| Capability | Ekahau | NetSpot | NetPoke |
 |------------|--------|---------|-------------|
 | **Primary Measurement** | RF signal | RF signal | Application performance |
 | Signal strength heatmap | ✅ | ✅ | ❌ |
@@ -103,25 +103,25 @@ WiFi-Verify occupies a unique position in the network measurement landscape, sit
 
 #### Positioning vs RF Survey Tools
 
-> "Ekahau measures radio. WiFi-Verify measures reality."
+> "Ekahau measures radio. NetPoke measures reality."
 
-**WiFi-Verify is COMPLEMENTARY, not competitive**:
+**NetPoke is COMPLEMENTARY, not competitive**:
 
 RF survey tools answer:
 - "Is there WiFi signal here?"
 - "What channel should this AP use?"
 - "Where should I place access points?"
 
-WiFi-Verify answers:
+NetPoke answers:
 - "Will video calls work here?"
 - "Is the problem WiFi or backhaul?"
 - "What's the actual end-to-end performance?"
 
 **Combined Workflow**:
 1. **RF Survey (Ekahau)**: Design and validate coverage
-2. **Application Survey (WiFi-Verify)**: Validate end-to-end performance
+2. **Application Survey (NetPoke)**: Validate end-to-end performance
 
-**Future Integration**: Screen capture of Ekahau during WiFi-Verify survey for comprehensive documentation.
+**Future Integration**: Screen capture of Ekahau during NetPoke survey for comprehensive documentation.
 
 ---
 
@@ -136,7 +136,7 @@ WiFi-Verify answers:
 
 #### How They Compare
 
-| Capability | ThousandEyes | Catchpoint | WiFi-Verify |
+| Capability | ThousandEyes | Catchpoint | NetPoke |
 |------------|--------------|------------|-------------|
 | Path visualization | ✅ | ✅ | ✅ |
 | Internet outage detection | ✅ | ✅ | ❌ |
@@ -160,7 +160,7 @@ WiFi-Verify answers:
 
 **When to Use Each**:
 - **ThousandEyes/Catchpoint**: Continuous monitoring of production infrastructure
-- **WiFi-Verify**: Ad-hoc diagnostics, surveys, remote troubleshooting
+- **NetPoke**: Ad-hoc diagnostics, surveys, remote troubleshooting
 
 **Not Competing For**:
 - 24/7 infrastructure monitoring
@@ -180,7 +180,7 @@ WiFi-Verify answers:
 
 #### How They Compare
 
-| Capability | WiFi Analyzer | PingPlotter | WiFi-Verify |
+| Capability | WiFi Analyzer | PingPlotter | NetPoke |
 |------------|---------------|-------------|-------------|
 | Channel info | ✅ | ❌ | ❌ |
 | Signal strength | ✅ | ❌ | ❌ |
@@ -202,7 +202,7 @@ WiFi-Verify answers:
 
 ### Technical Moat
 
-These capabilities are unique to WiFi-Verify and would require significant engineering to replicate:
+These capabilities are unique to NetPoke and would require significant engineering to replicate:
 
 | Capability | Difficulty to Replicate | Why |
 |------------|------------------------|-----|
@@ -215,7 +215,7 @@ These capabilities are unique to WiFi-Verify and would require significant engin
 
 ### Modified WebRTC Stack
 
-WiFi-Verify maintains forked versions of:
+NetPoke maintains forked versions of:
 - `webrtc` v0.14.0
 - `webrtc-data` v0.12.0
 - `webrtc-sctp` v0.13.0
@@ -279,14 +279,14 @@ Changes enable:
 **Don't Say**: "Replace your Ekahau"
 **Do Say**: "Complete your survey with application-layer data"
 
-> "Your RF survey shows excellent coverage. Now prove that apps will actually perform. WiFi-Verify measures end-to-end latency, packet loss, and path quality—everything RF can't see."
+> "Your RF survey shows excellent coverage. Now prove that apps will actually perform. NetPoke measures end-to-end latency, packet loss, and path quality—everything RF can't see."
 
 ### To IT Troubleshooters
 
 **Don't Say**: "Better than Speedtest"
 **Do Say**: "When Speedtest isn't enough"
 
-> "The user says WiFi is slow but Speedtest shows 200 Mbps. WiFi-Verify shows 200ms jitter and 2% packet loss—that's why their Zoom calls drop. Now you can prove it."
+> "The user says WiFi is slow but Speedtest shows 200 Mbps. NetPoke shows 200ms jitter and 2% packet loss—that's why their Zoom calls drop. Now you can prove it."
 
 ### To MSPs
 
@@ -300,15 +300,15 @@ Changes enable:
 **Don't Say**: "Replace ThousandEyes"
 **Do Say**: "Diagnose what agents can't reach"
 
-> "Your NPM monitors the data center. But what about the VP's home office? WiFi-Verify works anywhere with a browser—no agents, no VPN, no deployment."
+> "Your NPM monitors the data center. But what about the VP's home office? NetPoke works anywhere with a browser—no agents, no VPN, no deployment."
 
 ---
 
 ## Competitive Comparison Page (Website Content)
 
-### WiFi-Verify vs. Speedtest
+### NetPoke vs. Speedtest
 
-| | Speedtest | WiFi-Verify |
+| | Speedtest | NetPoke |
 |---|---|---|
 | Speed test | ✅ | ✅ |
 | Latency | ✅ | ✅ |
@@ -319,9 +319,9 @@ Changes enable:
 | Walk-through survey | ❌ | ✅ |
 | Best for | Quick speed check | Diagnosing real problems |
 
-### WiFi-Verify vs. Ekahau
+### NetPoke vs. Ekahau
 
-| | Ekahau | WiFi-Verify |
+| | Ekahau | NetPoke |
 |---|---|---|
 | RF signal mapping | ✅ | ❌ |
 | Channel planning | ✅ | ❌ |
@@ -332,11 +332,11 @@ Changes enable:
 | Works on mobile | Limited | Full |
 | Best for | RF coverage design | Application performance validation |
 
-**Use Together**: RF survey for coverage + WiFi-Verify for performance = complete picture.
+**Use Together**: RF survey for coverage + NetPoke for performance = complete picture.
 
-### WiFi-Verify vs. ThousandEyes
+### NetPoke vs. ThousandEyes
 
-| | ThousandEyes | WiFi-Verify |
+| | ThousandEyes | NetPoke |
 |---|---|---|
 | Path visualization | ✅ | ✅ |
 | Continuous monitoring | ✅ | ✅ |

@@ -155,7 +155,7 @@ To verify the implementation:
 
 1. Start the server:
    ```bash
-   RUST_LOG=info cargo run -p wifi-verify-server
+   RUST_LOG=info cargo run -p netpoke-server
    ```
 
 2. Connect a client (web browser)

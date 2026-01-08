@@ -106,7 +106,7 @@ use util::UdpSendOptions;
 Added implementations after line 155 (after the `as_any` method):
 ```rust
 /// Forward send_with_options to the underlying connection
-/// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+/// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
 #[cfg(target_os = "linux")]
 async fn send_with_options(
     &self,
@@ -119,7 +119,7 @@ async fn send_with_options(
 }
 
 /// Forward send_to_with_options to the underlying connection
-/// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+/// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
 #[cfg(target_os = "linux")]
 async fn send_to_with_options(
     &self,
@@ -216,7 +216,7 @@ INFO: Sent traceroute probe with TTL 1 (seq 1)
 
 ## Verification Steps
 
-1. Build the server: `cargo build --package wifi-verify-server`
+1. Build the server: `cargo build --package netpoke-server`
 2. Run the server and enable logging: `RUST_LOG=info ./server`
 3. Check logs for the 🔵 emoji markers showing options propagation
 4. Use tcpdump/wireshark to verify TTL is actually set on UDP packets:

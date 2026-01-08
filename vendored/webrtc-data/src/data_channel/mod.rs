@@ -18,7 +18,7 @@ use sctp::stream::*;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use util::marshal::*;
 
-// Added for wifi-verify: UDP socket options support
+// Added for netpoke: UDP socket options support
 #[cfg(target_os = "linux")]
 use util::UdpSendOptions;
 
@@ -282,7 +282,7 @@ impl DataChannel {
     }
 
     /// WriteDataChannel with UDP socket options (Linux only)
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
     #[cfg(target_os = "linux")]
     pub async fn write_data_channel_with_options(
         &self,

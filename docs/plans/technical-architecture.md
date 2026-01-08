@@ -1,8 +1,8 @@
-# WiFi-Verify: Technical Architecture
+# NetPoke: Technical Architecture
 
 ## System Overview
 
-WiFi-Verify is a distributed system with a Rust-based server and WebAssembly client communicating via WebRTC data channels.
+NetPoke is a distributed system with a Rust-based server and WebAssembly client communicating via WebRTC data channels.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -53,7 +53,7 @@ WiFi-Verify is a distributed system with a Rust-based server and WebAssembly cli
 ### Crate Structure
 
 ```
-wifi-verify/
+netpoke/
 ├── server/              # Main server application
 │   ├── src/
 │   │   ├── main.rs              # Entry point, Axum router setup
@@ -83,7 +83,7 @@ wifi-verify/
 │       ├── lib.rs
 │       └── protocol.rs          # Message definitions
 │
-├── wifi-verify-auth/    # Authentication library
+├── netpoke-auth/    # Authentication library
 │   └── src/
 │       ├── lib.rs               # Auth state, session management
 │       ├── config.rs            # Auth configuration
@@ -269,7 +269,7 @@ Request
    │
    ▼
 ┌─────────────────────────────────┐
-│  wifi-verify-auth               │  ← Session validation
+│  netpoke-auth               │  ← Session validation
 │  (AuthState)                    │
 └─────────────────────────────────┘
    │
@@ -389,7 +389,7 @@ webrtc_connection_delay_ms = 50
 │              Linux Server                    │
 │                                             │
 │  ┌─────────────────────────────────────┐   │
-│  │       WiFi-Verify Server            │   │
+│  │       NetPoke Server            │   │
 │  │  - HTTP/HTTPS (Axum)                │   │
 │  │  - WebRTC (webrtc-rs)               │   │
 │  │  - ICMP Listener (raw socket)       │   │

@@ -23,7 +23,7 @@ use sctp::stream::OnBufferedAmountLowFn;
 use tokio::sync::{Mutex, Notify};
 use util::sync::Mutex as SyncMutex;
 
-// Added for wifi-verify: UDP socket options support
+// Added for netpoke: UDP socket options support
 #[cfg(target_os = "linux")]
 use util::UdpSendOptions;
 
@@ -401,7 +401,7 @@ impl RTCDataChannel {
     }
 
     /// send_with_options sends the binary message to the DataChannel peer with UDP socket options
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit) on Linux
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit) on Linux
     #[cfg(target_os = "linux")]
     pub async fn send_with_options(
         &self,

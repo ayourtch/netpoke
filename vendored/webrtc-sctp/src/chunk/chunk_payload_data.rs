@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use portable_atomic::AtomicBool;
-use util::UdpSendOptions; // Added for wifi-verify: UDP socket options support
+use util::UdpSendOptions; // Added for netpoke: UDP socket options support
 
 use super::chunk_header::*;
 use super::chunk_type::*;
@@ -125,7 +125,7 @@ pub struct ChunkPayloadData {
     pub(crate) retransmit: bool,
     
     /// UDP socket options (TTL, TOS, DF bit) for this chunk
-    /// Added for wifi-verify: enables per-packet UDP options
+    /// Added for netpoke: enables per-packet UDP options
     #[cfg(target_os = "linux")]
     pub(crate) udp_send_options: Option<UdpSendOptions>,
 }

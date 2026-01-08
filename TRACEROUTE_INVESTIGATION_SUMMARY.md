@@ -71,7 +71,7 @@ The test script `scripts/test_traceroute_matching.py` proves:
 
 ### 2. Build Verification
 ```bash
-$ cargo check --package wifi-verify-server
+$ cargo check --package netpoke-server
 ✅ Finished successfully
 ```
 

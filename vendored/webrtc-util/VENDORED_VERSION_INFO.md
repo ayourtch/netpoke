@@ -1,6 +1,6 @@
 # Vendored webrtc-util Version Information
 
-This directory contains a vendored copy of the `webrtc-util` crate with custom modifications for the wifi-verify project.
+This directory contains a vendored copy of the `webrtc-util` crate with custom modifications for the netpoke project.
 
 ## Version Information
 
@@ -22,7 +22,7 @@ The following files have been modified from the original crate:
 
 1. **Cargo.toml**
    - Added: `libc = "0.2"` dependency for Linux-specific socket operations
-   - Comment: "Added for wifi-verify: UDP socket options support"
+   - Comment: "Added for netpoke: UDP socket options support"
 
 2. **src/conn/conn_udp.rs**
    - Added: `UdpSendOptions` struct for per-message options
@@ -35,11 +35,11 @@ The following files have been modified from the original crate:
 
 3. **src/conn/mod.rs**
    - Added: Re-exports of `UdpSendOptions` and `set_send_options`
-   - Comment: "Re-export UDP socket options support (added for wifi-verify)"
+   - Comment: "Re-export UDP socket options support (added for netpoke)"
 
 4. **src/lib.rs**
    - Added: Public re-exports at crate level
-   - Comment: "Added for wifi-verify"
+   - Comment: "Added for netpoke"
 
 ## How to Update
 
@@ -72,4 +72,4 @@ When updating to a newer version of webrtc-util:
 2. You may need to manually re-apply the changes
 3. The original unmodified version can be downloaded from crates.io
 4. Compare using: `diff -ur <original> <modified>` to see all changes
-5. Look for the marker comments "wifi-verify" to identify all modified sections
+5. Look for the marker comments "netpoke" to identify all modified sections

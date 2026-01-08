@@ -1,10 +1,10 @@
-# WiFi-Verify: Product Overview
+# NetPoke: Product Overview
 
 ## Executive Summary
 
-WiFi-Verify is a browser-based network measurement and survey platform that measures **end-to-end application-layer network performance**. Unlike traditional WiFi survey tools that focus on radio frequency (RF) metrics, WiFi-Verify measures what applications actually experience: latency, jitter, packet loss, path characteristics, and throughput.
+NetPoke is a browser-based network measurement and survey platform that measures **end-to-end application-layer network performance**. Unlike traditional WiFi survey tools that focus on radio frequency (RF) metrics, NetPoke measures what applications actually experience: latency, jitter, packet loss, path characteristics, and throughput.
 
-**Positioning**: WiFi-Verify is complementary to RF survey tools like Ekahau. While Ekahau answers "How strong is the WiFi signal?", WiFi-Verify answers "How well do applications actually perform over this network?"
+**Positioning**: NetPoke is complementary to RF survey tools like Ekahau. While Ekahau answers "How strong is the WiFi signal?", NetPoke answers "How well do applications actually perform over this network?"
 
 ## Core Value Proposition
 
@@ -34,7 +34,7 @@ A zero-install, browser-based platform that:
 
 ### 1. Real-Time Network Measurement
 
-WiFi-Verify measures key network quality metrics continuously:
+NetPoke measures key network quality metrics continuously:
 
 | Metric | Description | Measurement Method |
 |--------|-------------|-------------------|
@@ -50,7 +50,7 @@ WiFi-Verify measures key network quality metrics continuously:
 ### 2. Network Path Analysis
 
 #### Traceroute via WebRTC
-WiFi-Verify performs browser-based traceroute by:
+NetPoke performs browser-based traceroute by:
 1. Sending probe packets with incrementing TTL values
 2. Server-side ICMP listener captures "Time Exceeded" responses
 3. Correlating ICMP responses with tracked UDP packets
@@ -103,7 +103,7 @@ Real-time monitoring interface:
 
 ### Modified WebRTC Stack
 
-WiFi-Verify uses a **vendored and modified WebRTC implementation** (6 crates) to enable capabilities impossible with standard WebRTC:
+NetPoke uses a **vendored and modified WebRTC implementation** (6 crates) to enable capabilities impossible with standard WebRTC:
 
 #### Per-Packet Socket Options
 Control UDP packet attributes on every message:
@@ -217,9 +217,9 @@ Long-running measurements with real-time visualization for ongoing network quali
 
 ## Relationship to RF Survey Tools
 
-WiFi-Verify is **complementary** to RF survey tools, not a replacement:
+NetPoke is **complementary** to RF survey tools, not a replacement:
 
-| Aspect | RF Tools (Ekahau, NetSpot) | WiFi-Verify |
+| Aspect | RF Tools (Ekahau, NetSpot) | NetPoke |
 |--------|---------------------------|-------------|
 | **Measures** | Radio signal strength, noise, interference | Application-layer performance |
 | **Answers** | "Is there WiFi coverage?" | "Do apps work well here?" |
@@ -231,16 +231,16 @@ WiFi-Verify is **complementary** to RF survey tools, not a replacement:
 ### Combined Workflow
 
 1. **RF Survey (Ekahau)**: Map signal coverage, identify dead spots, plan AP placement
-2. **Application Survey (WiFi-Verify)**: Validate actual performance, test backhaul, verify end-to-end quality
+2. **Application Survey (NetPoke)**: Validate actual performance, test backhaul, verify end-to-end quality
 
 ### Future Integration
-Screen capture of Ekahau survey window alongside WiFi-Verify camera view for comprehensive documentation. See [Survey Feature Spec](survey-feature-spec.md).
+Screen capture of Ekahau survey window alongside NetPoke camera view for comprehensive documentation. See [Survey Feature Spec](survey-feature-spec.md).
 
 ---
 
 ## Summary
 
-WiFi-Verify fills a critical gap in network diagnostics:
+NetPoke fills a critical gap in network diagnostics:
 - **More than consumer speed tests** (traceroute, MTU, ECMP, jitter, loss)
 - **Less complex than enterprise NPM** (no agents, no infrastructure)
 - **Complementary to RF tools** (application-layer vs radio-layer)

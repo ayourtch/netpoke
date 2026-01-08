@@ -5,9 +5,9 @@
 ### Step 1: Build and Run the Server
 
 ```bash
-cd /home/runner/work/wifi-verify/wifi-verify
-cargo build --release -p wifi-verify-server
-sudo ./target/release/wifi-verify-server
+cd /home/runner/work/netpoke/netpoke
+cargo build --release -p netpoke-server
+sudo ./target/release/netpoke-server
 ```
 
 Note: `sudo` is required for the ICMP listener to work (needs CAP_NET_RAW).
@@ -17,7 +17,7 @@ Note: `sudo` is required for the ICMP listener to work (needs CAP_NET_RAW).
 To see detailed logs showing TTL values being set:
 
 ```bash
-RUST_LOG=debug sudo ./target/release/wifi-verify-server
+RUST_LOG=debug sudo ./target/release/netpoke-server
 ```
 
 Look for these debug messages that confirm TTL is being set:

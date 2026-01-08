@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "A modular iperf3 server implementation in Rust"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/ayourtch/wifi-verify"
+repository = "https://github.com/ayourtch/netpoke"
 keywords = ["iperf3", "network", "bandwidth", "testing"]
 categories = ["network-programming"]
 

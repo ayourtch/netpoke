@@ -16,7 +16,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use wifi_verify_auth::{AuthConfig, AuthService, AuthState};
+//! use netpoke_auth::{AuthConfig, AuthService, AuthState};
 //! use std::sync::Arc;
 //!
 //! #[tokio::main]

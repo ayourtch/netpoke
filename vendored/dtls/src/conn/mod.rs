@@ -162,7 +162,7 @@ impl Conn for DTLSConn {
     }
     
     /// Send data with UDP options through the DTLS encryption layer
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
     /// This ensures the data is encrypted before being sent with custom UDP options
     /// If bypass_dtls is set in options, sends cleartext directly without DTLS encryption
     #[cfg(target_os = "linux")]
@@ -185,7 +185,7 @@ impl Conn for DTLSConn {
     }
     
     /// Forward send_to_with_options to the underlying connection
-    /// Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit)
+    /// Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit)
     /// If bypass_dtls is set in options, sends cleartext directly without DTLS encryption
     #[cfg(target_os = "linux")]
     async fn send_to_with_options(
@@ -557,7 +557,7 @@ impl DTLSConn {
     }
 
     // Write writes len(p) bytes from p to the DTLS connection with UDP socket options
-    // Added for wifi-verify: enables per-packet UDP options (TTL, TOS, DF bit) while maintaining encryption
+    // Added for netpoke: enables per-packet UDP options (TTL, TOS, DF bit) while maintaining encryption
     #[cfg(target_os = "linux")]
     pub async fn write_with_options(&self, p: &[u8], options: &UdpSendOptions, duration: Option<Duration>) -> Result<usize> {
         if self.is_connection_closed() {

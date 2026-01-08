@@ -15,7 +15,7 @@ The issue was in `vendored/webrtc-util/src/conn/conn_udp.rs`:
 if let Some(ttl_value) = options.ttl {
     if let SocketAddr::V4(addr_v4) = dest {
         // Only track IPv4 for now (ICMP listener currently IPv4-only)
-        // ... call wifi_verify_track_udp_packet()
+        // ... call netpoke_track_udp_packet()
     }
 }
 ```
@@ -35,7 +35,7 @@ Added a new FFI function specifically for IPv6 packets:
 
 ```rust
 #[no_mangle]
-pub extern "C" fn wifi_verify_track_udp_packet_v6(
+pub extern "C" fn netpoke_track_udp_packet_v6(
     dest_ip_v6_ptr: *const u8,  // Pointer to 16-byte IPv6 address
     dest_port: u16,
     udp_length: u16,
@@ -63,11 +63,11 @@ if let Some(ttl_value) = options.ttl {
     match dest {
         SocketAddr::V4(addr_v4) => {
             // Track IPv4 packet
-            // ... call wifi_verify_track_udp_packet()
+            // ... call netpoke_track_udp_packet()
         }
         SocketAddr::V6(addr_v6) => {
             // Track IPv6 packet
-            // ... call wifi_verify_track_udp_packet_v6()
+            // ... call netpoke_track_udp_packet_v6()
         }
     }
 }
@@ -75,7 +75,7 @@ if let Some(ttl_value) = options.ttl {
 
 **Changes Made**:
 - Changed from `if let SocketAddr::V4` to `match dest` to handle both address types
-- Added `SocketAddr::V6` arm that calls `wifi_verify_track_udp_packet_v6()`
+- Added `SocketAddr::V6` arm that calls `netpoke_track_udp_packet_v6()`
 - Used `dest_ip.as_ptr()` to pass IPv6 address bytes as a pointer
 - Updated log messages to distinguish between IPv4 and IPv6 tracking calls
 
@@ -87,8 +87,8 @@ if let Some(ttl_value) = options.ttl {
 
 2. **UDP layer tracks packet** (conn_udp.rs)
    - When `sendmsg()` succeeds with TTL/Hop Limit set
-   - For IPv6 destinations: calls `wifi_verify_track_udp_packet_v6()`
-   - For IPv4 destinations: calls `wifi_verify_track_udp_packet()`
+   - For IPv6 destinations: calls `netpoke_track_udp_packet_v6()`
+   - For IPv4 destinations: calls `netpoke_track_udp_packet()`
 
 3. **Tracking info stored** (tracking_channel.rs + packet_tracker.rs)
    - FFI function converts C types to Rust types
@@ -115,7 +115,7 @@ if let Some(ttl_value) = options.ttl {
 ## Files Changed
 
 1. **`server/src/tracking_channel.rs`**
-   - Added `wifi_verify_track_udp_packet_v6()` FFI function
+   - Added `netpoke_track_udp_packet_v6()` FFI function
    - Renamed first function comment to clarify it's for IPv4
    - Used FFI-safe pointer type for IPv6 address
 
@@ -130,7 +130,7 @@ if let Some(ttl_value) = options.ttl {
 ### Unit Tests
 All existing packet tracker tests pass:
 ```bash
-cargo test -p wifi-verify-server packet_tracker
+cargo test -p netpoke-server packet_tracker
 ```
 
 Results:
@@ -141,7 +141,7 @@ Results:
 
 ### Build Verification
 ```bash
-cargo build --release -p wifi-verify-server
+cargo build --release -p netpoke-server
 ```
 - ✅ Compiles successfully with no errors
 - ✅ No FFI safety warnings
@@ -153,7 +153,7 @@ When running traceroute with IPv6 destinations, you should now see:
 
 **Server logs**:
 ```
-🔵 Calling wifi_verify_track_udp_packet_v6 (IPv6): dest=[2001:db8::1]:8080, udp_length=296, hop_limit=1
+🔵 Calling netpoke_track_udp_packet_v6 (IPv6): dest=[2001:db8::1]:8080, udp_length=296, hop_limit=1
 DEBUG: Received tracking data from UDP layer: dest=[2001:db8::1]:8080, udp_length=296, ttl=Some(1)
 DEBUG: Received IPv6 ICMPv6 packet: size=104, from=[2001:db8::254]:0
 DEBUG: Parsed IPv6 ICMPv6 error successfully
@@ -165,7 +165,7 @@ DEBUG: Event added to queue, queue size: 1
 
 | Aspect | IPv4 | IPv6 |
 |--------|------|------|
-| FFI Function | `wifi_verify_track_udp_packet()` | `wifi_verify_track_udp_packet_v6()` |
+| FFI Function | `netpoke_track_udp_packet()` | `netpoke_track_udp_packet_v6()` |
 | Address Parameter | `u32` (4 bytes) | `*const u8` (pointer to 16 bytes) |
 | Hop Count Parameter | `ttl: u8` | `hop_limit: u8` |
 | ICMP Type | ICMP (Type 11 = Time Exceeded) | ICMPv6 (Type 3 = Time Exceeded) |

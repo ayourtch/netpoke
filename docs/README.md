@@ -1,6 +1,6 @@
-# WiFi-Verify Documentation
+# NetPoke Documentation
 
-This directory contains all documentation for the wifi-verify project.
+This directory contains all documentation for the netpoke project.
 
 ## Table of Contents
 

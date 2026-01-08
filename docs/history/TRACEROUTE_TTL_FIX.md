@@ -148,7 +148,7 @@ DEBUG: sendmsg succeeded, sent N bytes
 
 ```bash
 # Terminal 1: Run server
-RUST_LOG=debug cargo run -p wifi-verify-server
+RUST_LOG=debug cargo run -p netpoke-server
 
 # Terminal 2: Capture packets
 sudo tcpdump -i any -vvv 'udp and port XXXXX' | grep -E 'ttl|hlim'

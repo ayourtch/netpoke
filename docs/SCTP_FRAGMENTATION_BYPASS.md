@@ -229,7 +229,7 @@ When both bypasses are enabled:
 2. **Run MTU traceroute**
    ```bash
    # Server side (with RUST_LOG=debug)
-   cargo run --bin wifi-verify-server
+   cargo run --bin netpoke-server
    ```
 
 3. **Packet capture**

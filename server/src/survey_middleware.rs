@@ -4,8 +4,8 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::PrivateCookieJar;
-use wifi_verify_auth::AuthState;
-use wifi_verify_auth::SessionData;
+use netpoke_auth::AuthState;
+use netpoke_auth::SessionData;
 
 /// Middleware to require either regular authentication OR Magic Key survey session
 ///
@@ -141,7 +141,7 @@ fn extract_session_id(cookie_str: &str, cookie_name: &str) -> Option<String> {
 /// Session format: "survey_{magic_key}_{timestamp}_{uuid}"
 fn validate_survey_session(
     session_id: &str,
-    config: &wifi_verify_auth::config::MagicKeyConfig,
+    config: &netpoke_auth::config::MagicKeyConfig,
 ) -> bool {
     // Check if it starts with "survey_"
     if !session_id.starts_with("survey_") {

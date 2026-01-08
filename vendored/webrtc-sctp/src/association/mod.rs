@@ -488,7 +488,7 @@ impl Association {
             let mut buffer = None;
             for raw in packets {
                 // Extract UDP send options from the packet before marshalling
-                // Added for wifi-verify: per-packet UDP options support
+                // Added for netpoke: per-packet UDP options support
                 #[cfg(target_os = "linux")]
                 let udp_options = raw.udp_send_options.clone();
                 

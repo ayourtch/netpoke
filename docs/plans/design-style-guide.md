@@ -1,8 +1,8 @@
-# WiFi-Verify: Design Style Guide
+# NetPoke: Design Style Guide
 
 ## Overview
 
-This document defines the visual design language for WiFi-Verify and its authentication system (Project Raindrops), ensuring consistency across all user interfaces. The design prioritizes clarity, professionalism, and ease of use while reflecting the dual-stack (IPv4/IPv6) nature of the product.
+This document defines the visual design language for NetPoke and its authentication system (Project Raindrops), ensuring consistency across all user interfaces. The design prioritizes clarity, professionalism, and ease of use while reflecting the dual-stack (IPv4/IPv6) nature of the product.
 
 ---
 
@@ -22,7 +22,7 @@ This document defines the visual design language for WiFi-Verify and its authent
 
 ### Product Names
 
-- **WiFi-Verify**: The network measurement platform (nettest.html, dashboard, surveys)
+- **NetPoke**: The network measurement platform (nettest.html, dashboard, surveys)
 - **Project Raindrops**: The authentication system (login page, access denied page)
 
 Both share the same visual design language but use their respective branding in titles and footers.
@@ -399,10 +399,10 @@ Icons are embedded as inline SVG for color control:
 
 ### Primary Logo
 
-The WiFi-Verify logo combines:
+The NetPoke logo combines:
 1. A gradient icon box (blue to orange)
 2. Concentric circles suggesting network/signal
-3. The "WiFi-Verify" wordmark
+3. The "NetPoke" wordmark
 
 ```html
 <div class="logo">
@@ -410,7 +410,7 @@ The WiFi-Verify logo combines:
         <!-- Gradient background: #2196F3 → #FF9800 -->
         <svg><!-- Network icon --></svg>
     </div>
-    <h1>WiFi-Verify</h1>
+    <h1>NetPoke</h1>
 </div>
 ```
 
@@ -558,7 +558,7 @@ auth/src/
 - Blue primary buttons
 - "Powered by Project Raindrops Authentication" in footer
 
-### Network Test Page (WiFi-Verify)
+### Network Test Page (NetPoke)
 
 - White background
 - Blue IPv4 tables, orange IPv6 tables
@@ -578,7 +578,7 @@ auth/src/
 
 ## Summary
 
-The WiFi-Verify design language is:
+The NetPoke design language is:
 
 - **Light**: White and light gray backgrounds
 - **Clean**: Simple borders, subtle shadows

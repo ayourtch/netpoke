@@ -323,7 +323,7 @@ Added extensive debug logging to help troubleshoot:
 
 ```bash
 # Terminal 1: Run server
-cargo run -p wifi-verify-server
+cargo run -p netpoke-server
 
 # Terminal 2: Capture packets
 sudo tcpdump -i any -vvv 'udp' | grep ttl

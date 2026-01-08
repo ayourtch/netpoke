@@ -1663,7 +1663,7 @@ impl AssociationInternal {
     }
 
     /// create_packet_with_options wraps chunks in a packet with UDP send options.
-    /// Added for wifi-verify: per-packet UDP options support
+    /// Added for netpoke: per-packet UDP options support
     #[cfg(target_os = "linux")]
     pub(crate) fn create_packet_with_options(
         &self,

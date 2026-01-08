@@ -2,7 +2,7 @@
 
 ## Overview
 
-This implementation adds a complete, reusable OAuth2 authentication system to the WiFi Verify project, following the requirements to:
+This implementation adds a complete, reusable OAuth2 authentication system to the NetPoke project, following the requirements to:
 
 1. ✅ Create a reusable authentication crate within the project
 2. ✅ Support OAuth2 with multiple providers (Bluesky, GitHub, Google, LinkedIn)
@@ -13,7 +13,7 @@ This implementation adds a complete, reusable OAuth2 authentication system to th
 
 ## Architecture
 
-### Reusable Authentication Crate: `wifi-verify-auth`
+### Reusable Authentication Crate: `netpoke-auth`
 
 Located in `/auth`, this crate is designed to be standalone and portable:
 
@@ -105,7 +105,7 @@ GITHUB_CLIENT_SECRET=...
 
 The server integrates authentication with minimal changes:
 
-1. **Dependencies**: Added `wifi-verify-auth` crate
+1. **Dependencies**: Added `netpoke-auth` crate
 2. **Configuration**: Extended config to include `AuthConfig`
 3. **Middleware**: Applied `require_auth` to protect routes
 4. **Routes**: Nested auth routes under `/auth`

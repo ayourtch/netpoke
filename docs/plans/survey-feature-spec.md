@@ -1,10 +1,10 @@
-# WiFi-Verify: Survey Feature Specification
+# NetPoke: Survey Feature Specification
 
 ## Overview
 
 The Survey feature enables walk-through network assessments by capturing synchronized video, sensor data, and network measurements. This creates comprehensive documentation of network performance across physical space.
 
-**Key Insight**: WiFi-Verify surveys measure **application-layer performance**, complementing RF survey tools that measure radio signal characteristics.
+**Key Insight**: NetPoke surveys measure **application-layer performance**, complementing RF survey tools that measure radio signal characteristics.
 
 ---
 
@@ -244,7 +244,7 @@ User clicks "Upload Survey"
 ## Screen Capture Integration (Future)
 
 ### Use Case
-Professional surveyor runs Ekahau on laptop while also capturing WiFi-Verify metrics. Both RF data and application-layer data are synchronized.
+Professional surveyor runs Ekahau on laptop while also capturing NetPoke metrics. Both RF data and application-layer data are synchronized.
 
 ### Implementation Approach
 

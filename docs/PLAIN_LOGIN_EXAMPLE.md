@@ -102,7 +102,7 @@ This allows users to choose between:
 ## Testing the Configuration
 
 1. Update your `server_config.toml` with the example above
-2. Start the server: `cargo run --bin wifi-verify-server`
+2. Start the server: `cargo run --bin netpoke-server`
 3. Navigate to `http://localhost:3000`
 4. You'll be redirected to the login page
 5. Enter username "admin" and password "admin123"

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The WiFi Verify server provides a comprehensive diagnostics endpoint at `/api/diagnostics` that helps troubleshoot WebRTC connection issues. This endpoint is particularly useful when the server gets into a state where WebRTC connections cannot establish, and you see the error:
+The NetPoke server provides a comprehensive diagnostics endpoint at `/api/diagnostics` that helps troubleshoot WebRTC connection issues. This endpoint is particularly useful when the server gets into a state where WebRTC connections cannot establish, and you see the error:
 
 ```
 "pingAllCandidates called with no candidate pairs. Connection is not possible yet."

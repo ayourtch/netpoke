@@ -1,8 +1,8 @@
-# WiFi-Verify: Go-to-Market Strategy
+# NetPoke: Go-to-Market Strategy
 
 ## Executive Summary
 
-WiFi-Verify enters the market as a **complementary tool to RF survey solutions**, focusing on what RF tools cannot measure: **end-to-end application-layer network performance**. The strategy targets professionals who already understand the value of network assessment and positions WiFi-Verify as the missing piece in their toolkit.
+NetPoke enters the market as a **complementary tool to RF survey solutions**, focusing on what RF tools cannot measure: **end-to-end application-layer network performance**. The strategy targets professionals who already understand the value of network assessment and positions NetPoke as the missing piece in their toolkit.
 
 **Core Positioning**: "Measure what applications actually experience, not just what the radio sees."
 
@@ -18,7 +18,7 @@ WiFi-Verify enters the market as a **complementary tool to RF survey solutions**
 | **Consumer Speed Tests** (Speedtest, Fast.com) | Download/upload speed, basic ping | Jitter, packet loss, traceroute, MTU issues, continuous monitoring |
 | **Enterprise NPM** (ThousandEyes, Catchpoint) | Comprehensive network metrics | Expensive ($20K+/year), requires agents, complex deployment |
 
-**WiFi-Verify fills the middle**: More than consumer tools, simpler than enterprise, complementary to RF.
+**NetPoke fills the middle**: More than consumer tools, simpler than enterprise, complementary to RF.
 
 ### Target Market Size
 
@@ -40,15 +40,15 @@ WiFi-Verify enters the market as a **complementary tool to RF survey solutions**
 
 > **"The application-layer companion to your RF survey."**
 
-WiFi-Verify doesn't replace Ekahau or NetSpot—it completes the picture by showing how applications actually perform over the network you've surveyed.
+NetPoke doesn't replace Ekahau or NetSpot—it completes the picture by showing how applications actually perform over the network you've surveyed.
 
 ### Supporting Messages
 
 1. **For RF Survey Users**:
-   > "Your RF survey shows great signal. WiFi-Verify shows whether apps will actually work."
+   > "Your RF survey shows great signal. NetPoke shows whether apps will actually work."
 
 2. **For IT Troubleshooting**:
-   > "Users complain about WiFi but your metrics look fine. WiFi-Verify shows what they're actually experiencing."
+   > "Users complain about WiFi but your metrics look fine. NetPoke shows what they're actually experiencing."
 
 3. **For Remote Diagnostics**:
    > "Can't be on-site? Send a link. Get full network diagnostics in 60 seconds."
@@ -212,7 +212,7 @@ WiFi-Verify doesn't replace Ekahau or NetSpot—it completes the picture by show
 
 ### Phase 1: Technical Credibility (Months 1-3)
 
-**Objective**: Establish WiFi-Verify as a technically legitimate tool among network professionals.
+**Objective**: Establish NetPoke as a technically legitimate tool among network professionals.
 
 **Activities**:
 
@@ -293,7 +293,7 @@ WiFi-Verify doesn't replace Ekahau or NetSpot—it completes the picture by show
 
 2. **WiFi Professional Campaign**
    - "The Application-Layer Companion to Your RF Survey"
-   - Side-by-side comparison content (RF + WiFi-Verify)
+   - Side-by-side comparison content (RF + NetPoke)
    - Partnerships with Ekahau resellers
 
 3. **Enterprise Sales**
@@ -399,9 +399,9 @@ WiFi-Verify doesn't replace Ekahau or NetSpot—it completes the picture by show
    - "Network Assessment for VoIP Readiness"
 
 3. **Comparison Content**
-   - "WiFi-Verify vs Speedtest: When You Need More"
+   - "NetPoke vs Speedtest: When You Need More"
    - "RF Surveys + Application Testing: A Complete Approach"
-   - "ThousandEyes vs WiFi-Verify: Choosing the Right Tool"
+   - "ThousandEyes vs NetPoke: Choosing the Right Tool"
 
 4. **Industry Insights**
    - Trends in network performance

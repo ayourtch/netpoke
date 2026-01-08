@@ -41,7 +41,7 @@ use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
 use webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::stats::StatsReportType;
-use wifi_verify_auth::{auth_routes, require_auth, AuthService, AuthState};
+use netpoke_auth::{auth_routes, require_auth, AuthService, AuthState};
 
 use axum::{http::uri::Uri, response::Redirect};
 use axum_server::tls_rustls::RustlsConfig;
@@ -418,7 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    tracing::info!("Starting WiFi Verify Server");
+    tracing::info!("Starting NetPoke Server");
     tracing::info!("Configuration loaded:");
     tracing::info!(
         "  HTTP enabled: {}, port: {}",

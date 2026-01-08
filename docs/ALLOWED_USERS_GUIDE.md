@@ -2,7 +2,7 @@
 
 ## Overview
 
-The allowed users list provides fine-grained access control by restricting which authenticated users can access your WiFi Verify server. This feature works with all authentication methods (Plain Login, Bluesky, GitHub, Google, LinkedIn).
+The allowed users list provides fine-grained access control by restricting which authenticated users can access your NetPoke server. This feature works with all authentication methods (Plain Login, Bluesky, GitHub, Google, LinkedIn).
 
 ## How It Works
 

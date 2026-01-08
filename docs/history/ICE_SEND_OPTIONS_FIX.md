@@ -198,7 +198,7 @@ The fix can be verified by:
 
 2. **Run the server and check logs:**
    ```bash
-   RUST_LOG=debug ./target/release/wifi-verify-server
+   RUST_LOG=debug ./target/release/netpoke-server
    ```
 
 3. **Look for successful UDP options propagation:**

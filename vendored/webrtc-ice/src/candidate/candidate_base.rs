@@ -280,7 +280,7 @@ impl Candidate for CandidateBase {
     }
 
     /// Write data with UDP socket options (TTL, TOS, DF bit)
-    /// Added for wifi-verify: enables per-packet UDP options
+    /// Added for netpoke: enables per-packet UDP options
     #[cfg(target_os = "linux")]
     async fn write_to_with_options(
         &self,

@@ -1,6 +1,6 @@
 # Historical Bug Fixes and Implementation Notes
 
-This directory contains detailed documentation of historical bug fixes and feature implementations in the wifi-verify project. These documents serve as valuable learning resources and provide insight into the evolution of the codebase.
+This directory contains detailed documentation of historical bug fixes and feature implementations in the netpoke project. These documents serve as valuable learning resources and provide insight into the evolution of the codebase.
 
 ## Purpose
 

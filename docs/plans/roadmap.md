@@ -1,8 +1,8 @@
-# WiFi-Verify: Development Roadmap
+# NetPoke: Development Roadmap
 
 ## Overview
 
-This roadmap outlines the development phases and milestones for WiFi-Verify, from the current state to a fully-featured platform. The roadmap is organized into six phases spanning approximately 18-24 months.
+This roadmap outlines the development phases and milestones for NetPoke, from the current state to a fully-featured platform. The roadmap is organized into six phases spanning approximately 18-24 months.
 
 **Current State**: Working prototype with modified WebRTC stack enabling browser-based traceroute, MTU discovery, and network measurement. Camera-tracker survey prototype exists but is not integrated with the main measurement flow.
 
@@ -291,7 +291,7 @@ Enterprise-grade features for large deployments.
 - [ ] Custom domain support
 - [ ] Logo/branding customization
 - [ ] Custom email templates
-- [ ] Remove WiFi-Verify branding (Enterprise tier)
+- [ ] Remove NetPoke branding (Enterprise tier)
 
 **Deliverable**: Reseller and enterprise branding.
 

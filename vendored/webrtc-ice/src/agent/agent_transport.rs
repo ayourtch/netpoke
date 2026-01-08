@@ -250,7 +250,7 @@ impl Conn for AgentConn {
     }
 
     /// Send data with UDP socket options (TTL, TOS, DF bit) for connected sockets
-    /// Added for wifi-verify: enables per-packet UDP options like TTL for traceroute
+    /// Added for netpoke: enables per-packet UDP options like TTL for traceroute
     #[cfg(target_os = "linux")]
     async fn send_with_options(
         &self,

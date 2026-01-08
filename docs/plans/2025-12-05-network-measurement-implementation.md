@@ -38,7 +38,7 @@ Run: `cat Cargo.toml` to verify
 
 ```toml
 [package]
-name = "wifi-verify-server"
+name = "netpoke-server"
 version = "0.1.0"
 edition = "2021"
 
@@ -64,7 +64,7 @@ Run: `cat server/Cargo.toml` to verify
 
 ```toml
 [package]
-name = "wifi-verify-client"
+name = "netpoke-client"
 version = "0.1.0"
 edition = "2021"
 
@@ -424,7 +424,7 @@ async fn health_check() -> &'static str {
 
 **Step 2: Test server starts**
 
-Run: `cargo run -p wifi-verify-server` (in background or separate terminal)
+Run: `cargo run -p netpoke-server` (in background or separate terminal)
 Run: `curl http://localhost:3000/health`
 Expected: Output "OK"
 
@@ -519,7 +519,7 @@ async fn health_check() -> &'static str {
 
 **Step 5: Test static file serving**
 
-Run: `cargo run -p wifi-verify-server` (background)
+Run: `cargo run -p netpoke-server` (background)
 Run: `curl http://localhost:3000/` (should see HTML)
 Run: `curl http://localhost:3000/dashboard.html` (should see dashboard HTML)
 
@@ -661,7 +661,7 @@ mod tests {
 
 **Step 3: Run tests**
 
-Run: `cargo test -p wifi-verify-server`
+Run: `cargo test -p netpoke-server`
 Expected: PASS (2 tests)
 
 **Step 4: Wire up signaling endpoints**
@@ -705,7 +705,7 @@ async fn health_check() -> &'static str {
 
 **Step 5: Test endpoints**
 
-Run: `cargo run -p wifi-verify-server` (background)
+Run: `cargo run -p netpoke-server` (background)
 Run: `curl -X POST http://localhost:3000/api/signaling/start -H "Content-Type: application/json" -d '{"sdp":"test"}'`
 Expected: JSON response with client_id and sdp
 
@@ -821,7 +821,7 @@ mod tests {
 
 **Step 3: Run test**
 
-Run: `cargo test -p wifi-verify-server test_create_peer_connection`
+Run: `cargo test -p netpoke-server test_create_peer_connection`
 Expected: PASS
 
 **Step 4: Update signaling to use real WebRTC**
@@ -935,8 +935,8 @@ mod webrtc_manager;
 
 **Step 6: Run tests and build**
 
-Run: `cargo test -p wifi-verify-server`
-Run: `cargo build -p wifi-verify-server`
+Run: `cargo test -p netpoke-server`
+Run: `cargo build -p netpoke-server`
 Expected: All tests pass, builds successfully
 
 **Step 7: Commit**
@@ -1147,7 +1147,7 @@ mod data_channels;
 
 **Step 5: Build and verify**
 
-Run: `cargo build -p wifi-verify-server`
+Run: `cargo build -p netpoke-server`
 Expected: Builds successfully
 
 **Step 6: Commit**
@@ -1340,7 +1340,7 @@ mod tests {
 
 **Step 3: Run test**
 
-Run: `cargo test -p wifi-verify-server test_current_time_ms`
+Run: `cargo test -p netpoke-server test_current_time_ms`
 Expected: PASS
 
 **Step 4: Start measurement tasks when channels open**
@@ -1499,7 +1499,7 @@ mod measurements;
 
 **Step 7: Build**
 
-Run: `cargo build -p wifi-verify-server`
+Run: `cargo build -p netpoke-server`
 Expected: Builds successfully
 
 **Step 8: Commit**
@@ -1731,7 +1731,7 @@ async fn handle_bulk_message(session: Arc<ClientSession>, msg: DataChannelMessag
 
 **Step 4: Build and verify**
 
-Run: `cargo build -p wifi-verify-server`
+Run: `cargo build -p netpoke-server`
 Expected: Builds successfully
 
 **Step 5: Commit**
@@ -1950,12 +1950,12 @@ File already has `<script src="/dashboard.js"></script>` from Task 3, so no chan
 
 **Step 5: Build and verify**
 
-Run: `cargo build -p wifi-verify-server`
+Run: `cargo build -p netpoke-server`
 Expected: Builds successfully
 
 **Step 6: Manual test**
 
-Run: `cargo run -p wifi-verify-server`
+Run: `cargo run -p netpoke-server`
 Open browser to `http://localhost:3000/dashboard.html`
 Expected: Dashboard loads and WebSocket connects
 
@@ -2034,7 +2034,7 @@ mod tests {
 
 **Step 4: Run test**
 
-Run: `cargo test -p wifi-verify-client`
+Run: `cargo test -p netpoke-client`
 Expected: PASS
 
 **Step 5: Build WASM**
@@ -2079,7 +2079,7 @@ Modify `server/static/index.html`:
     </div>
 
     <script type="module">
-        import init, { start_measurement } from './pkg/wifi_verify_client.js';
+        import init, { start_measurement } from './pkg/netpoke_client.js';
 
         async function run() {
             await init();
@@ -2105,7 +2105,7 @@ Modify `server/static/index.html`:
 
 **Step 7: Test WASM loads**
 
-Run: `cargo run -p wifi-verify-server`
+Run: `cargo run -p netpoke-server`
 Open browser to `http://localhost:3000/`
 Open browser console
 Expected: See "WASM module loaded" in console
@@ -2192,7 +2192,7 @@ mod tests {
 
 **Step 2: Run test**
 
-Run: `cargo test -p wifi-verify-client`
+Run: `cargo test -p netpoke-client`
 Expected: PASS
 
 **Step 3: Create WebRTC connection helper**
@@ -2324,7 +2324,7 @@ Expected: Builds successfully
 
 **Step 6: Manual test**
 
-Run: `cargo run -p wifi-verify-server`
+Run: `cargo run -p netpoke-server`
 Open browser to `http://localhost:3000/`
 Click "Start Measurement"
 Check browser console
@@ -2602,7 +2602,7 @@ Expected: Builds successfully
 
 **Step 5: Manual test**
 
-Run: `cargo run -p wifi-verify-server`
+Run: `cargo run -p netpoke-server`
 Open browser to `http://localhost:3000/`
 Click "Start Measurement"
 Check browser console - should see data channels opening
@@ -2728,7 +2728,7 @@ Expected: Builds successfully
 
 **Step 3: Manual test**
 
-Run: `cargo run -p wifi-verify-server`
+Run: `cargo run -p netpoke-server`
 Open browser to `http://localhost:3000/`
 Click "Start Measurement"
 Expected: See metrics updating in the table (even if zeros)
@@ -2754,7 +2754,7 @@ git commit -m "feat(client): add UI updates for real-time metrics display"
 
 Create `README.md`:
 ```markdown
-# WiFi Verify - Network Measurement System
+# NetPoke - Network Measurement System
 
 Browser-based network measurement tool using WebRTC to continuously monitor:
 - Throughput (upload/download)
@@ -2784,13 +2784,13 @@ Browser-based network measurement tool using WebRTC to continuously monitor:
 cd client && ./build.sh && cd ..
 
 # Build server
-cargo build --release -p wifi-verify-server
+cargo build --release -p netpoke-server
 ```
 
 ### Run
 
 ```bash
-cargo run --release -p wifi-verify-server
+cargo run --release -p netpoke-server
 ```
 
 Then open in browser:
@@ -2807,7 +2807,7 @@ cargo test --workspace
 cd client && ./build.sh
 
 # Run server
-cargo run -p wifi-verify-server
+cargo run -p netpoke-server
 ```
 
 ## How It Works
@@ -2834,7 +2834,7 @@ Expected: All builds successfully
 
 **Step 3: Run integration test**
 
-Run: `cargo run --release -p wifi-verify-server` (background)
+Run: `cargo run --release -p netpoke-server` (background)
 Open browser to `http://localhost:3000/`
 Click "Start Measurement"
 Open another tab to `http://localhost:3000/dashboard.html`
