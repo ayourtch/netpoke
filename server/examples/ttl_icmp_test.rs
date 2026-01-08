@@ -1,5 +1,6 @@
+use common::SendOptions;
 /// Example: TTL Testing with ICMP Time Exceeded
-/// 
+///
 /// This example demonstrates how to use the packet tracking API to:
 /// 1. Send UDP packets with decreasing TTL values
 /// 2. Track these packets for ICMP correlation
@@ -12,35 +13,33 @@
 /// ```
 /// sudo cargo run --example ttl_icmp_test
 /// ```
-/// 
+///
 /// Note: Requires CAP_NET_RAW or root for ICMP listener
-
-use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tokio::time::sleep;
-use common::SendOptions;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TTL Testing with ICMP Time Exceeded ===\n");
-    
+
     // Initialize logging
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
         .init();
-    
+
     println!("This example demonstrates packet tracking with TTL testing.");
     println!("It shows how ICMP Time Exceeded errors are matched to original packets.\n");
-    
+
     // In a real application, you would:
     // 1. Set send_options on ProbePacket or BulkPacket
     // 2. Send via WebRTC data channel
     // 3. Retrieve tracked events via API endpoint
-    
+
     demonstrate_api_usage();
     demonstrate_ttl_sequence();
     demonstrate_mtu_discovery();
-    
+
     println!("\n=== Example Complete ===\n");
     println!("In production:");
     println!("1. Set send_options on ProbePacket/BulkPacket before sending");
@@ -48,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("3. ICMP listener captures errors and matches them");
     println!("4. Retrieve events via GET /api/tracking/events");
     println!("5. Analyze RTT, packet loss, and network topology");
-    
+
     Ok(())
 }
 
@@ -92,7 +91,7 @@ fn demonstrate_api_usage() {
 fn demonstrate_ttl_sequence() {
     println!("## Path Discovery (Traceroute-like)\n");
     println!("Send packets with incrementing TTL to discover network path:\n");
-    
+
     println!("```rust");
     println!("// Send probes with TTL 1, 2, 3, ... until destination reached");
     println!("for ttl in 1..=30 {{");
@@ -122,7 +121,7 @@ fn demonstrate_ttl_sequence() {
     println!("    }}");
     println!("}}");
     println!("```\n");
-    
+
     println!("Expected output:");
     println!("  Hop 1: 192.168.1.1 (2ms)      <- Your router");
     println!("  Hop 2: 10.0.0.1 (5ms)         <- ISP gateway");
@@ -134,7 +133,7 @@ fn demonstrate_ttl_sequence() {
 fn demonstrate_mtu_discovery() {
     println!("## MTU Discovery\n");
     println!("Send packets with DF bit set and increasing sizes to find path MTU:\n");
-    
+
     println!("```rust");
     println!("// Binary search for MTU");
     println!("let mut min_mtu = 576;   // IPv4 minimum");
@@ -165,7 +164,7 @@ fn demonstrate_mtu_discovery() {
     println!();
     println!("println!(\"Path MTU discovered: {{}} bytes\", min_mtu);");
     println!("```\n");
-    
+
     println!("Expected output:");
     println!("  Testing MTU 4788...");
     println!("  Testing MTU 2394...");

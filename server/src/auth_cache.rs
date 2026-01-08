@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 /// Normalize an IP address by converting IPv4-mapped IPv6 addresses to IPv4.
-/// 
+///
 /// When an iperf3 server listens on :: (IPv6 any address), IPv4 connections
 /// appear as IPv4-mapped IPv6 addresses (e.g., ::ffff:192.0.2.1). This function
 /// converts them back to IPv4 addresses for consistent cache lookups.
@@ -43,7 +43,7 @@ pub struct AuthenticatedAddress {
 }
 
 /// Cache of recently authenticated addresses
-/// 
+///
 /// This cache is designed to be:
 /// - Updated from HTTP/HTTPS authentication requests
 /// - Consulted synchronously by the iperf3 auth callback
@@ -65,7 +65,13 @@ impl AuthAddressCache {
     }
 
     /// Record an authenticated address
-    pub fn record_auth(&self, ip: IpAddr, user_id: String, display_name: Option<String>, auth_source: String) {
+    pub fn record_auth(
+        &self,
+        ip: IpAddr,
+        user_id: String,
+        display_name: Option<String>,
+        auth_source: String,
+    ) {
         let normalized_ip = normalize_ip(ip);
         let entry = AuthenticatedAddress {
             ip: normalized_ip,
@@ -78,7 +84,10 @@ impl AuthAddressCache {
         if let Ok(mut cache) = self.cache.write() {
             tracing::debug!(
                 "Recording authenticated address: {} (normalized from {}) for user '{}' via {}",
-                normalized_ip, ip, user_id, auth_source
+                normalized_ip,
+                ip,
+                user_id,
+                auth_source
             );
             cache.insert(normalized_ip, entry);
         }
@@ -126,7 +135,8 @@ impl AuthAddressCache {
     /// Get all currently valid authenticated addresses
     pub fn get_all_valid(&self) -> Vec<AuthenticatedAddress> {
         if let Ok(cache) = self.cache.read() {
-            cache.values()
+            cache
+                .values()
                 .filter(|entry| entry.last_authenticated.elapsed() < self.timeout)
                 .cloned()
                 .collect()
@@ -184,11 +194,11 @@ mod tests {
     #[test]
     fn test_cache_with_normalized_ips() {
         let cache = AuthAddressCache::new(60);
-        
+
         // Record with regular IPv4
         let ipv4 = "192.0.2.1".parse::<IpAddr>().unwrap();
         cache.record_auth(ipv4, "user1".to_string(), None, "test".to_string());
-        
+
         // Check with IPv4-mapped IPv6 should find it
         let ipv4_mapped = "::ffff:192.0.2.1".parse::<IpAddr>().unwrap();
         assert!(cache.is_authenticated(ipv4_mapped));
@@ -198,11 +208,11 @@ mod tests {
     #[test]
     fn test_cache_record_with_ipv4_mapped() {
         let cache = AuthAddressCache::new(60);
-        
+
         // Record with IPv4-mapped IPv6
         let ipv4_mapped = "::ffff:192.0.2.1".parse::<IpAddr>().unwrap();
         cache.record_auth(ipv4_mapped, "user1".to_string(), None, "test".to_string());
-        
+
         // Check with regular IPv4 should find it
         let ipv4 = "192.0.2.1".parse::<IpAddr>().unwrap();
         assert!(cache.is_authenticated(ipv4));
@@ -212,17 +222,22 @@ mod tests {
     #[test]
     fn test_cache_both_directions() {
         let cache = AuthAddressCache::new(60);
-        
+
         let ipv4 = "37.228.235.27".parse::<IpAddr>().unwrap();
         let ipv4_mapped = "::ffff:37.228.235.27".parse::<IpAddr>().unwrap();
-        
+
         // Record with IPv4
-        cache.record_auth(ipv4, "user1".to_string(), Some("User One".to_string()), "oauth".to_string());
-        
+        cache.record_auth(
+            ipv4,
+            "user1".to_string(),
+            Some("User One".to_string()),
+            "oauth".to_string(),
+        );
+
         // Check with both should work
         let auth_v4 = cache.check_auth(ipv4);
         let auth_v6 = cache.check_auth(ipv4_mapped);
-        
+
         assert!(auth_v4.is_some());
         assert!(auth_v6.is_some());
         assert_eq!(auth_v4.unwrap().user_id, auth_v6.unwrap().user_id);

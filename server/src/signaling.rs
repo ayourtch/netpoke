@@ -1,21 +1,17 @@
-use axum::{
-    extract::State,
-    Json,
-    http::StatusCode,
-};
-use serde::{Deserialize, Serialize};
+use crate::data_channels;
 use crate::state::AppState;
 use crate::webrtc_manager;
-use crate::data_channels;
+use axum::{extract::State, http::StatusCode, Json};
+use common::{get_candidate_ip_version, is_name_based_candidate, IpFamily};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use webrtc::ice::candidate::CandidatePairState;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::stats::StatsReportType;
-use webrtc::ice::candidate::CandidatePairState;
-use common::{is_name_based_candidate, get_candidate_ip_version, IpFamily};
 
 /// Filter SDP to remove ICE candidates of the wrong IP version or name-based addresses
-/// 
+///
 /// Name-based candidates (e.g., mDNS xxx.local) are always filtered out.
 /// If an IP version is specified, candidates of the wrong IP version are also filtered.
 fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
@@ -26,10 +22,13 @@ fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
             // Convert SDP line format (a=candidate:...) to candidate format (candidate:...)
             // by stripping the "a=" prefix for use with shared utility functions
             let candidate_str = &line[2..]; // Remove "a=" prefix
-            
+
             // First, filter out name-based candidates (e.g., xxx.local mDNS)
             if is_name_based_candidate(candidate_str) {
-                tracing::debug!("Filtering out name-based (mDNS) candidate from SDP: {}", line);
+                tracing::debug!(
+                    "Filtering out name-based (mDNS) candidate from SDP: {}",
+                    line
+                );
                 continue;
             }
 
@@ -42,8 +41,12 @@ fn filter_sdp_candidates(sdp: &str, ip_version: Option<&String>) -> String {
                         tracing::debug!("Keeping {} candidate in SDP: {}", detected_version, line);
                     } else {
                         // Filter out this candidate
-                        tracing::debug!("Filtering out {} candidate from SDP for {} connection: {}",
-                            detected_version, expected_version, line);
+                        tracing::debug!(
+                            "Filtering out {} candidate from SDP for {} connection: {}",
+                            detected_version,
+                            expected_version,
+                            line
+                        );
                     }
                 } else {
                     // Unknown format, keep it
@@ -112,7 +115,7 @@ pub async fn signaling_start(
         })?;
 
     let client_id = uuid::Uuid::new_v4().to_string();
-    
+
     // Use provided conn_id or generate a new one
     let conn_id = if req.conn_id.is_empty() {
         uuid::Uuid::new_v4().to_string()
@@ -127,7 +130,9 @@ pub async fn signaling_start(
 
     let data_channels = Arc::new(tokio::sync::RwLock::new(crate::state::DataChannels::new()));
     let metrics = Arc::new(tokio::sync::RwLock::new(common::ClientMetrics::default()));
-    let measurement_state = Arc::new(tokio::sync::RwLock::new(crate::state::MeasurementState::new()));
+    let measurement_state = Arc::new(tokio::sync::RwLock::new(
+        crate::state::MeasurementState::new(),
+    ));
     let ice_candidates = Arc::new(tokio::sync::Mutex::new(std::collections::VecDeque::new()));
     let peer_address = Arc::new(tokio::sync::Mutex::new(None::<(String, u16)>));
 
@@ -232,37 +237,54 @@ pub async fn signaling_start(
     peer.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
         let session = session_for_state.clone();
         Box::pin(async move {
-            tracing::info!("Peer connection state changed to {:?} for session {}", state, session.id);
-            
+            tracing::info!(
+                "Peer connection state changed to {:?} for session {}",
+                state,
+                session.id
+            );
+
             // When connection becomes Connected, fetch stats to get peer address
             if state == RTCPeerConnectionState::Connected {
-                tracing::info!("Connection established for session {}, fetching peer address from stats", session.id);
-                
+                tracing::info!(
+                    "Connection established for session {}, fetching peer address from stats",
+                    session.id
+                );
+
                 // Get stats to find the peer address
                 let stats_report = session.peer_connection.get_stats().await;
-                
+
                 // Find the selected candidate pair
                 for stat in stats_report.reports.values() {
                     if let StatsReportType::CandidatePair(pair) = stat {
                         // Look for succeeded or nominated in-progress pairs
-                        if pair.state == CandidatePairState::Succeeded ||
-                           (pair.state == CandidatePairState::InProgress && pair.nominated) {
+                        if pair.state == CandidatePairState::Succeeded
+                            || (pair.state == CandidatePairState::InProgress && pair.nominated)
+                        {
                             // Find the remote candidate by ID to get the IP address
                             for candidate_stat in stats_report.reports.values() {
-                                if let StatsReportType::RemoteCandidate(candidate) = candidate_stat {
+                                if let StatsReportType::RemoteCandidate(candidate) = candidate_stat
+                                {
                                     if candidate.id == pair.remote_candidate_id {
                                         let peer_ip = candidate.ip.clone();
                                         let peer_port = candidate.port;
-                                        
-                                        tracing::info!("Found peer address for session {}: {}:{}", 
-                                            session.id, peer_ip, peer_port);
-                                        
+
+                                        tracing::info!(
+                                            "Found peer address for session {}: {}:{}",
+                                            session.id,
+                                            peer_ip,
+                                            peer_port
+                                        );
+
                                         // Store the peer address
                                         let mut stored_peer = session.peer_address.lock().await;
                                         *stored_peer = Some((peer_ip.clone(), peer_port));
-                                        
-                                        tracing::info!("Stored peer address for session {}: {}:{}", 
-                                            session.id, peer_ip, peer_port);
+
+                                        tracing::info!(
+                                            "Stored peer address for session {}: {}:{}",
+                                            session.id,
+                                            peer_ip,
+                                            peer_port
+                                        );
                                         return;
                                     }
                                 }
@@ -270,8 +292,11 @@ pub async fn signaling_start(
                         }
                     }
                 }
-                
-                tracing::warn!("Could not find peer address in stats for session {}", session.id);
+
+                tracing::warn!(
+                    "Could not find peer address in stats for session {}",
+                    session.id
+                );
             }
         })
     }));
@@ -293,20 +318,26 @@ pub async fn signaling_start(
     tracing::info!("start the filtering ...");
     // Filter SDP candidates based on IP version
     let filtered_sdp = filter_sdp_candidates(&answer_sdp, req.ip_version.as_ref());
-    tracing::info!("Filtered SDP for {:?} connection, original candidates: {}, filtered candidates: {}",
+    tracing::info!(
+        "Filtered SDP for {:?} connection, original candidates: {}, filtered candidates: {}",
         req.ip_version,
         answer_sdp.matches("a=candidate:").count(),
-        filtered_sdp.matches("a=candidate:").count());
+        filtered_sdp.matches("a=candidate:").count()
+    );
 
     {
         use tokio::time::{timeout, Duration};
 
         tracing::info!("Inserting client....");
-        let mut clts = match timeout(Duration::from_secs(5), state.clients.write("signaling")).await {
+        let mut clts = match timeout(Duration::from_secs(5), state.clients.write("signaling")).await
+        {
             Ok(g) => g,
             Err(_) => {
                 state.clients.dump_locations();
-                tracing::error!("PANIC! Deadlock backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+                tracing::error!(
+                    "PANIC! Deadlock backtrace:\n{}",
+                    std::backtrace::Backtrace::force_capture()
+                );
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         };
@@ -337,8 +368,7 @@ pub async fn ice_candidate(
     tracing::debug!("ICE candidate data: {}", &req.candidate);
 
     let clients = state.clients.read("ice_candidate").await;
-    let session = clients.get(&req.client_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let session = clients.get(&req.client_id).ok_or(StatusCode::NOT_FOUND)?;
 
     // Parse and add ICE candidate
     let candidate_init: RTCIceCandidateInit = match serde_json::from_str(&req.candidate) {
@@ -354,18 +384,30 @@ pub async fn ice_candidate(
     let candidate_str = &candidate_init.candidate;
     let should_add = if is_name_based_candidate(candidate_str) {
         // Filter out name-based (mDNS) candidates
-        tracing::debug!("Server filtering out name-based (mDNS) candidate from client {}: {}",
-            req.client_id, candidate_str);
+        tracing::debug!(
+            "Server filtering out name-based (mDNS) candidate from client {}: {}",
+            req.client_id,
+            candidate_str
+        );
         false
     } else if let Some(ref expected_version) = session.ip_version {
         if let Some(detected_version) = get_candidate_ip_version(candidate_str) {
             let matches = detected_version.eq_ignore_ascii_case(expected_version);
             if matches {
-                tracing::info!("Server accepting {} candidate from client {}: {}",
-                    detected_version, req.client_id, candidate_str);
+                tracing::info!(
+                    "Server accepting {} candidate from client {}: {}",
+                    detected_version,
+                    req.client_id,
+                    candidate_str
+                );
             } else {
-                tracing::info!("Server rejecting {} candidate for {} connection (client {}): {}",
-                    detected_version, expected_version, req.client_id, candidate_str);
+                tracing::info!(
+                    "Server rejecting {} candidate for {} connection (client {}): {}",
+                    detected_version,
+                    expected_version,
+                    req.client_id,
+                    candidate_str
+                );
             }
             matches
         } else {
@@ -380,7 +422,8 @@ pub async fn ice_candidate(
     };
 
     if should_add {
-        session.peer_connection
+        session
+            .peer_connection
             .add_ice_candidate(candidate_init)
             .await
             .map_err(|e| {
@@ -390,7 +433,10 @@ pub async fn ice_candidate(
         Ok(StatusCode::OK)
     } else {
         // Return OK even though we filtered it out, to avoid breaking client flow
-        tracing::debug!("Filtered out candidate for client {}, returning OK", req.client_id);
+        tracing::debug!(
+            "Filtered out candidate for client {}, returning OK",
+            req.client_id
+        );
         Ok(StatusCode::OK)
     }
 }
@@ -400,14 +446,17 @@ pub async fn get_ice_candidates(
     Json(req): Json<IceCandidateRequest>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
     let clients = state.clients.read("get_ice_candidates").await;
-    let session = clients.get(&req.client_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
+    let session = clients.get(&req.client_id).ok_or(StatusCode::NOT_FOUND)?;
 
     // Drain all pending ICE candidates
     let mut candidates = session.ice_candidates.lock().await;
     let ice_candidates: Vec<String> = candidates.drain(..).collect();
 
-    tracing::debug!("Returning {} ICE candidates to client {}", ice_candidates.len(), req.client_id);
+    tracing::debug!(
+        "Returning {} ICE candidates to client {}",
+        ice_candidates.len(),
+        req.client_id
+    );
 
     Ok(Json(ice_candidates))
 }
@@ -446,9 +495,9 @@ mod tests {
                    a=candidate:1234567890 1 udp 2122260223 abc123.local 54321 typ host\r\n\
                    a=candidate:1234567891 1 udp 2122260222 192.168.1.100 54322 typ host\r\n\
                    a=end-of-candidates\r\n";
-        
+
         let filtered = filter_sdp_candidates(sdp, None);
-        
+
         // mDNS candidate should be removed
         assert!(!filtered.contains("abc123.local"));
         // IPv4 candidate should remain
@@ -467,17 +516,17 @@ mod tests {
                    a=candidate:1234567891 1 udp 2122260222 192.168.1.100 54322 typ host\r\n\
                    a=candidate:1234567892 1 udp 2122260221 2001:db8::1 54323 typ host\r\n\
                    a=end-of-candidates\r\n";
-        
+
         // Filter for IPv4 only
         let filtered_ipv4 = filter_sdp_candidates(sdp, Some(&"ipv4".to_string()));
         assert!(!filtered_ipv4.contains("abc123.local")); // mDNS removed
-        assert!(filtered_ipv4.contains("192.168.1.100"));  // IPv4 kept
-        assert!(!filtered_ipv4.contains("2001:db8::1"));   // IPv6 removed
-        
+        assert!(filtered_ipv4.contains("192.168.1.100")); // IPv4 kept
+        assert!(!filtered_ipv4.contains("2001:db8::1")); // IPv6 removed
+
         // Filter for IPv6 only
         let filtered_ipv6 = filter_sdp_candidates(sdp, Some(&"ipv6".to_string()));
         assert!(!filtered_ipv6.contains("abc123.local")); // mDNS removed
         assert!(!filtered_ipv6.contains("192.168.1.100")); // IPv4 removed
-        assert!(filtered_ipv6.contains("2001:db8::1"));    // IPv6 kept
+        assert!(filtered_ipv6.contains("2001:db8::1")); // IPv6 kept
     }
 }

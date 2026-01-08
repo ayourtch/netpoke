@@ -32,10 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn websocket_handler(
-    ws: WebSocketUpgrade,
-    State(_state): State<()>,
-) -> Response {
+async fn websocket_handler(ws: WebSocketUpgrade, State(_state): State<()>) -> Response {
     ws.on_upgrade(|socket| handle_websocket(socket))
 }
 

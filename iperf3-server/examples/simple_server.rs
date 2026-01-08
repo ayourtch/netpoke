@@ -22,10 +22,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Iperf3Config {
         enabled: true,
         host: "0.0.0.0".to_string(), // Listen on all interfaces
-        port: 5201,                   // Default iperf3 port
-        max_sessions: 10,             // Maximum concurrent sessions
-        max_duration_secs: 3600,      // Maximum test duration (1 hour)
-        require_auth: false,          // No authentication required
+        port: 5201,                  // Default iperf3 port
+        max_sessions: 10,            // Maximum concurrent sessions
+        max_duration_secs: 3600,     // Maximum test duration (1 hour)
+        require_auth: false,         // No authentication required
         auth_timeout_secs: 60,
         max_bandwidth: 0, // No bandwidth limit (0 = unlimited)
     };

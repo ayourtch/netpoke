@@ -38,15 +38,11 @@ pub trait Conn {
     fn remote_addr(&self) -> Option<SocketAddr>;
     async fn close(&self) -> Result<()>;
     fn as_any(&self) -> &(dyn std::any::Any + Send + Sync);
-    
+
     /// Send data with UDP socket options (TTL, TOS, DF bit) for connected sockets
     /// Default implementation falls back to regular send
     #[cfg(target_os = "linux")]
-    async fn send_with_options(
-        &self,
-        buf: &[u8],
-        _options: &UdpSendOptions,
-    ) -> Result<usize> {
+    async fn send_with_options(&self, buf: &[u8], _options: &UdpSendOptions) -> Result<usize> {
         // Default implementation ignores options and uses regular send
         // Log error to help identify missing forwarding implementations
         let backtrace = std::backtrace::Backtrace::capture();
@@ -55,13 +51,13 @@ pub trait Conn {
              Options will be LOST: TTL={:?}, TOS={:?}, DF={:?}, buf_len={}, local_addr={:?}, remote_addr={:?}. \
              This indicates a missing send_with_options implementation in the call chain.\n\
              Backtrace:\n{:?}",
-            _options.ttl, _options.tos, _options.df_bit, buf.len(), 
+            _options.ttl, _options.tos, _options.df_bit, buf.len(),
             self.local_addr().ok(), self.remote_addr(),
             backtrace
         );
         self.send(buf).await
     }
-    
+
     /// Send data with UDP socket options (TTL, TOS, DF bit)
     /// Default implementation falls back to regular send_to
     #[cfg(target_os = "linux")]

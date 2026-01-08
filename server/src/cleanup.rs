@@ -1,3 +1,4 @@
+use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -5,7 +6,6 @@ use axum::{
 };
 use serde::Serialize;
 use std::collections::HashSet;
-use crate::state::AppState;
 
 #[derive(Serialize)]
 struct CleanupResponse {

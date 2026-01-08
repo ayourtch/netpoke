@@ -1,47 +1,47 @@
-use thiserror::Error;
 use axum::http::StatusCode;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error("DNS resolution failed: {0}")]
     DnsError(String),
-    
+
     #[error("DID resolution failed: {0}")]
     DidResolutionError(String),
-    
+
     #[error("Service metadata error: {0}")]
     ServiceMetadataError(String),
-    
+
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
-    
+
     #[error("JSON parsing error: {0}")]
     JsonError(#[from] serde_json::Error),
-    
+
     #[error("URL parsing error: {0}")]
     UrlError(#[from] url::ParseError),
-    
+
     #[error("Invalid handle format")]
     InvalidHandleFormat,
-    
+
     #[error("Authentication required")]
     AuthenticationRequired,
-    
+
     #[error("Session not found")]
     SessionNotFound,
-    
+
     #[error("Session expired")]
     SessionExpired,
-    
+
     #[error("Invalid session")]
     InvalidSession,
-    
+
     #[error("OAuth error: {0}")]
     OAuthError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Access denied: User not in allowed list")]
     AccessDenied,
 }

@@ -75,13 +75,19 @@ mod tests {
     #[test]
     fn test_get_candidate_ip_version_ipv4() {
         let candidate = "candidate:1234567890 1 udp 2122260223 192.168.1.100 54321 typ host";
-        assert_eq!(get_candidate_ip_version(candidate), Some("ipv4".to_string()));
+        assert_eq!(
+            get_candidate_ip_version(candidate),
+            Some("ipv4".to_string())
+        );
     }
 
     #[test]
     fn test_get_candidate_ip_version_ipv6() {
         let candidate = "candidate:1234567890 1 udp 2122260223 2001:db8::1 54321 typ host";
-        assert_eq!(get_candidate_ip_version(candidate), Some("ipv6".to_string()));
+        assert_eq!(
+            get_candidate_ip_version(candidate),
+            Some("ipv6".to_string())
+        );
     }
 
     #[test]
@@ -90,7 +96,10 @@ mod tests {
         let candidate = "candidate:1234567890 1 udp 2122260223 abc123.local 54321 typ host";
         // .local contains a dot so it would return "ipv4" but this is a hostname, not an IP
         // The expected behavior is to use is_name_based_candidate() first to filter these
-        assert_eq!(get_candidate_ip_version(candidate), Some("ipv4".to_string()));
+        assert_eq!(
+            get_candidate_ip_version(candidate),
+            Some("ipv4".to_string())
+        );
     }
 
     #[test]

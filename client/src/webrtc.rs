@@ -1,14 +1,13 @@
+use crate::{measurements, signaling};
+use common::{get_candidate_ip_version, is_name_based_candidate};
+use js_sys;
+use std::cell::RefCell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    RtcPeerConnection, RtcConfiguration,
-    RtcDataChannelInit, RtcSessionDescriptionInit, RtcSdpType,
-    RtcIceCandidateInit, RtcDataChannelState,
+    RtcConfiguration, RtcDataChannelInit, RtcDataChannelState, RtcIceCandidateInit,
+    RtcPeerConnection, RtcSdpType, RtcSessionDescriptionInit,
 };
-use js_sys;
-use crate::{signaling, measurements};
-use std::rc::Rc;
-use std::cell::RefCell;
-use common::{is_name_based_candidate, get_candidate_ip_version};
 
 /// Length to truncate client IDs for logging (first 8 characters)
 const CLIENT_ID_LOG_LENGTH: usize = 8;
@@ -26,7 +25,8 @@ async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
     let connection_state = js_sys::Reflect::get(peer, &"connectionState".into())
         .ok()
         .and_then(|s| s.as_string());
-    let connected = connection_state.as_deref()
+    let connected = connection_state
+        .as_deref()
         .map(|s| s == "connected" || s == "completed")
         .unwrap_or(false);
 
@@ -35,26 +35,30 @@ async fn check_stop_polling(peer: &RtcPeerConnection) -> bool {
 }
 
 /// Update peer connection addresses in the UI by fetching stats from the RTCPeerConnection
-async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, ip_version: &str, conn_index: usize) -> Result<(), JsValue> {
+async fn update_peer_connection_addresses_from_stats(
+    peer: &RtcPeerConnection,
+    ip_version: &str,
+    conn_index: usize,
+) -> Result<(), JsValue> {
     // Get stats from the peer connection
     let stats_promise = peer.get_stats();
     let stats_result = wasm_bindgen_futures::JsFuture::from(stats_promise).await?;
-    
+
     // The result is an RTCStatsReport which is a Map-like object
     let stats_report = stats_result;
-    
+
     // Find the selected candidate pair
     let mut local_address = None;
     let mut remote_address = None;
     let mut local_candidate_id = None;
     let mut remote_candidate_id = None;
-    
+
     // Iterate through the stats using the values() iterator
     // RTCStatsReport is a Map-like object with a values() method that returns an iterator
     let values_fn = js_sys::Reflect::get(&stats_report, &"values".into())?;
     if let Some(values) = values_fn.dyn_ref::<js_sys::Function>() {
         let iterator = values.call0(&stats_report)?;
-        
+
         // Collect all stats into a vector first
         let mut all_stats = Vec::new();
         loop {
@@ -71,13 +75,13 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
                 break;
             }
         }
-        
+
         // Find selected candidate pair
         for stat in &all_stats {
             let stat_type = js_sys::Reflect::get(stat, &"type".into())
                 .ok()
                 .and_then(|t| t.as_string());
-            
+
             if stat_type.as_deref() == Some("candidate-pair") {
                 // Check if this is the selected/nominated pair
                 let selected = js_sys::Reflect::get(stat, &"selected".into())
@@ -91,7 +95,7 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
                 let state = js_sys::Reflect::get(stat, &"state".into())
                     .ok()
                     .and_then(|s| s.as_string());
-                
+
                 // A candidate pair is active if it's selected/nominated and in succeeded state
                 if (selected || nominated) && state.as_deref() == Some("succeeded") {
                     local_candidate_id = js_sys::Reflect::get(stat, &"localCandidateId".into())
@@ -104,7 +108,7 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
                 }
             }
         }
-        
+
         // Now find the actual candidate addresses
         if let (Some(local_id), Some(remote_id)) = (&local_candidate_id, &remote_candidate_id) {
             for stat in &all_stats {
@@ -114,8 +118,10 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
                 let stat_type = js_sys::Reflect::get(stat, &"type".into())
                     .ok()
                     .and_then(|t| t.as_string());
-                
-                if stat_type.as_deref() == Some("local-candidate") || stat_type.as_deref() == Some("remote-candidate") {
+
+                if stat_type.as_deref() == Some("local-candidate")
+                    || stat_type.as_deref() == Some("remote-candidate")
+                {
                     if let Some(ref id) = stat_id {
                         let address = js_sys::Reflect::get(stat, &"address".into())
                             .ok()
@@ -124,7 +130,7 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
                             .ok()
                             .and_then(|p| p.as_f64())
                             .map(|p| p as u16);
-                        
+
                         if id == local_id {
                             if let (Some(addr), Some(p)) = (address, port) {
                                 local_address = Some(format!("{}:{}", addr, p));
@@ -139,41 +145,61 @@ async fn update_peer_connection_addresses_from_stats(peer: &RtcPeerConnection, i
             }
         }
     }
-    
+
     // Update the UI if we found addresses
     if local_address.is_some() || remote_address.is_some() {
         update_peer_connection_addresses_js(
             ip_version,
             conn_index,
             local_address.as_deref(),
-            remote_address.as_deref()
+            remote_address.as_deref(),
         );
-        
-        log::info!("Updated {} connection {} addresses: local={:?}, remote={:?}",
-            ip_version, conn_index, local_address, remote_address);
+
+        log::info!(
+            "Updated {} connection {} addresses: local={:?}, remote={:?}",
+            ip_version,
+            conn_index,
+            local_address,
+            remote_address
+        );
     }
-    
+
     Ok(())
 }
 
 /// Call JavaScript function to update peer connection addresses
-fn update_peer_connection_addresses_js(ip_version: &str, conn_index: usize, local_address: Option<&str>, remote_address: Option<&str>) {
+fn update_peer_connection_addresses_js(
+    ip_version: &str,
+    conn_index: usize,
+    local_address: Option<&str>,
+    remote_address: Option<&str>,
+) {
     use wasm_bindgen::JsCast;
-    
+
     let window = match web_sys::window() {
         Some(w) => w,
         None => return,
     };
-    
+
     // Call JavaScript function updatePeerConnectionAddresses(ipVersion, connIndex, localAddress, remoteAddress)
-    if let Ok(update_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("updatePeerConnectionAddresses")) {
+    if let Ok(update_fn) =
+        js_sys::Reflect::get(&window, &JsValue::from_str("updatePeerConnectionAddresses"))
+    {
         if let Some(func) = update_fn.dyn_ref::<js_sys::Function>() {
             let args = js_sys::Array::new();
             args.push(&JsValue::from_str(ip_version));
             args.push(&JsValue::from_f64(conn_index as f64));
-            args.push(&local_address.map(JsValue::from_str).unwrap_or(JsValue::NULL));
-            args.push(&remote_address.map(JsValue::from_str).unwrap_or(JsValue::NULL));
-            
+            args.push(
+                &local_address
+                    .map(JsValue::from_str)
+                    .unwrap_or(JsValue::NULL),
+            );
+            args.push(
+                &remote_address
+                    .map(JsValue::from_str)
+                    .unwrap_or(JsValue::NULL),
+            );
+
             if let Err(e) = func.apply(&JsValue::NULL, &args) {
                 log::warn!("Failed to call updatePeerConnectionAddresses: {:?}", e);
             }
@@ -193,12 +219,19 @@ pub struct WebRtcConnection {
 }
 
 impl WebRtcConnection {
-    pub async fn new_with_ip_version(ip_version: &str, parent_client_id: Option<String>) -> Result<Self, JsValue> {
+    pub async fn new_with_ip_version(
+        ip_version: &str,
+        parent_client_id: Option<String>,
+    ) -> Result<Self, JsValue> {
         Self::new_with_ip_version_and_mode(ip_version, parent_client_id, None, None).await
     }
 
-    pub async fn new_with_ip_version_and_mode(ip_version: &str, parent_client_id: Option<String>, mode: Option<String>, conn_id: Option<String>) -> Result<Self, JsValue> {
-
+    pub async fn new_with_ip_version_and_mode(
+        ip_version: &str,
+        parent_client_id: Option<String>,
+        mode: Option<String>,
+        conn_id: Option<String>,
+    ) -> Result<Self, JsValue> {
         // Generate a UUID for this connection if not provided
         let generated_conn_id = conn_id.unwrap_or_else(|| {
             // Generate a simple UUID-like ID using random bytes
@@ -227,7 +260,11 @@ impl WebRtcConnection {
                 random_bytes[8], random_bytes[9],
                 random_bytes[10], random_bytes[11], random_bytes[12], random_bytes[13], random_bytes[14], random_bytes[15])
         });
-        log::info!("Creating RTCPeerConnection for IP version: {}, conn_id: {}", ip_version, generated_conn_id);
+        log::info!(
+            "Creating RTCPeerConnection for IP version: {}, conn_id: {}",
+            ip_version,
+            generated_conn_id
+        );
 
         let config = RtcConfiguration::new();
 
@@ -270,7 +307,8 @@ impl WebRtcConnection {
 
         // Create control channel (reliable, ordered) and store it for sending stop messages
         let control_init = RtcDataChannelInit::new();
-        let control_channel = peer.create_data_channel_with_data_channel_dict("control", &control_init);
+        let control_channel =
+            peer.create_data_channel_with_data_channel_dict("control", &control_init);
         let control_channel_ref = Rc::new(RefCell::new(Some(control_channel.clone())));
 
         let control_channel_for_testprobe = Rc::new(RefCell::new(control_channel.clone()));
@@ -280,8 +318,13 @@ impl WebRtcConnection {
         let testprobe_init = RtcDataChannelInit::new();
         testprobe_init.set_ordered(false);
         testprobe_init.set_max_retransmits(0);
-        let testprobe_channel = peer.create_data_channel_with_data_channel_dict("testprobe", &testprobe_init);
-        measurements::setup_testprobe_channel(testprobe_channel, control_channel_for_testprobe, state.clone());
+        let testprobe_channel =
+            peer.create_data_channel_with_data_channel_dict("testprobe", &testprobe_init);
+        measurements::setup_testprobe_channel(
+            testprobe_channel,
+            control_channel_for_testprobe,
+            state.clone(),
+        );
 
         log::info!("Creating offer");
 
@@ -292,11 +335,27 @@ impl WebRtcConnection {
 
         log::info!("Sending offer to server");
 
-        let (client_id, _parent_id_from_server, _ip_version_from_server, answer_sdp, server_conn_id) =
-            signaling::send_offer_with_mode(offer_sdp.clone(), parent_client_id.clone(), Some(ip_version.to_string()), mode, Some(generated_conn_id.clone())).await?;
+        let (
+            client_id,
+            _parent_id_from_server,
+            _ip_version_from_server,
+            answer_sdp,
+            server_conn_id,
+        ) = signaling::send_offer_with_mode(
+            offer_sdp.clone(),
+            parent_client_id.clone(),
+            Some(ip_version.to_string()),
+            mode,
+            Some(generated_conn_id.clone()),
+        )
+        .await?;
 
-        log::info!("Received answer from server, client_id: {}, conn_id: {}", client_id, server_conn_id);
-        
+        log::info!(
+            "Received answer from server, client_id: {}, conn_id: {}",
+            client_id,
+            server_conn_id
+        );
+
         // Update state with conn_id from server
         state.borrow_mut().conn_id = server_conn_id.clone();
 
@@ -325,15 +384,29 @@ impl WebRtcConnection {
                                 let should_send = if let Some(ref sdp) = candidate_sdp {
                                     // First, filter out name-based candidates (e.g., xxx.local mDNS)
                                     if is_name_based_candidate(sdp) {
-                                        log::debug!("Filtering out name-based (mDNS) candidate: {}", sdp);
+                                        log::debug!(
+                                            "Filtering out name-based (mDNS) candidate: {}",
+                                            sdp
+                                        );
                                         false
-                                    } else if let Some(detected_version) = get_candidate_ip_version(sdp) {
-                                        let matches = detected_version.eq_ignore_ascii_case(&ip_version_for_filter);
+                                    } else if let Some(detected_version) =
+                                        get_candidate_ip_version(sdp)
+                                    {
+                                        let matches = detected_version
+                                            .eq_ignore_ascii_case(&ip_version_for_filter);
                                         if matches {
-                                            log::info!("Sending {} candidate: {}", detected_version, sdp);
+                                            log::info!(
+                                                "Sending {} candidate: {}",
+                                                detected_version,
+                                                sdp
+                                            );
                                         } else {
-                                            log::debug!("Filtering out {} candidate for {} connection: {}",
-                                                detected_version, ip_version_for_filter, sdp);
+                                            log::debug!(
+                                                "Filtering out {} candidate for {} connection: {}",
+                                                detected_version,
+                                                ip_version_for_filter,
+                                                sdp
+                                            );
                                         }
                                         matches
                                     } else {
@@ -351,7 +424,12 @@ impl WebRtcConnection {
 
                                     // Send ICE candidate to server
                                     wasm_bindgen_futures::spawn_local(async move {
-                                        if let Err(e) = signaling::send_ice_candidate(&client_id, &candidate_str).await {
+                                        if let Err(e) = signaling::send_ice_candidate(
+                                            &client_id,
+                                            &candidate_str,
+                                        )
+                                        .await
+                                        {
                                             log::error!("Failed to send ICE candidate: {:?}", e);
                                         }
                                     });
@@ -376,50 +454,55 @@ impl WebRtcConnection {
                 .ok()
                 .and_then(|s| s.as_string())
                 .unwrap_or_else(|| "unknown".to_string());
-            log::info!("[{}][{}] ICE connection state: {}", 
-                ip_version_for_ice_state, 
+            log::info!(
+                "[{}][{}] ICE connection state: {}",
+                ip_version_for_ice_state,
                 &client_id_for_ice_state[..CLIENT_ID_LOG_LENGTH.min(client_id_for_ice_state.len())],
-                ice_state);
-            if ice_state == "failed" {
-            }
+                ice_state
+            );
+            if ice_state == "failed" {}
         }) as Box<dyn FnMut(_)>);
-        peer.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
+        peer.set_oniceconnectionstatechange(Some(
+            oniceconnectionstatechange.as_ref().unchecked_ref(),
+        ));
         oniceconnectionstatechange.forget();
 
         // Set up ICE gathering state change handler for debugging
         let client_id_for_gathering = client_id.clone();
-        let short_client_id = &client_id_for_gathering[..CLIENT_ID_LOG_LENGTH.min(client_id_for_gathering.len())];
+        let short_client_id =
+            &client_id_for_gathering[..CLIENT_ID_LOG_LENGTH.min(client_id_for_gathering.len())];
         let short_client_id_for_gathering = short_client_id.clone();
         let ip_version_for_gathering = ip_version.to_string();
         let peer_for_gathering = peer.clone();
         let onicegatheringstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            let gathering_state = js_sys::Reflect::get(&peer_for_gathering, &"iceGatheringState".into())
-                .ok()
-                .and_then(|s| s.as_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            log::info!("[{}][{}] ICE gathering state: {}", 
+            let gathering_state =
+                js_sys::Reflect::get(&peer_for_gathering, &"iceGatheringState".into())
+                    .ok()
+                    .and_then(|s| s.as_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+            log::info!(
+                "[{}][{}] ICE gathering state: {}",
                 ip_version_for_gathering,
                 short_client_id_for_gathering,
-                gathering_state);
+                gathering_state
+            );
         }) as Box<dyn FnMut(_)>);
-        peer.set_onicegatheringstatechange(Some(onicegatheringstatechange.as_ref().unchecked_ref()));
+        peer.set_onicegatheringstatechange(Some(
+            onicegatheringstatechange.as_ref().unchecked_ref(),
+        ));
         onicegatheringstatechange.forget();
 
         // NOW set local and remote descriptions (ICE gathering will start after setLocalDescription)
         let offer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
         offer_obj.set_sdp(&offer_sdp);
 
-        wasm_bindgen_futures::JsFuture::from(
-            peer.set_local_description(&offer_obj)
-        ).await?;
+        wasm_bindgen_futures::JsFuture::from(peer.set_local_description(&offer_obj)).await?;
 
         let answer_obj = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
         answer_obj.set_sdp(&answer_sdp);
         log::info!("Remote answer: {:?}", &answer_sdp);
 
-        wasm_bindgen_futures::JsFuture::from(
-            peer.set_remote_description(&answer_obj)
-        ).await?;
+        wasm_bindgen_futures::JsFuture::from(peer.set_remote_description(&answer_obj)).await?;
 
         // Start polling for server ICE candidates
         let peer_for_poll = peer.clone();
@@ -431,27 +514,39 @@ impl WebRtcConnection {
             let max_polls = 10 * POLL_SLEEP_MS / 1000; // Timeout after 3000 polls (about 5 minutes at 100ms intervals)
 
             loop {
-
                 poll_count += 1;
 
                 // Check if we should stop polling
-                let should_stop = check_stop_polling(&peer_for_poll).await || poll_count >= max_polls;
+                let should_stop =
+                    check_stop_polling(&peer_for_poll).await || poll_count >= max_polls;
 
                 if let Ok(candidates) = signaling::get_ice_candidates(&client_id_for_poll).await {
                     for candidate_str in candidates {
                         // Parse JSON string to extract candidate field
                         if let Ok(candidate_obj) = js_sys::JSON::parse(&candidate_str) {
-                            if let Ok(candidate) = js_sys::Reflect::get(&candidate_obj, &"candidate".into()) {
+                            if let Ok(candidate) =
+                                js_sys::Reflect::get(&candidate_obj, &"candidate".into())
+                            {
                                 if let Some(candidate_sdp) = candidate.as_string() {
                                     // Filter server candidates by IP version and exclude name-based (mDNS) candidates
                                     let should_add = if is_name_based_candidate(&candidate_sdp) {
                                         // Filter out name-based candidates (e.g., xxx.local mDNS)
-                                        log::debug!("Filtering out name-based (mDNS) server candidate: {}", candidate_sdp);
+                                        log::debug!(
+                                            "Filtering out name-based (mDNS) server candidate: {}",
+                                            candidate_sdp
+                                        );
                                         false
-                                    } else if let Some(detected_version) = get_candidate_ip_version(&candidate_sdp) {
-                                        let matches = detected_version.eq_ignore_ascii_case(&ip_version_for_poll);
+                                    } else if let Some(detected_version) =
+                                        get_candidate_ip_version(&candidate_sdp)
+                                    {
+                                        let matches = detected_version
+                                            .eq_ignore_ascii_case(&ip_version_for_poll);
                                         if matches {
-                                            log::info!("Adding {} candidate from server: {}", detected_version, candidate_sdp);
+                                            log::info!(
+                                                "Adding {} candidate from server: {}",
+                                                detected_version,
+                                                candidate_sdp
+                                            );
                                         } else {
                                             log::debug!("Filtering out server {} candidate for {} connection: {}",
                                                 detected_version, ip_version_for_poll, candidate_sdp);
@@ -464,11 +559,20 @@ impl WebRtcConnection {
                                     };
 
                                     if should_add {
-                                        let candidate_init = RtcIceCandidateInit::new(&candidate_sdp);
+                                        let candidate_init =
+                                            RtcIceCandidateInit::new(&candidate_sdp);
                                         if let Err(e) = wasm_bindgen_futures::JsFuture::from(
-                                            peer_for_poll.add_ice_candidate_with_opt_rtc_ice_candidate_init(Some(&candidate_init))
-                                        ).await {
-                                            log::error!("Failed to add remote ICE candidate: {:?}", e);
+                                            peer_for_poll
+                                                .add_ice_candidate_with_opt_rtc_ice_candidate_init(
+                                                    Some(&candidate_init),
+                                                ),
+                                        )
+                                        .await
+                                        {
+                                            log::error!(
+                                                "Failed to add remote ICE candidate: {:?}",
+                                                e
+                                            );
                                         }
                                     }
                                 }
@@ -485,48 +589,71 @@ impl WebRtcConnection {
             }
         });
 
-        log::info!("WebRTC connection established for peer [{}][{}]", &ip_version, &short_client_id);
+        log::info!(
+            "WebRTC connection established for peer [{}][{}]",
+            &ip_version,
+            &short_client_id
+        );
 
-        Ok(Self { peer, client_id, conn_id: server_conn_id, state, control_channel: control_channel_ref, probe_channel: probe_channel_ref, failed: false })
+        Ok(Self {
+            peer,
+            client_id,
+            conn_id: server_conn_id,
+            state,
+            control_channel: control_channel_ref,
+            probe_channel: probe_channel_ref,
+            failed: false,
+        })
     }
-    
+
     /// Helper method to send a serializable message over the control channel
     /// Returns an error if the control channel is not ready (not open)
-    fn send_control_message<T: serde::Serialize>(&self, msg: &T, msg_type: &str) -> Result<(), JsValue> {
+    fn send_control_message<T: serde::Serialize>(
+        &self,
+        msg: &T,
+        msg_type: &str,
+    ) -> Result<(), JsValue> {
         if self.failed {
-                log::warn!("Connection is in the failed state, for {} message", msg_type);
-                return Err(JsValue::from_str(&format!(
-                    "Connection has failed - ignore"
-                )));
+            log::warn!(
+                "Connection is in the failed state, for {} message",
+                msg_type
+            );
+            return Err(JsValue::from_str(&format!(
+                "Connection has failed - ignore"
+            )));
         }
-       
-        let json = serde_json::to_string(msg)
-            .map_err(|e| {
-                log::error!("Failed to serialize {} message: {}", msg_type, e);
-                JsValue::from_str(&format!("Serialization error: {}", e))
-            })?;
-        
+
+        let json = serde_json::to_string(msg).map_err(|e| {
+            log::error!("Failed to serialize {} message: {}", msg_type, e);
+            JsValue::from_str(&format!("Serialization error: {}", e))
+        })?;
+
         let control_channel_opt = self.control_channel.borrow();
         if let Some(channel) = control_channel_opt.as_ref() {
             // Check if channel is open before sending
             let state = channel.ready_state();
             if state != RtcDataChannelState::Open {
-                log::warn!("Control channel not open for {} message (state: {:?})", msg_type, state);
+                log::warn!(
+                    "Control channel not open for {} message (state: {:?})",
+                    msg_type,
+                    state
+                );
                 return Err(JsValue::from_str(&format!(
-                    "Control channel not ready: {:?}", state
+                    "Control channel not ready: {:?}",
+                    state
                 )));
             }
-            
+
             channel.send_with_str(&json)?;
             log::info!("Sent {} message for conn_id: {}", msg_type, self.conn_id);
         } else {
             log::warn!("Control channel not available to send {} message", msg_type);
             return Err(JsValue::from_str("Control channel not available"));
         }
-        
+
         Ok(())
     }
-    
+
     /// Check if the control channel is open and ready for sending messages
     pub fn is_control_channel_open(&self) -> bool {
         let control_channel_opt = self.control_channel.borrow();
@@ -536,19 +663,19 @@ impl WebRtcConnection {
             false
         }
     }
-    
+
     /// Wait for the control channel to be ready with a timeout
     /// Returns true if the channel is ready, false if timeout occurred
     pub async fn wait_for_control_channel_ready(&mut self, timeout_ms: u32) -> bool {
         let start_time = crate::measurements::current_time_ms();
         let timeout = timeout_ms as u64;
-        
+
         loop {
             if self.is_control_channel_open() {
                 log::info!("Control channel is now open for conn_id: {}", self.conn_id);
                 return true;
             }
-            
+
             let elapsed = crate::measurements::current_time_ms() - start_time;
             if elapsed >= timeout {
                 log::warn!("Timeout waiting for control channel to open for conn_id: {} ({}ms), mark as failed", 
@@ -556,20 +683,18 @@ impl WebRtcConnection {
                 self.failed = true;
                 return false;
             }
-            
+
             // Sleep for 50ms before checking again
             crate::sleep_ms(50).await;
         }
     }
-    
+
     /// Send a stop traceroute message to the server
     pub async fn send_stop_traceroute(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StopTraceroute(
-            common::StopTracerouteMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
+        let msg = common::ControlMessage::StopTraceroute(common::StopTracerouteMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
         self.send_control_message(&msg, "stop traceroute")?;
         self.state.borrow_mut().set_traceroute_active(false);
         Ok(())
@@ -577,86 +702,81 @@ impl WebRtcConnection {
 
     /// Send a start traceroute message to the server
     pub async fn send_start_traceroute(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StartTraceroute(
-            common::StartTracerouteMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
+        let msg = common::ControlMessage::StartTraceroute(common::StartTracerouteMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
         self.state.borrow_mut().traceroute_started += 1;
         self.send_control_message(&msg, "start traceroute")
     }
-    
+
     /// Send a start survey session message to the server
     pub async fn send_start_survey_session(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StartSurveySession(
-            common::StartSurveySessionMessage {
-                survey_session_id: survey_session_id.to_string(),
-                conn_id: self.conn_id.clone(),
-            }
-        );
+        let msg = common::ControlMessage::StartSurveySession(common::StartSurveySessionMessage {
+            survey_session_id: survey_session_id.to_string(),
+            conn_id: self.conn_id.clone(),
+        });
         self.send_control_message(&msg, "start survey session")
     }
-    
+
     /// Send a start MTU traceroute message to the server
-    pub async fn send_start_mtu_traceroute(&self, survey_session_id: &str, packet_size: u32, path_ttl: i32, collect_timeout_ms: usize) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StartMtuTraceroute(
-            common::StartMtuTracerouteMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-                packet_size,
-                path_ttl,
-                collect_timeout_ms,
-            }
-        );
+    pub async fn send_start_mtu_traceroute(
+        &self,
+        survey_session_id: &str,
+        packet_size: u32,
+        path_ttl: i32,
+        collect_timeout_ms: usize,
+    ) -> Result<(), JsValue> {
+        let msg = common::ControlMessage::StartMtuTraceroute(common::StartMtuTracerouteMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+            packet_size,
+            path_ttl,
+            collect_timeout_ms,
+        });
         self.state.borrow_mut().mtu_traceroute_started += 1;
-        self.send_control_message(&msg, &format!("start MTU traceroute (size: {})", packet_size))
+        self.send_control_message(
+            &msg,
+            &format!("start MTU traceroute (size: {})", packet_size),
+        )
     }
-    
+
     /// Send get measuring time message to the server
     pub async fn send_get_measuring_time(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::GetMeasuringTime(
-            common::GetMeasuringTimeMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
+        let msg = common::ControlMessage::GetMeasuringTime(common::GetMeasuringTimeMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
         self.send_control_message(&msg, "get measuring time")
     }
-    
+
     /// Send start server traffic message to the server
     pub async fn send_start_server_traffic(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StartServerTraffic(
-            common::StartServerTrafficMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
+        let msg = common::ControlMessage::StartServerTraffic(common::StartServerTrafficMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
         self.send_control_message(&msg, "start server traffic")?;
         self.state.borrow_mut().set_traceroute_active(false);
         Ok(())
     }
-    
+
     /// Send stop server traffic message to the server
     pub async fn send_stop_server_traffic(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StopServerTraffic(
-            common::StopServerTrafficMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
+        let msg = common::ControlMessage::StopServerTraffic(common::StopServerTrafficMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
         self.send_control_message(&msg, "stop server traffic")
     }
-    
+
     /// Send start probe streams message to the server
     pub async fn send_start_probe_streams(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StartProbeStreams(
-            common::StartProbeStreamsMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
-        
+        let msg = common::ControlMessage::StartProbeStreams(common::StartProbeStreamsMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
+
         // Enable probe streams on client side
         {
             let mut state = self.state.borrow_mut();
@@ -669,41 +789,39 @@ impl WebRtcConnection {
             state.server_reported_c2s_stats = None;
             state.calculated_s2c_stats = None;
         }
-        
+
         self.send_control_message(&msg, "start probe streams")
     }
-    
+
     /// Send stop probe streams message to the server
     pub async fn send_stop_probe_streams(&self, survey_session_id: &str) -> Result<(), JsValue> {
-        let msg = common::ControlMessage::StopProbeStreams(
-            common::StopProbeStreamsMessage {
-                conn_id: self.conn_id.clone(),
-                survey_session_id: survey_session_id.to_string(),
-            }
-        );
-        
+        let msg = common::ControlMessage::StopProbeStreams(common::StopProbeStreamsMessage {
+            conn_id: self.conn_id.clone(),
+            survey_session_id: survey_session_id.to_string(),
+        });
+
         // Disable probe streams on client side
         self.state.borrow_mut().probe_streams_active = false;
-        
+
         self.send_control_message(&msg, "stop probe streams")
     }
-    
+
     /// Get the probe channel for sending measurement probes
     pub fn get_probe_channel(&self) -> Option<web_sys::RtcDataChannel> {
         self.probe_channel.borrow().clone()
     }
-    
+
     /// Enable traceroute mode (prevents measurement data collection)
     pub fn set_traceroute_mode(&self, active: bool) {
         self.state.borrow_mut().set_traceroute_active(active);
     }
-    
+
     /// Set up a callback to update the peer connection addresses when the connection state changes
-    /// 
+    ///
     /// This should be called after creating the connection, providing the IP version and connection
     /// index so the UI can be updated with the actual local/remote addresses when the connection
     /// is established.
-    /// 
+    ///
     /// Note: We listen to both `connectionstatechange` and `iceconnectionstatechange` events for
     /// Safari compatibility. Safari doesn't consistently support `connectionState` property or
     /// fire `connectionstatechange` events, but `iceConnectionState` is well-supported.
@@ -712,33 +830,39 @@ impl WebRtcConnection {
         // We listen to both connectionstatechange and iceconnectionstatechange for Safari compatibility,
         // and this flag ensures only the first successful connection trigger updates the UI.
         let addresses_updated = Rc::new(RefCell::new(false));
-        
+
         let peer = self.peer.clone();
         let ip_version_owned = ip_version.to_string();
         let addresses_updated_for_conn = addresses_updated.clone();
-        
+
         let onconnectionstatechange = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             // Check if already updated
             if *addresses_updated_for_conn.borrow() {
                 return;
             }
-            
+
             let connection_state = js_sys::Reflect::get(&peer, &"connectionState".into())
                 .ok()
                 .and_then(|s| s.as_string());
-            
+
             if let Some(state) = connection_state {
                 log::info!("Connection state changed to: {}", state);
-                
+
                 if state == "connected" {
                     // Mark as updated before spawning to prevent race conditions
                     *addresses_updated_for_conn.borrow_mut() = true;
-                    
+
                     // Connection is established, fetch the selected candidate pair addresses
                     let peer_clone = peer.clone();
                     let ip_version_clone = ip_version_owned.clone();
                     wasm_bindgen_futures::spawn_local(async move {
-                        if let Err(e) = update_peer_connection_addresses_from_stats(&peer_clone, &ip_version_clone, conn_index).await {
+                        if let Err(e) = update_peer_connection_addresses_from_stats(
+                            &peer_clone,
+                            &ip_version_clone,
+                            conn_index,
+                        )
+                        .await
+                        {
                             log::warn!("Failed to update peer connection addresses: {:?}", e);
                         }
                     });
@@ -746,47 +870,56 @@ impl WebRtcConnection {
             }
         }) as Box<dyn FnMut(_)>);
 
-        self.peer.set_onconnectionstatechange(Some(onconnectionstatechange.as_ref().unchecked_ref()));
+        self.peer
+            .set_onconnectionstatechange(Some(onconnectionstatechange.as_ref().unchecked_ref()));
         // Note: forget() is required to prevent the closure from being dropped when this function returns.
         // The closure will live as long as the peer connection, and will be cleaned up when the peer is closed.
         // This is the standard pattern for WebRTC callbacks in WASM.
         onconnectionstatechange.forget();
-        
+
         // Also listen for ICE connection state changes for Safari compatibility.
         // Safari doesn't consistently support connectionState, but iceConnectionState is well-supported.
         let peer_for_ice = self.peer.clone();
         let ip_version_for_ice = ip_version.to_string();
         let addresses_updated_for_ice = addresses_updated.clone();
-        
-        let oniceconnectionstatechange_for_address = Closure::wrap(Box::new(move |_event: web_sys::Event| {
-            // Check if already updated
-            if *addresses_updated_for_ice.borrow() {
-                return;
-            }
-            
-            let ice_state = js_sys::Reflect::get(&peer_for_ice, &"iceConnectionState".into())
-                .ok()
-                .and_then(|s| s.as_string());
-            
-            if let Some(state) = ice_state {
-                log::info!("ICE connection state changed to: {}", state);
-                
-                // "connected" or "completed" indicates a successful ICE connection
-                if state == "connected" || state == "completed" {
-                    // Mark as updated before spawning to prevent race conditions
-                    *addresses_updated_for_ice.borrow_mut() = true;
-                    
-                    // Connection is established, fetch the selected candidate pair addresses
-                    let peer_clone = peer_for_ice.clone();
-                    let ip_version_clone = ip_version_for_ice.clone();
-                    wasm_bindgen_futures::spawn_local(async move {
-                        if let Err(e) = update_peer_connection_addresses_from_stats(&peer_clone, &ip_version_clone, conn_index).await {
-                            log::warn!("Failed to update peer connection addresses from ICE state: {:?}", e);
-                        }
-                    });
+
+        let oniceconnectionstatechange_for_address = Closure::wrap(Box::new(
+            move |_event: web_sys::Event| {
+                // Check if already updated
+                if *addresses_updated_for_ice.borrow() {
+                    return;
                 }
-            }
-        }) as Box<dyn FnMut(_)>);
+
+                let ice_state = js_sys::Reflect::get(&peer_for_ice, &"iceConnectionState".into())
+                    .ok()
+                    .and_then(|s| s.as_string());
+
+                if let Some(state) = ice_state {
+                    log::info!("ICE connection state changed to: {}", state);
+
+                    // "connected" or "completed" indicates a successful ICE connection
+                    if state == "connected" || state == "completed" {
+                        // Mark as updated before spawning to prevent race conditions
+                        *addresses_updated_for_ice.borrow_mut() = true;
+
+                        // Connection is established, fetch the selected candidate pair addresses
+                        let peer_clone = peer_for_ice.clone();
+                        let ip_version_clone = ip_version_for_ice.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            if let Err(e) = update_peer_connection_addresses_from_stats(
+                                &peer_clone,
+                                &ip_version_clone,
+                                conn_index,
+                            )
+                            .await
+                            {
+                                log::warn!("Failed to update peer connection addresses from ICE state: {:?}", e);
+                            }
+                        });
+                    }
+                }
+            },
+        ) as Box<dyn FnMut(_)>);
 
         // Add iceconnectionstatechange handler for address updates.
         // Note: This is separate from the debug handler in new_with_ip_version_and_mode which logs
@@ -796,10 +929,16 @@ impl WebRtcConnection {
         use wasm_bindgen::JsCast;
         let _ = self.peer.add_event_listener_with_callback(
             "iceconnectionstatechange",
-            oniceconnectionstatechange_for_address.as_ref().unchecked_ref()
+            oniceconnectionstatechange_for_address
+                .as_ref()
+                .unchecked_ref(),
         );
         oniceconnectionstatechange_for_address.forget();
-        
-        log::info!("Set up address update callback for {} connection {} (with Safari compatibility)", ip_version, conn_index);
+
+        log::info!(
+            "Set up address update callback for {} connection {} (with Safari compatibility)",
+            ip_version,
+            conn_index
+        );
     }
 }

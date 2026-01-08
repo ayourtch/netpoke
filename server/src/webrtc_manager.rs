@@ -1,25 +1,27 @@
-use webrtc::api::APIBuilder;
+use common::IpFamily;
+use std::sync::Arc;
+use std::time::Duration;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
+use webrtc::api::APIBuilder;
 use webrtc::ice::network_type::NetworkType;
 use webrtc::interceptor::registry::Registry;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
-use std::sync::Arc;
-use std::time::Duration;
-use common::IpFamily;
 
 /// Create a new RTCPeerConnection with the specified IP family filtering.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `ip_family` - Optional IP family to restrict candidate gathering:
 ///   - `IpFamily::IPv4` - Only gather IPv4 (UDP4) candidates
 ///   - `IpFamily::IPv6` - Only gather IPv6 (UDP6) candidates
 ///   - `IpFamily::Both` or `None` - Gather both IPv4 and IPv6 candidates (default)
-pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<RTCPeerConnection>, Box<dyn std::error::Error>> {
+pub async fn create_peer_connection(
+    ip_family: Option<IpFamily>,
+) -> Result<Arc<RTCPeerConnection>, Box<dyn std::error::Error>> {
     let mut media_engine = MediaEngine::default();
     let registry = Registry::new();
 
@@ -28,7 +30,7 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
     // Configure SettingEngine to disable mDNS and set network types based on IP family
     let mut setting_engine = SettingEngine::default();
     setting_engine.set_ice_multicast_dns_mode(webrtc::ice::mdns::MulticastDnsMode::Disabled);
-    
+
     // Enable ICE Lite mode for server-side.
     // ICE Lite makes the server act as a 'controlled' agent that:
     // 1. Only gathers host candidates (binding to specific local IPs, not wildcards)
@@ -36,17 +38,17 @@ pub async fn create_peer_connection(ip_family: Option<IpFamily>) -> Result<Arc<R
     // 3. Does not require STUN/TURN servers
     // This is appropriate when the server is directly reachable by clients.
     setting_engine.set_lite(true);
-    
+
     // Configure ICE timeouts for more robust connections
     // - disconnected_timeout: 10s (default 5s) - more tolerance for temporary disconnections
     // - failed_timeout: 30s (default 25s) - give more time to recover from disconnected state
     // - keepalive_interval: 2s (default 2s) - keep connections alive with regular traffic
     setting_engine.set_ice_timeouts(
-        Some(Duration::from_secs(10)),  // disconnected_timeout
-        Some(Duration::from_secs(30)),  // failed_timeout
-        Some(Duration::from_secs(2)),   // keepalive_interval
+        Some(Duration::from_secs(10)), // disconnected_timeout
+        Some(Duration::from_secs(30)), // failed_timeout
+        Some(Duration::from_secs(2)),  // keepalive_interval
     );
-    
+
     // Apply IP family filtering if specified
     match ip_family {
         Some(IpFamily::IPv4) => {
@@ -117,7 +119,9 @@ pub async fn handle_offer(
         // First check if gathering is already complete
         let current_state = peer.ice_gathering_state();
         tracing::debug!("Initial ICE gathering state: {:?}", current_state);
-        if current_state == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete {
+        if current_state
+            == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete
+        {
             tracing::info!("ICE gathering already complete");
             return Ok::<(), String>(());
         }
@@ -130,17 +134,22 @@ pub async fn handle_offer(
                 return Ok(());
             }
         }
-        
+
         // Channel closed without completing - check final state
         let final_state = peer.ice_gathering_state();
-        if final_state == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete {
+        if final_state == webrtc::ice_transport::ice_gathering_state::RTCIceGatheringState::Complete
+        {
             tracing::info!("ICE gathering complete (detected after channel close)");
             Ok(())
         } else {
-            tracing::warn!("ICE gathering incomplete: callback channel closed before completion (state: {:?})", final_state);
+            tracing::warn!(
+                "ICE gathering incomplete: callback channel closed before completion (state: {:?})",
+                final_state
+            );
             Err("ICE gathering incomplete: callback channel closed before completion".to_string())
         }
-    }).await;
+    })
+    .await;
 
     match gathering_result {
         Ok(Ok(())) => {
@@ -162,7 +171,9 @@ pub async fn handle_offer(
     }
 
     // Get the final SDP with all ICE candidates
-    let final_answer = peer.local_description().await
+    let final_answer = peer
+        .local_description()
+        .await
         .ok_or("No local description")?
         .sdp;
 
@@ -178,19 +189,19 @@ mod tests {
         let result = create_peer_connection(None).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_create_peer_connection_ipv4_only() {
         let result = create_peer_connection(Some(IpFamily::IPv4)).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_create_peer_connection_ipv6_only() {
         let result = create_peer_connection(Some(IpFamily::IPv6)).await;
         assert!(result.is_ok());
     }
-    
+
     #[tokio::test]
     async fn test_create_peer_connection_both() {
         let result = create_peer_connection(Some(IpFamily::Both)).await;

@@ -1,7 +1,6 @@
 /// API handlers for tracing buffer functionality
 ///
 /// These endpoints allow downloading captured log messages and viewing tracing statistics.
-
 use axum::{
     extract::State,
     http::{header, StatusCode},
@@ -22,12 +21,13 @@ pub async fn download_tracing_buffer(
             Json(serde_json::json!({
                 "error": "Tracing buffer is not enabled"
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     let text_data = tracing_service.export_as_text();
     let stats = tracing_service.stats();
-    
+
     // Generate filename with timestamp
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("tracing_{}.log", timestamp);
@@ -42,10 +42,14 @@ pub async fn download_tracing_buffer(
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
-            (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}\"", filename)),
+            (
+                header::CONTENT_DISPOSITION,
+                &format!("attachment; filename=\"{}\"", filename),
+            ),
         ],
         text_data,
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// Get tracing buffer statistics
@@ -56,16 +60,15 @@ pub async fn tracing_stats(
 }
 
 /// Clear tracing buffer
-pub async fn clear_tracing(
-    State(tracing_service): State<Arc<TracingService>>,
-) -> Response {
+pub async fn clear_tracing(State(tracing_service): State<Arc<TracingService>>) -> Response {
     if !tracing_service.is_enabled() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
                 "error": "Tracing buffer is not enabled"
             })),
-        ).into_response();
+        )
+            .into_response();
     }
 
     tracing_service.clear();
@@ -76,5 +79,6 @@ pub async fn clear_tracing(
         Json(serde_json::json!({
             "message": "Tracing buffer cleared"
         })),
-    ).into_response()
+    )
+        .into_response()
 }

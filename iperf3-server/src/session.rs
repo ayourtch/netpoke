@@ -385,7 +385,8 @@ impl TestSession {
                             last_send = Instant::now();
                             bytes_this_second = 0;
                         } else if bytes_this_second >= bytes_per_second {
-                            tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS)).await;
+                            tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS))
+                                .await;
                             continue;
                         }
                     }
@@ -449,7 +450,8 @@ impl TestSession {
                             last_send = Instant::now();
                             bytes_this_second = 0;
                         } else if bytes_this_second >= bytes_per_second {
-                            tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS)).await;
+                            tokio::time::sleep(Duration::from_millis(BANDWIDTH_LIMIT_SLEEP_MS))
+                                .await;
                             continue;
                         }
                     }

@@ -1,12 +1,8 @@
-/// API handlers for packet tracking and ICMP events
-use axum::{
-    extract::State,
-    Json,
-    http::StatusCode,
-};
-use serde::{Serialize, Deserialize};
 use crate::state::AppState;
-use base64::{Engine as _, engine::general_purpose};
+/// API handlers for packet tracking and ICMP events
+use axum::{extract::State, http::StatusCode, Json};
+use base64::{engine::general_purpose, Engine as _};
+use serde::{Deserialize, Serialize};
 
 /// Response structure for tracked packet events
 #[derive(Debug, Serialize, Deserialize)]
@@ -26,7 +22,7 @@ pub struct TrackedEventInfo {
     pub rtt_ms: u64,
     pub send_options: common::SendOptions,
     pub router_ip: Option<String>,
-    
+
     /// Base64 encoded packets for inspection
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icmp_packet_b64: Option<String>,
@@ -41,14 +37,14 @@ pub async fn get_tracked_events(
     State(state): State<AppState>,
 ) -> Result<Json<TrackedEventsResponse>, StatusCode> {
     let events = state.packet_tracker.drain_events().await;
-    
+
     let event_infos: Vec<TrackedEventInfo> = events
         .into_iter()
         .map(|event| {
             let sent_duration = event.sent_at.elapsed();
             let icmp_duration = event.icmp_received_at.elapsed();
             let rtt = event.icmp_received_at.duration_since(event.sent_at);
-            
+
             TrackedEventInfo {
                 icmp_packet_size: event.icmp_packet.len(),
                 udp_packet_size: event.udp_packet.len(),
@@ -64,9 +60,9 @@ pub async fn get_tracked_events(
             }
         })
         .collect();
-    
+
     let count = event_infos.len();
-    
+
     Ok(Json(TrackedEventsResponse {
         events: event_infos,
         count,
@@ -86,12 +82,12 @@ pub async fn get_tracked_stats(
     let tracked_count = state.packet_tracker.tracked_count().await;
     let events = state.packet_tracker.drain_events().await;
     let queued_count = events.len();
-    
+
     // Put events back
     for event in events {
         state.packet_tracker.event_queue.write().await.push(event);
     }
-    
+
     Ok(Json(TrackedStatsResponse {
         tracked_packets_count: tracked_count,
         queued_events_count: queued_count,

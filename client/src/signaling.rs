@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::JsValue;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Request, RequestInit, RequestMode, Response, window};
+use web_sys::{window, Request, RequestInit, RequestMode, Response};
 
 #[derive(Serialize)]
 struct SignalingStartRequest {
@@ -32,11 +32,21 @@ struct IceCandidateRequest {
     candidate: String,
 }
 
-pub async fn send_offer(offer_sdp: String, parent_client_id: Option<String>, ip_version: Option<String>) -> Result<(String, Option<String>, Option<String>, String, String), JsValue> {
+pub async fn send_offer(
+    offer_sdp: String,
+    parent_client_id: Option<String>,
+    ip_version: Option<String>,
+) -> Result<(String, Option<String>, Option<String>, String, String), JsValue> {
     send_offer_with_mode(offer_sdp, parent_client_id, ip_version, None, None).await
 }
 
-pub async fn send_offer_with_mode(offer_sdp: String, parent_client_id: Option<String>, ip_version: Option<String>, mode: Option<String>, conn_id: Option<String>) -> Result<(String, Option<String>, Option<String>, String, String), JsValue> {
+pub async fn send_offer_with_mode(
+    offer_sdp: String,
+    parent_client_id: Option<String>,
+    ip_version: Option<String>,
+    mode: Option<String>,
+    conn_id: Option<String>,
+) -> Result<(String, Option<String>, Option<String>, String, String), JsValue> {
     let window = window().ok_or("No window")?;
 
     let req_body = SignalingStartRequest {
@@ -46,8 +56,8 @@ pub async fn send_offer_with_mode(offer_sdp: String, parent_client_id: Option<St
         mode,
         conn_id,
     };
-    let body_str = serde_json::to_string(&req_body)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let body_str =
+        serde_json::to_string(&req_body).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let opts = RequestInit::new();
     opts.set_method("POST");
@@ -56,8 +66,13 @@ pub async fn send_offer_with_mode(offer_sdp: String, parent_client_id: Option<St
 
     log::debug!("JSON body: {}", &body_str);
 
-    let url = format!("{}/api/signaling/start",
-                     window.location().origin().map_err(|_| JsValue::from_str("No origin"))?);
+    let url = format!(
+        "{}/api/signaling/start",
+        window
+            .location()
+            .origin()
+            .map_err(|_| JsValue::from_str("No origin"))?
+    );
 
     let request = Request::new_with_str_and_init(&url, &opts)?;
     request.headers().set("Content-Type", "application/json")?;
@@ -68,7 +83,13 @@ pub async fn send_offer_with_mode(offer_sdp: String, parent_client_id: Option<St
     let json = JsFuture::from(resp.json()?).await?;
     let response: SignalingStartResponse = serde_wasm_bindgen::from_value(json)?;
 
-    Ok((response.client_id, response.parent_client_id, response.ip_version, response.sdp, response.conn_id))
+    Ok((
+        response.client_id,
+        response.parent_client_id,
+        response.ip_version,
+        response.sdp,
+        response.conn_id,
+    ))
 }
 
 pub async fn send_ice_candidate(client_id: &str, candidate: &str) -> Result<(), JsValue> {
@@ -78,16 +99,21 @@ pub async fn send_ice_candidate(client_id: &str, candidate: &str) -> Result<(), 
         client_id: client_id.to_string(),
         candidate: candidate.to_string(),
     };
-    let body_str = serde_json::to_string(&req_body)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let body_str =
+        serde_json::to_string(&req_body).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let opts = RequestInit::new();
     opts.set_method("POST");
     opts.set_mode(RequestMode::Cors);
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let url = format!("{}/api/signaling/ice",
-                     window.location().origin().map_err(|_| JsValue::from_str("No origin"))?);
+    let url = format!(
+        "{}/api/signaling/ice",
+        window
+            .location()
+            .origin()
+            .map_err(|_| JsValue::from_str("No origin"))?
+    );
 
     let request = Request::new_with_str_and_init(&url, &opts)?;
     request.headers().set("Content-Type", "application/json")?;
@@ -109,16 +135,21 @@ pub async fn get_ice_candidates(client_id: &str) -> Result<Vec<String>, JsValue>
         client_id: client_id.to_string(),
         candidate: "".to_string(),
     };
-    let body_str = serde_json::to_string(&req_body)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let body_str =
+        serde_json::to_string(&req_body).map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let opts = RequestInit::new();
     opts.set_method("POST");
     opts.set_mode(RequestMode::Cors);
     opts.set_body(&JsValue::from_str(&body_str));
 
-    let url = format!("{}/api/signaling/ice/remote",
-                     window.location().origin().map_err(|_| JsValue::from_str("No origin"))?);
+    let url = format!(
+        "{}/api/signaling/ice/remote",
+        window
+            .location()
+            .origin()
+            .map_err(|_| JsValue::from_str("No origin"))?
+    );
 
     let request = Request::new_with_str_and_init(&url, &opts)?;
     request.headers().set("Content-Type", "application/json")?;

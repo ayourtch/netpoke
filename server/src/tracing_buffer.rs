@@ -2,7 +2,6 @@
 ///
 /// This module provides a thread-safe circular buffer that stores log entries
 /// with microsecond precision timestamps. It can be used as a custom tracing layer.
-
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -82,17 +81,17 @@ impl TracingBuffer {
         } else {
             // Buffer is full, need to reorder from oldest to newest
             let mut result = Vec::with_capacity(entries.len());
-            
+
             // Start from next_idx (oldest) to the end
             for i in next_idx..entries.len() {
                 result.push(entries[i].clone());
             }
-            
+
             // Then from start to next_idx (newest)
             for i in 0..next_idx {
                 result.push(entries[i].clone());
             }
-            
+
             result
         }
     }
@@ -120,7 +119,7 @@ impl TracingBuffer {
     }
 
     /// Export entries as formatted text with microsecond timestamps
-    /// 
+    ///
     /// Format includes both human-readable datetime (like Wireshark) and Unix epoch
     /// for easy correlation with PCAP files
     pub fn export_as_text(&self) -> String {
@@ -131,11 +130,11 @@ impl TracingBuffer {
             // Convert microseconds to seconds and microseconds parts
             let secs = entry.timestamp_us / 1_000_000;
             let micros = entry.timestamp_us % 1_000_000;
-            
+
             // Convert to human-readable datetime (like Wireshark shows)
             let datetime = chrono::DateTime::from_timestamp(secs as i64, (micros * 1000) as u32)
                 .unwrap_or_else(|| chrono::DateTime::from_timestamp(0, 0).unwrap());
-            
+
             // Format: [human_datetime] (epoch.microseconds) LEVEL target - message
             // Example: [2024-01-07 12:34:56.456789 UTC] (1704646496.456789) INFO server::main - Starting server
             output.push_str(&format!(
@@ -169,11 +168,7 @@ impl<S> Layer<S> for TracingBufferLayer
 where
     S: tracing::Subscriber,
 {
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: Context<'_, S>,
-    ) {
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         let metadata = event.metadata();
         let level = *metadata.level();
         let target = metadata.target().to_string();
@@ -201,7 +196,8 @@ impl tracing::field::Visit for MessageVisitor {
             if !self.message.is_empty() {
                 self.message.push_str(", ");
             }
-            self.message.push_str(&format!("{} = {:?}", field.name(), value));
+            self.message
+                .push_str(&format!("{} = {:?}", field.name(), value));
         }
     }
 }
@@ -257,14 +253,11 @@ pub struct TracingStats {
 }
 
 /// Initialize the tracing subscriber with both console output and buffer
-pub fn init_tracing_with_buffer(
-    log_level: tracing::Level,
-    tracing_service: &TracingService,
-) {
+pub fn init_tracing_with_buffer(log_level: tracing::Level, tracing_service: &TracingService) {
     use tracing_subscriber::filter::LevelFilter;
-    
+
     let buffer_layer = TracingBufferLayer::new(tracing_service.buffer());
-    
+
     // Convert Level to LevelFilter
     let level_filter = match log_level {
         tracing::Level::TRACE => LevelFilter::TRACE,
@@ -273,17 +266,16 @@ pub fn init_tracing_with_buffer(
         tracing::Level::WARN => LevelFilter::WARN,
         tracing::Level::ERROR => LevelFilter::ERROR,
     };
-    
+
     let subscriber = Registry::default()
         .with(tracing_subscriber::fmt::layer().with_filter(level_filter))
         .with(buffer_layer.with_filter(level_filter));
-    
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set tracing subscriber");
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
 }
 
 /// Initialize the tracing subscriber with an EnvFilter directive for fine-grained control
-/// 
+///
 /// The filter_directive follows tracing-subscriber's EnvFilter syntax:
 /// - "debug" - set all targets to debug level
 /// - "info,server=debug" - default to info, but set server crate to debug
@@ -293,25 +285,24 @@ pub fn init_tracing_with_filter(
     tracing_service: &TracingService,
 ) -> Result<(), String> {
     use tracing_subscriber::EnvFilter;
-    
+
     let buffer_layer = TracingBufferLayer::new(tracing_service.buffer());
-    
+
     // Parse the filter directive
     let env_filter = EnvFilter::try_new(filter_directive)
         .map_err(|e| format!("Invalid filter directive '{}': {}", filter_directive, e))?;
-    
-    // Clone the filter for the buffer layer (EnvFilter doesn't implement Clone, 
+
+    // Clone the filter for the buffer layer (EnvFilter doesn't implement Clone,
     // so we need to parse it again)
     let buffer_filter = EnvFilter::try_new(filter_directive)
         .map_err(|e| format!("Invalid filter directive '{}': {}", filter_directive, e))?;
-    
+
     let subscriber = Registry::default()
         .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
         .with(buffer_layer.with_filter(buffer_filter));
-    
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("Failed to set tracing subscriber");
-    
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+
     Ok(())
 }
 
@@ -322,11 +313,11 @@ mod tests {
     #[test]
     fn test_circular_buffer_basic() {
         let buffer = TracingBuffer::new(3, true);
-        
+
         buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
         buffer.add_entry(Level::WARN, "test".to_string(), "message 2".to_string());
         buffer.add_entry(Level::ERROR, "test".to_string(), "message 3".to_string());
-        
+
         let entries = buffer.get_entries();
         assert_eq!(entries.len(), 3);
         assert_eq!(entries[0].message, "message 1");
@@ -337,13 +328,13 @@ mod tests {
     #[test]
     fn test_circular_buffer_overflow() {
         let buffer = TracingBuffer::new(3, true);
-        
+
         buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
         buffer.add_entry(Level::INFO, "test".to_string(), "message 2".to_string());
         buffer.add_entry(Level::INFO, "test".to_string(), "message 3".to_string());
         buffer.add_entry(Level::INFO, "test".to_string(), "message 4".to_string());
         buffer.add_entry(Level::INFO, "test".to_string(), "message 5".to_string());
-        
+
         let entries = buffer.get_entries();
         assert_eq!(entries.len(), 3);
         // Should contain the 3 most recent messages
@@ -355,10 +346,10 @@ mod tests {
     #[test]
     fn test_disabled_buffer() {
         let buffer = TracingBuffer::new(3, false);
-        
+
         buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
         buffer.add_entry(Level::INFO, "test".to_string(), "message 2".to_string());
-        
+
         let entries = buffer.get_entries();
         assert_eq!(entries.len(), 0, "Disabled buffer should not store entries");
     }
@@ -366,24 +357,24 @@ mod tests {
     #[test]
     fn test_clear_buffer() {
         let buffer = TracingBuffer::new(3, true);
-        
+
         buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
         buffer.add_entry(Level::INFO, "test".to_string(), "message 2".to_string());
-        
+
         assert_eq!(buffer.len(), 2);
-        
+
         buffer.clear();
-        
+
         assert_eq!(buffer.len(), 0);
     }
 
     #[test]
     fn test_export_as_text() {
         let buffer = TracingBuffer::new(3, true);
-        
+
         buffer.add_entry(Level::INFO, "test".to_string(), "message 1".to_string());
         buffer.add_entry(Level::WARN, "test".to_string(), "message 2".to_string());
-        
+
         let text = buffer.export_as_text();
         assert!(text.contains("INFO"));
         assert!(text.contains("WARN"));
@@ -394,7 +385,7 @@ mod tests {
     #[test]
     fn test_tracing_service() {
         let service = TracingService::new(10, true);
-        
+
         let stats = service.stats();
         assert_eq!(stats.max_entries, 10);
         assert_eq!(stats.entries_in_buffer, 0);

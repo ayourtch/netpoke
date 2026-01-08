@@ -1,15 +1,15 @@
-mod webrtc;
-mod signaling;
 mod measurements;
+mod signaling;
+mod webrtc;
 use crate::measurements::current_time_ms;
 
+use gloo_timers::callback::Interval;
+use serde::Deserialize;
+use std::cell::RefCell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{window, Document, RtcPeerConnection};
-use std::cell::RefCell;
-use std::rc::Rc;
-use gloo_timers::callback::Interval;
-use serde::Deserialize;
 
 // Path analysis timeout in milliseconds (30 seconds) - deprecated, now using phased approach
 const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
@@ -35,7 +35,7 @@ const DEFAULT_TRACEROUTE_STAGGER_DELAY_MS: u32 = 1000;
 // Minimum wait time between traceroute rounds for the same connection (3000ms)
 const TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 3000;
 
-// Minimum wait time between MTU traceroute rounds 
+// Minimum wait time between MTU traceroute rounds
 const MTU_TRACEROUTE_ROUND_MIN_WAIT_MS: u32 = 500;
 // Number of traceroute rounds
 const TRACEROUTE_ROUNDS: u32 = 3;
@@ -79,7 +79,7 @@ impl Default for ClientConfig {
 async fn fetch_client_config() -> ClientConfig {
     use wasm_bindgen_futures::JsFuture;
     use web_sys::{Request, RequestInit, RequestMode, Response};
-    
+
     let window = match window() {
         Some(w) => w,
         None => {
@@ -87,7 +87,7 @@ async fn fetch_client_config() -> ClientConfig {
             return ClientConfig::default();
         }
     };
-    
+
     let origin = match window.location().origin() {
         Ok(o) => o,
         Err(_) => {
@@ -95,21 +95,24 @@ async fn fetch_client_config() -> ClientConfig {
             return ClientConfig::default();
         }
     };
-    
+
     let url = format!("{}/api/config/client", origin);
-    
+
     let opts = RequestInit::new();
     opts.set_method("GET");
     opts.set_mode(RequestMode::Cors);
-    
+
     let request = match Request::new_with_str_and_init(&url, &opts) {
         Ok(r) => r,
         Err(e) => {
-            log::warn!("Failed to create request: {:?}, using default client config", e);
+            log::warn!(
+                "Failed to create request: {:?}, using default client config",
+                e
+            );
             return ClientConfig::default();
         }
     };
-    
+
     let resp_value = match JsFuture::from(window.fetch_with_request(&request)).await {
         Ok(r) => r,
         Err(e) => {
@@ -117,7 +120,7 @@ async fn fetch_client_config() -> ClientConfig {
             return ClientConfig::default();
         }
     };
-    
+
     let resp: Response = match resp_value.dyn_into() {
         Ok(r) => r,
         Err(_) => {
@@ -125,20 +128,23 @@ async fn fetch_client_config() -> ClientConfig {
             return ClientConfig::default();
         }
     };
-    
+
     if !resp.ok() {
         log::warn!("Server returned error status, using default client config");
         return ClientConfig::default();
     }
-    
+
     let json = match resp.json() {
         Ok(j) => j,
         Err(e) => {
-            log::warn!("Failed to get JSON from response: {:?}, using default client config", e);
+            log::warn!(
+                "Failed to get JSON from response: {:?}, using default client config",
+                e
+            );
             return ClientConfig::default();
         }
     };
-    
+
     let json_value = match JsFuture::from(json).await {
         Ok(v) => v,
         Err(e) => {
@@ -146,14 +152,17 @@ async fn fetch_client_config() -> ClientConfig {
             return ClientConfig::default();
         }
     };
-    
+
     match serde_wasm_bindgen::from_value(json_value) {
         Ok(config) => {
             log::info!("Fetched client config: {:?}", config);
             config
         }
         Err(e) => {
-            log::warn!("Failed to deserialize client config: {:?}, using default", e);
+            log::warn!(
+                "Failed to deserialize client config: {:?}, using default",
+                e
+            );
             ClientConfig::default()
         }
     }
@@ -167,7 +176,9 @@ pub(crate) async fn sleep_ms(ms: u32) {
             .set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms as i32)
             .expect("Failed to set timeout");
     });
-    wasm_bindgen_futures::JsFuture::from(promise).await.expect("Failed to sleep");
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .expect("Failed to sleep");
 }
 
 #[wasm_bindgen(start)]
@@ -176,7 +187,7 @@ pub fn main() {
     wasm_logger::init(wasm_logger::Config::default());
 
     log::info!("WASM client initialized");
-    
+
     // Set up visibility change handler to stop testing when page loses focus
     setup_visibility_change_handler();
 }
@@ -184,57 +195,55 @@ pub fn main() {
 /// Set up a visibility change handler to stop testing when the browser window loses focus
 fn setup_visibility_change_handler() {
     use wasm_bindgen::closure::Closure;
-    
+
     let win = match web_sys::window() {
         Some(w) => w,
         None => return,
     };
-    
+
     let doc = match win.document() {
         Some(d) => d,
         None => return,
     };
-    
+
     let handler = Closure::wrap(Box::new(move || {
         // Check if page is hidden
         let win_inner = match web_sys::window() {
             Some(w) => w,
             None => return,
         };
-        
+
         let doc_inner = match win_inner.document() {
             Some(d) => d,
             None => return,
         };
-        
+
         // Get document.hidden property
         let hidden = js_sys::Reflect::get(&doc_inner, &JsValue::from_str("hidden"))
             .ok()
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        
+
         if hidden {
             log::info!("Browser window lost focus - stopping testing");
-            
+
             // Set abort flag to stop ongoing phases
             set_abort_testing(true);
-            
+
             // Stop all active testing
             if is_testing_active() {
                 stop_testing();
             }
         }
     }) as Box<dyn FnMut()>);
-    
+
     // Add visibilitychange event listener
-    let _ = doc.add_event_listener_with_callback(
-        "visibilitychange",
-        handler.as_ref().unchecked_ref()
-    );
-    
+    let _ =
+        doc.add_event_listener_with_callback("visibilitychange", handler.as_ref().unchecked_ref());
+
     // Prevent the closure from being garbage collected
     handler.forget();
-    
+
     log::info!("Visibility change handler set up");
 }
 
@@ -242,27 +251,27 @@ fn setup_visibility_change_handler() {
 async fn request_wake_lock() -> Result<(), JsValue> {
     let window = window().ok_or("No window")?;
     let navigator = window.navigator();
-    
+
     // Check if wake lock is supported
     if js_sys::Reflect::has(&navigator, &JsValue::from_str("wakeLock")).unwrap_or(false) {
         let wake_lock = js_sys::Reflect::get(&navigator, &JsValue::from_str("wakeLock"))?;
-        
+
         // Request wake lock
         let promise = js_sys::Reflect::apply(
             &js_sys::Reflect::get(&wake_lock, &JsValue::from_str("request"))?.unchecked_into(),
             &wake_lock,
-            &js_sys::Array::of1(&JsValue::from_str("screen"))
+            &js_sys::Array::of1(&JsValue::from_str("screen")),
         )?;
-        
+
         let result = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::from(promise)).await?;
-        
+
         log::info!("Wake lock acquired");
-        
+
         // Store the sentinel globally
         WAKE_LOCK.with(|lock| {
             *lock.borrow_mut() = Some(result);
         });
-        
+
         Ok(())
     } else {
         log::warn!("Wake Lock API not supported in this browser");
@@ -321,18 +330,18 @@ fn clear_active_resources() {
             peer.close();
         }
     });
-    
+
     // Cancel all intervals
     ACTIVE_INTERVALS.with(|intervals| {
         let mut intervals_mut = intervals.borrow_mut();
         intervals_mut.clear();
     });
-    
+
     // Reset chart collection start time
     CHART_COLLECTION_START_MS.with(|start| {
         *start.borrow_mut() = None;
     });
-    
+
     // Reset abort flag
     ABORT_TESTING.with(|abort| {
         *abort.borrow_mut() = false;
@@ -401,7 +410,10 @@ pub async fn start_measurement() -> Result<(), JsValue> {
 #[wasm_bindgen]
 pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue> {
     let count = conn_count.clamp(1, 16) as usize;
-    log::info!("Starting dual-stack network measurement with {} connections per address family...", count);
+    log::info!(
+        "Starting dual-stack network measurement with {} connections per address family...",
+        count
+    );
 
     // Fetch client configuration from server
     let client_config = fetch_client_config().await;
@@ -417,31 +429,43 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
     // Create IPv4 connections
     let mut ipv4_connections = Vec::with_capacity(count);
     let mut parent_id: Option<String> = None;
-    
+
     for i in 0..count {
         // Add delay between connection attempts (except for the first one)
         if i > 0 && connection_delay_ms > 0 {
             sleep_ms(connection_delay_ms).await;
         }
-        
+
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
-            "ipv4", 
-            parent_id.clone(), 
-            None, 
-            None  // conn_id will be auto-generated
-        ).await?;
-        
+            "ipv4",
+            parent_id.clone(),
+            None,
+            None, // conn_id will be auto-generated
+        )
+        .await?;
+
         if i == 0 {
             parent_id = Some(conn.client_id.clone());
         }
-        log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
-        
+        log::info!(
+            "IPv4 connection {} created with client_id: {}, conn_id: {}",
+            i,
+            conn.client_id,
+            conn.conn_id
+        );
+
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
-        
+        register_peer_connection_js(
+            "ipv4",
+            i,
+            &conn.conn_id,
+            WEBRTC_MANAGED_ADDRESS,
+            WEBRTC_MANAGED_ADDRESS,
+        );
+
         // Set up callback to update addresses when connection is established
         conn.setup_address_update_callback("ipv4", i);
-        
+
         ipv4_connections.push(conn);
     }
 
@@ -452,26 +476,39 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         if connection_delay_ms > 0 {
             sleep_ms(connection_delay_ms).await;
         }
-        
+
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
-            "ipv6", 
-            parent_id.clone(), 
-            None, 
-            None  // conn_id will be auto-generated
-        ).await?;
-        log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
-        
+            "ipv6",
+            parent_id.clone(),
+            None,
+            None, // conn_id will be auto-generated
+        )
+        .await?;
+        log::info!(
+            "IPv6 connection {} created with client_id: {}, conn_id: {}",
+            i,
+            conn.client_id,
+            conn.conn_id
+        );
+
         // Register the connection with JavaScript for display
-        register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
-        
+        register_peer_connection_js(
+            "ipv6",
+            i,
+            &conn.conn_id,
+            WEBRTC_MANAGED_ADDRESS,
+            WEBRTC_MANAGED_ADDRESS,
+        );
+
         // Set up callback to update addresses when connection is established
         conn.setup_address_update_callback("ipv6", i);
-        
+
         ipv6_connections.push(conn);
     }
 
     // Collect states for calculation and UI updates
-    let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> = Vec::new();
+    let mut calc_states: Vec<std::rc::Rc<std::cell::RefCell<measurements::MeasurementState>>> =
+        Vec::new();
     for conn in &ipv4_connections {
         calc_states.push(conn.state.clone());
     }
@@ -492,7 +529,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
     let ipv4_states: Vec<_> = ipv4_connections.iter().map(|c| c.state.clone()).collect();
     let ipv6_states: Vec<_> = ipv6_connections.iter().map(|c| c.state.clone()).collect();
     let conn_count = count;
-    
+
     // Start UI update loop that updates all connections
     let ui_interval = gloo_timers::callback::Interval::new(500, move || {
         // Update metrics for each IPv4 connection
@@ -506,7 +543,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
                 // (first iteration only, handled below)
             }
         }
-        
+
         // Update metrics for each IPv6 connection
         for (i, state) in ipv6_states.iter().enumerate() {
             let state_ref = state.borrow();
@@ -515,7 +552,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
                 update_ui_connection("ipv6", i, &state_ref.metrics);
             }
         }
-        
+
         // For single connection or chart updates, use first connection of each type
         if !ipv4_states.is_empty() && !ipv6_states.is_empty() {
             let ipv4_metrics = ipv4_states[0].borrow();
@@ -534,7 +571,7 @@ pub async fn start_measurement_with_count(conn_count: u8) -> Result<(), JsValue>
         register_peer(conn.peer.clone());
         std::mem::forget(conn);
     }
-    
+
     set_testing_active(true);
 
     Ok(())
@@ -551,19 +588,19 @@ pub fn stop_measurement() {
 #[wasm_bindgen]
 pub fn stop_testing() {
     log::info!("Stopping all active testing...");
-    
+
     // Set abort flag to stop any ongoing phases
     set_abort_testing(true);
-    
+
     // Close all connections and clear intervals
     clear_active_resources();
-    
+
     // Release wake lock
     release_wake_lock();
-    
+
     // Mark testing as inactive
     set_testing_active(false);
-    
+
     log::info!("All testing stopped and resources cleaned up");
 }
 
@@ -582,16 +619,19 @@ pub async fn analyze_network() -> Result<(), JsValue> {
 #[wasm_bindgen]
 pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let count = conn_count.clamp(1, 16) as usize;
-    log::info!("Starting network analysis with {} connections per address family...", count);
+    log::info!(
+        "Starting network analysis with {} connections per address family...",
+        count
+    );
 
     // Reset abort flag at start
     set_abort_testing(false);
-    
+
     // Generate survey session UUID
     let survey_session_id = generate_uuid();
     set_survey_session_id(survey_session_id.clone());
     log::info!("Generated survey session ID: {}", survey_session_id);
-    
+
     // Notify JavaScript of the survey session ID for PCAP downloads
     notify_survey_session_id_js(&survey_session_id);
 
@@ -608,42 +648,54 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     // PHASE 0: Establish all connections
     log::info!("PHASE 0: Establishing WebRTC connections...");
     set_doc_status("PHASE 0: Establishing WebRTC connections...");
-    
+
     // Create IPv4 connections
     let mut ipv4_connections: Vec<webrtc::WebRtcConnection> = Vec::with_capacity(count);
     let mut parent_id: Option<String> = None;
-    
+
     for i in 0..count {
         if should_abort_testing() {
             log::info!("Testing aborted during connection setup");
             return Ok(());
         }
-        
+
         if i > 0 && connection_delay_ms > 0 {
             sleep_ms(connection_delay_ms).await;
         }
-        
+
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
-            "ipv4", 
-            parent_id.clone(), 
-            None,  // No mode - server doesn't auto-start anything
-            None
-        ).await?;
-        
+            "ipv4",
+            parent_id.clone(),
+            None, // No mode - server doesn't auto-start anything
+            None,
+        )
+        .await?;
+
         if i == 0 {
             parent_id = Some(conn.client_id.clone());
         }
-        
+
         // Enable traceroute mode to prevent measurement data collection
         conn.set_traceroute_mode(true);
-        
-        log::info!("IPv4 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
-        
-        register_peer_connection_js("ipv4", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
+
+        log::info!(
+            "IPv4 connection {} created with client_id: {}, conn_id: {}",
+            i,
+            conn.client_id,
+            conn.conn_id
+        );
+
+        register_peer_connection_js(
+            "ipv4",
+            i,
+            &conn.conn_id,
+            WEBRTC_MANAGED_ADDRESS,
+            WEBRTC_MANAGED_ADDRESS,
+        );
         conn.setup_address_update_callback("ipv4", i);
-        
+
         // NOTE: Do NOT send StartSurveySession here - control channel is not ready yet
-        
+
         ipv4_connections.push(conn);
     }
 
@@ -654,107 +706,155 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             log::info!("Testing aborted during connection setup");
             return Ok(());
         }
-        
+
         if connection_delay_ms > 0 {
             sleep_ms(connection_delay_ms).await;
         }
-        
+
         let conn = webrtc::WebRtcConnection::new_with_ip_version_and_mode(
-            "ipv6", 
-            parent_id.clone(), 
+            "ipv6",
+            parent_id.clone(),
             None,
-            None
-        ).await?;
-        
+            None,
+        )
+        .await?;
+
         conn.set_traceroute_mode(true);
-        
-        log::info!("IPv6 connection {} created with client_id: {}, conn_id: {}", i, conn.client_id, conn.conn_id);
-        
-        register_peer_connection_js("ipv6", i, &conn.conn_id, WEBRTC_MANAGED_ADDRESS, WEBRTC_MANAGED_ADDRESS);
+
+        log::info!(
+            "IPv6 connection {} created with client_id: {}, conn_id: {}",
+            i,
+            conn.client_id,
+            conn.conn_id
+        );
+
+        register_peer_connection_js(
+            "ipv6",
+            i,
+            &conn.conn_id,
+            WEBRTC_MANAGED_ADDRESS,
+            WEBRTC_MANAGED_ADDRESS,
+        );
         conn.setup_address_update_callback("ipv6", i);
-        
+
         // NOTE: Do NOT send StartSurveySession here - control channel is not ready yet
-        
+
         ipv6_connections.push(conn);
     }
 
     // Wait for all control channels to be ready before sending StartSurveySession
     log::info!("Waiting for control channels to be ready...");
     set_doc_status("PHASE 0.1: Waiting for control channels to be ready...");
-    
+
     for (i, conn) in ipv4_connections.iter_mut().enumerate() {
         if should_abort_testing() {
             log::info!("Testing aborted while waiting for control channels");
             return Ok(());
         }
-        
-        if conn.wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS).await {
+
+        if conn
+            .wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS)
+            .await
+        {
             if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
-                log::warn!("Failed to send StartSurveySession for IPv4 connection {}: {:?}", i, e);
+                log::warn!(
+                    "Failed to send StartSurveySession for IPv4 connection {}: {:?}",
+                    i,
+                    e
+                );
             } else {
                 log::info!("Sent StartSurveySession for IPv4 connection {}", i);
             }
         } else {
-            log::warn!("Control channel not ready for IPv4 connection {}, skipping StartSurveySession", i);
+            log::warn!(
+                "Control channel not ready for IPv4 connection {}, skipping StartSurveySession",
+                i
+            );
         }
     }
-    
+
     for (i, conn) in ipv6_connections.iter_mut().enumerate() {
         if should_abort_testing() {
             log::info!("Testing aborted while waiting for control channels");
             return Ok(());
         }
-        
-        if conn.wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS).await {
+
+        if conn
+            .wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS)
+            .await
+        {
             if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
-                log::warn!("Failed to send StartSurveySession for IPv6 connection {}: {:?}", i, e);
+                log::warn!(
+                    "Failed to send StartSurveySession for IPv6 connection {}: {:?}",
+                    i,
+                    e
+                );
             } else {
                 log::info!("Sent StartSurveySession for IPv6 connection {}", i);
             }
         } else {
-            log::warn!("Control channel not ready for IPv6 connection {}, skipping StartSurveySession", i);
+            log::warn!(
+                "Control channel not ready for IPv6 connection {}, skipping StartSurveySession",
+                i
+            );
         }
     }
 
     // Wait for all ServerSideReady messages
     log::info!("Waiting for ServerSideReady from all connections...");
     set_doc_status("PHASE 0.2: Waiting for server ready on all connections...");
-    
+
     let timeout_ms: u32 = 30000; // 30 second timeout for all connections to be ready
     let start_time = current_time_ms();
-    
+
     loop {
-        let all_connections: Vec<_> = ipv4_connections.iter().chain(ipv6_connections.iter()).filter(|x| !x.failed).collect();
+        let all_connections: Vec<_> = ipv4_connections
+            .iter()
+            .chain(ipv6_connections.iter())
+            .filter(|x| !x.failed)
+            .collect();
         let total_connections = all_connections.len();
 
         if should_abort_testing() {
             log::info!("Testing aborted while waiting for ServerSideReady");
             return Ok(());
         }
-        
-        let ready_count = all_connections.iter()
+
+        let ready_count = all_connections
+            .iter()
             .filter(|c| c.state.borrow().server_side_ready)
             .count();
-        
+
         if ready_count == total_connections {
             log::info!("All {} connections are ready", total_connections);
             break;
         } else {
-            log::info!("Ready {} out of {} connections...", ready_count, total_connections);
+            log::info!(
+                "Ready {} out of {} connections...",
+                ready_count,
+                total_connections
+            );
         }
-        
+
         if (current_time_ms() - start_time) > timeout_ms as u64 {
-            log::warn!("Timeout waiting for ServerSideReady, proceeding with {}/{} ready", ready_count, total_connections);
+            log::warn!(
+                "Timeout waiting for ServerSideReady, proceeding with {}/{} ready",
+                ready_count,
+                total_connections
+            );
             break;
         }
-        
+
         sleep_ms(100).await;
     }
 
     // PHASE 1: Traceroute (5 rounds)
-    log::info!("PHASE 1: Starting traceroute ({} rounds)...", TRACEROUTE_ROUNDS);
+    log::info!(
+        "PHASE 1: Starting traceroute ({} rounds)...",
+        TRACEROUTE_ROUNDS
+    );
     set_doc_status("PHASE 1: Starting traceroute with connection(s) 5-tuple(s)...");
-    
+
     for round in 0..TRACEROUTE_ROUNDS {
         if should_abort_testing() {
             log::info!("Testing aborted during traceroute phase");
@@ -766,9 +866,9 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 total_probe_conns += 1;
             }
         }
-        
+
         log::info!("Traceroute round {}/{}", round + 1, TRACEROUTE_ROUNDS);
-        
+
         // Send StartTraceroute to all connections with stagger delay
         for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
             if should_abort_testing() {
@@ -778,7 +878,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 log::warn!("conn is failed, ignore");
                 continue;
             }
-            
+
             if let Err(e) = conn.send_start_traceroute(&survey_session_id).await {
                 log::warn!("Failed to send StartTraceroute: {:?}", e);
             }
@@ -796,21 +896,28 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 count -= 1;
             }
         }
-        
+
         // Wait at least TRACEROUTE_ROUND_MIN_WAIT_MS before next round
         sleep_ms(TRACEROUTE_ROUND_MIN_WAIT_MS).await;
     }
-    
+
     log::info!("PHASE 1 complete: Traceroute finished");
-    
+
     // Add a brief pause between phases to allow server processing to complete
     //sleep_ms(1000).await;
 
     // PHASE 2: MTU Traceroute (5 rounds with different packet sizes)
-    log::info!("PHASE 2: Starting MTU traceroute ({} rounds with sizes {:?})...", MTU_TRACEROUTE_ROUNDS, MTU_SIZES);
-    
+    log::info!(
+        "PHASE 2: Starting MTU traceroute ({} rounds with sizes {:?})...",
+        MTU_TRACEROUTE_ROUNDS,
+        MTU_SIZES
+    );
+
     for (round, &packet_size) in MTU_SIZES.iter().enumerate() {
-        let status = format!("PHASE 2.{}: Doing MTU traceroute with size {}", round, &packet_size);
+        let status = format!(
+            "PHASE 2.{}: Doing MTU traceroute with size {}",
+            round, &packet_size
+        );
         set_doc_status(&status);
         if should_abort_testing() {
             log::info!("Testing aborted during MTU traceroute phase");
@@ -823,15 +930,16 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 total_probe_conns += 1;
             }
         }
-        
-        log::info!("MTU traceroute round {}/{} with packet_size={}", round + 1, MTU_TRACEROUTE_ROUNDS, packet_size);
 
-        let wait_timeout_ms = if round == MTU_SIZES.len() {
-            3000
-        } else {
-            0
-        };
-        
+        log::info!(
+            "MTU traceroute round {}/{} with packet_size={}",
+            round + 1,
+            MTU_TRACEROUTE_ROUNDS,
+            packet_size
+        );
+
+        let wait_timeout_ms = if round == MTU_SIZES.len() { 3000 } else { 0 };
+
         for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
             if should_abort_testing() {
                 return Ok(());
@@ -845,11 +953,19 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             } else {
                 16
             };
-            
-            if let Err(e) = conn.send_start_mtu_traceroute(&survey_session_id, packet_size, path_ttl, wait_timeout_ms).await {
+
+            if let Err(e) = conn
+                .send_start_mtu_traceroute(
+                    &survey_session_id,
+                    packet_size,
+                    path_ttl,
+                    wait_timeout_ms,
+                )
+                .await
+            {
                 log::warn!("Failed to send StartMtuTraceroute: {:?}", e);
             }
-            
+
             let mut count = DEFAULT_TRACEROUTE_STAGGER_DELAY_MS / TRACE_POLL_CHECK_MS;
             loop {
                 sleep_ms(TRACE_POLL_CHECK_MS).await;
@@ -872,50 +988,53 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 let mut total_active = 0;
                 for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
                     if !conn.failed {
-                       let st = conn.state.borrow();
-                       let n_active = st.mtu_traceroute_started - st.mtu_traceroute_done;
-                       total_active += n_active;
+                        let st = conn.state.borrow();
+                        let n_active = st.mtu_traceroute_started - st.mtu_traceroute_done;
+                        total_active += n_active;
                     }
                 }
                 if count == 0 || total_active == 0 {
                     break;
                 }
-                log::warn!("Still Active mtu_traceroutes: {}, countdown: {}", total_active, count);
+                log::warn!(
+                    "Still Active mtu_traceroutes: {}, countdown: {}",
+                    total_active,
+                    count
+                );
             }
             count -= 1;
         }
 
         sleep_ms(MTU_TRACEROUTE_ROUND_MIN_WAIT_MS).await;
     }
-    
+
     log::info!("PHASE 2 complete: MTU traceroute finished");
-    
-    
+
     // Add a brief pause between phases to allow server processing to complete
     // sleep_ms(1000).await;
 
     // PHASE 3: Get measuring time and start probe streams for baseline measurement
     log::info!("PHASE 3: Starting probe streams for baseline measurement...");
     set_doc_status("PHASE 3: Starting probe streams for baseline measurement...");
-    
+
     // Send GetMeasuringTime to first connection
     if let Some(first_conn) = ipv4_connections.first() {
         if let Err(e) = first_conn.send_get_measuring_time(&survey_session_id).await {
             log::warn!("Failed to send GetMeasuringTime: {:?}", e);
         }
-        
+
         // Wait for response
         sleep_ms(1000).await;
-        
+
         let measuring_time = first_conn.state.borrow().measuring_time_ms;
         log::info!("Received measuring time: {:?}ms", measuring_time);
     }
-        
+
     if should_abort_testing() {
         log::info!("Testing aborted before measurement phase");
         return Ok(());
     }
-    
+
     // Clear metrics before starting measurements
     log::info!("Clearing metrics before probe stream phase...");
     for conn in &ipv4_connections {
@@ -930,78 +1049,85 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     CHART_COLLECTION_START_MS.with(|start| {
         *start.borrow_mut() = Some(chart_start_time);
     });
-    log::info!("Chart data collection will begin in {} seconds", CHART_COLLECTION_DELAY_MS / 1000);
+    log::info!(
+        "Chart data collection will begin in {} seconds",
+        CHART_COLLECTION_DELAY_MS / 1000
+    );
 
     // Send StartProbeStreams to all connections
     for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
         if should_abort_testing() {
             return Ok(());
         }
-        
+
         if let Err(e) = conn.send_start_probe_streams(&survey_session_id).await {
             log::warn!("Failed to send StartProbeStreams: {:?}", e);
         }
     }
-    
+
     log::info!("StartProbeStreams sent to all connections");
-    
+
     // Start client-side probe sender for each connection
     for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
         let state = conn.state.clone();
         let probe_channel = conn.get_probe_channel();
         let conn_id = conn.conn_id.clone();
-        
+
         if let Some(channel) = probe_channel {
             // Start sending measurement probes at configured rate
-            let interval = gloo_timers::callback::Interval::new(common::PROBE_INTERVAL_MS, move || {
-                let mut state = state.borrow_mut();
-                if !state.probe_streams_active {
-                    return;
-                }
-                
-                let seq = state.measurement_probe_seq;
-                state.measurement_probe_seq += 1;
-                let feedback = state.last_feedback.clone();
-                
-                let probe = common::MeasurementProbePacket {
-                    seq,
-                    sent_at_ms: current_time_ms(),
-                    direction: common::Direction::ClientToServer,
-                    conn_id: conn_id.clone(),
-                    feedback,
-                };
-                
-                if let Ok(json) = serde_json::to_string(&probe) {
-                    if let Err(e) = channel.send_with_str(&json) {
-                        log::error!("Failed to send measurement probe: {:?}", e);
+            let interval =
+                gloo_timers::callback::Interval::new(common::PROBE_INTERVAL_MS, move || {
+                    let mut state = state.borrow_mut();
+                    if !state.probe_streams_active {
+                        return;
                     }
-                }
-            });
+
+                    let seq = state.measurement_probe_seq;
+                    state.measurement_probe_seq += 1;
+                    let feedback = state.last_feedback.clone();
+
+                    let probe = common::MeasurementProbePacket {
+                        seq,
+                        sent_at_ms: current_time_ms(),
+                        direction: common::Direction::ClientToServer,
+                        conn_id: conn_id.clone(),
+                        feedback,
+                    };
+
+                    if let Ok(json) = serde_json::to_string(&probe) {
+                        if let Err(e) = channel.send_with_str(&json) {
+                            log::error!("Failed to send measurement probe: {:?}", e);
+                        }
+                    }
+                });
             register_interval(interval);
         }
     }
-    
+
     // Start per-second stats reporter on control channel
     for conn in ipv4_connections.iter().chain(ipv6_connections.iter()) {
         let state = conn.state.clone();
         let control_channel = conn.control_channel.clone();
         let conn_id = conn.conn_id.clone();
         let survey_id = survey_session_id.clone();
-        
+
         let interval = gloo_timers::callback::Interval::new(1000, move || {
             let state_ref = state.borrow();
             if !state_ref.probe_streams_active {
                 return;
             }
-            
+
             // Calculate S2C stats from received measurement probes
             let s2c_stats = calculate_client_s2c_stats(&state_ref);
-            
+
             // Get server-reported C2S stats
-            let c2s_stats = state_ref.server_reported_c2s_stats.clone().unwrap_or_default();
-            
+            let c2s_stats = state_ref
+                .server_reported_c2s_stats
+                .clone()
+                .unwrap_or_default();
+
             drop(state_ref);
-            
+
             let report = common::ControlMessage::ProbeStats(common::ProbeStatsReport {
                 conn_id: conn_id.clone(),
                 survey_session_id: survey_id.clone(),
@@ -1009,10 +1135,10 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 c2s_stats,
                 s2c_stats: s2c_stats.clone(),
             });
-            
+
             // Store calculated S2C stats
             state.borrow_mut().calculated_s2c_stats = Some(s2c_stats);
-            
+
             // Send stats on control channel
             if let Some(channel) = control_channel.borrow().as_ref() {
                 if let Ok(json) = serde_json::to_string(&report) {
@@ -1047,7 +1173,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     let ipv4_states: Vec<_> = ipv4_connections.iter().map(|c| c.state.clone()).collect();
     let ipv6_states: Vec<_> = ipv6_connections.iter().map(|c| c.state.clone()).collect();
     let conn_count_ui = count;
-    
+
     // Start UI update loop
     let ui_interval = gloo_timers::callback::Interval::new(500, move || {
         for (i, state) in ipv4_states.iter().enumerate() {
@@ -1056,14 +1182,14 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
                 update_ui_connection("ipv4", i, &state_ref.metrics);
             }
         }
-        
+
         for (i, state) in ipv6_states.iter().enumerate() {
             let state_ref = state.borrow();
             if conn_count_ui > 1 {
                 update_ui_connection("ipv6", i, &state_ref.metrics);
             }
         }
-        
+
         if !ipv4_states.is_empty() && !ipv6_states.is_empty() {
             let ipv4_metrics = ipv4_states[0].borrow();
             let ipv6_metrics = ipv6_states[0].borrow();
@@ -1081,7 +1207,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         register_peer(conn.peer.clone());
         std::mem::forget(conn);
     }
-    
+
     set_testing_active(true);
 
     log::info!("Network analysis complete, measurements running...");
@@ -1093,12 +1219,14 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common::DirectionStats {
     let now_ms = current_time_ms();
     let stats_cutoff = now_ms.saturating_sub(common::PROBE_FEEDBACK_WINDOW_MS);
-    
+
     // Filter to probes received in the stats window
-    let recent_probes: Vec<_> = state.received_measurement_probes.iter()
+    let recent_probes: Vec<_> = state
+        .received_measurement_probes
+        .iter()
         .filter(|p| p.received_at_ms >= stats_cutoff)
         .collect();
-    
+
     if recent_probes.is_empty() {
         return common::DirectionStats::default();
     }
@@ -1111,25 +1239,26 @@ fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common:
 
     // Calculate delay deviations from baseline
     // Use signed arithmetic to handle clock skew between client and server
-    let mut delay_deviations: Vec<f64> = recent_probes.iter()
+    let mut delay_deviations: Vec<f64> = recent_probes
+        .iter()
         .map(|p| {
             let delay = (p.received_at_ms as i64 - p.sent_at_ms as i64) as f64;
             delay - baseline
         })
         .collect();
-    
+
     delay_deviations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     // Calculate percentiles
     let len = delay_deviations.len();
     let p50_idx = len / 2;
     let p99_idx = (len * 99) / 100;
-    
+
     let delay_deviation_ms = [
-        delay_deviations[p50_idx],                    // 50th percentile
-        delay_deviations[p99_idx.min(len - 1)],       // 99th percentile
-        *delay_deviations.first().unwrap_or(&0.0),    // min
-        *delay_deviations.last().unwrap_or(&0.0),     // max
+        delay_deviations[p50_idx],                 // 50th percentile
+        delay_deviations[p99_idx.min(len - 1)],    // 99th percentile
+        *delay_deviations.first().unwrap_or(&0.0), // min
+        *delay_deviations.last().unwrap_or(&0.0),  // max
     ];
 
     // Calculate jitter (consecutive delay differences)
@@ -1143,7 +1272,7 @@ fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common:
         }
         prev_delay = Some(delay);
     }
-    
+
     jitters.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let jitter_len = jitters.len().max(1);
     let jitter_ms = if jitters.is_empty() {
@@ -1185,7 +1314,7 @@ fn calculate_client_s2c_stats(state: &measurements::MeasurementState) -> common:
 
     common::DirectionStats {
         delay_deviation_ms,
-        rtt_ms: [0.0; 4],  // RTT requires echo, not calculated here
+        rtt_ms: [0.0; 4], // RTT requires echo, not calculated here
         jitter_ms,
         loss_rate,
         reorder_rate,
@@ -1232,97 +1361,227 @@ fn update_ui_dual(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::C
     };
 
     let dtm = {
-       use wasm_timer::SystemTime;
-       let now = SystemTime::now();
-       // format!("{} = {:?}: {:?}", current_time_ms(), &now, &ipv4_metrics);
-       let dbg_message = format!("..");
-       format!("{} = {}", current_time_ms(), dbg_message)
+        use wasm_timer::SystemTime;
+        let now = SystemTime::now();
+        // format!("{} = {:?}: {:?}", current_time_ms(), &now, &ipv4_metrics);
+        let dbg_message = format!("..");
+        format!("{} = {}", current_time_ms(), dbg_message)
     };
     set_element_text(&document, "ayxx", &dtm);
 
-
     // Update IPv4 metrics
-    set_element_text(&document, "ipv4-s2c-tp-1", &format_bytes(ipv4_metrics.s2c_throughput[0]));
-    set_element_text(&document, "ipv4-s2c-tp-10", &format_bytes(ipv4_metrics.s2c_throughput[1]));
-    set_element_text(&document, "ipv4-s2c-tp-60", &format_bytes(ipv4_metrics.s2c_throughput[2]));
-    set_element_text(&document, "ipv4-s2c-delay-1", &format_ms(ipv4_metrics.s2c_delay_avg[0]));
-    set_element_text(&document, "ipv4-s2c-delay-10", &format_ms(ipv4_metrics.s2c_delay_avg[1]));
-    set_element_text(&document, "ipv4-s2c-delay-60", &format_ms(ipv4_metrics.s2c_delay_avg[2]));
-    set_element_text(&document, "ipv4-s2c-jitter-1", &format_ms(ipv4_metrics.s2c_jitter[0]));
-    set_element_text(&document, "ipv4-s2c-jitter-10", &format_ms(ipv4_metrics.s2c_jitter[1]));
-    set_element_text(&document, "ipv4-s2c-jitter-60", &format_ms(ipv4_metrics.s2c_jitter[2]));
-    set_element_text(&document, "ipv4-s2c-loss-1", &format_pct(ipv4_metrics.s2c_loss_rate[0]));
-    set_element_text(&document, "ipv4-s2c-loss-10", &format_pct(ipv4_metrics.s2c_loss_rate[1]));
-    set_element_text(&document, "ipv4-s2c-loss-60", &format_pct(ipv4_metrics.s2c_loss_rate[2]));
-    set_element_text(&document, "ipv4-s2c-reorder-1", &format_pct(ipv4_metrics.s2c_reorder_rate[0]));
-    set_element_text(&document, "ipv4-s2c-reorder-10", &format_pct(ipv4_metrics.s2c_reorder_rate[1]));
-    set_element_text(&document, "ipv4-s2c-reorder-60", &format_pct(ipv4_metrics.s2c_reorder_rate[2]));
+    set_element_text(
+        &document,
+        "ipv4-s2c-tp-1",
+        &format_bytes(ipv4_metrics.s2c_throughput[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-tp-10",
+        &format_bytes(ipv4_metrics.s2c_throughput[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-tp-60",
+        &format_bytes(ipv4_metrics.s2c_throughput[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-delay-1",
+        &format_ms(ipv4_metrics.s2c_delay_avg[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-delay-10",
+        &format_ms(ipv4_metrics.s2c_delay_avg[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-delay-60",
+        &format_ms(ipv4_metrics.s2c_delay_avg[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-jitter-1",
+        &format_ms(ipv4_metrics.s2c_jitter[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-jitter-10",
+        &format_ms(ipv4_metrics.s2c_jitter[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-jitter-60",
+        &format_ms(ipv4_metrics.s2c_jitter[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-loss-1",
+        &format_pct(ipv4_metrics.s2c_loss_rate[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-loss-10",
+        &format_pct(ipv4_metrics.s2c_loss_rate[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-loss-60",
+        &format_pct(ipv4_metrics.s2c_loss_rate[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-reorder-1",
+        &format_pct(ipv4_metrics.s2c_reorder_rate[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-reorder-10",
+        &format_pct(ipv4_metrics.s2c_reorder_rate[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv4-s2c-reorder-60",
+        &format_pct(ipv4_metrics.s2c_reorder_rate[2]),
+    );
 
     // Update IPv6 metrics
-    set_element_text(&document, "ipv6-s2c-tp-1", &format_bytes(ipv6_metrics.s2c_throughput[0]));
-    set_element_text(&document, "ipv6-s2c-tp-10", &format_bytes(ipv6_metrics.s2c_throughput[1]));
-    set_element_text(&document, "ipv6-s2c-tp-60", &format_bytes(ipv6_metrics.s2c_throughput[2]));
-    set_element_text(&document, "ipv6-s2c-delay-1", &format_ms(ipv6_metrics.s2c_delay_avg[0]));
-    set_element_text(&document, "ipv6-s2c-delay-10", &format_ms(ipv6_metrics.s2c_delay_avg[1]));
-    set_element_text(&document, "ipv6-s2c-delay-60", &format_ms(ipv6_metrics.s2c_delay_avg[2]));
-    set_element_text(&document, "ipv6-s2c-jitter-1", &format_ms(ipv6_metrics.s2c_jitter[0]));
-    set_element_text(&document, "ipv6-s2c-jitter-10", &format_ms(ipv6_metrics.s2c_jitter[1]));
-    set_element_text(&document, "ipv6-s2c-jitter-60", &format_ms(ipv6_metrics.s2c_jitter[2]));
-    set_element_text(&document, "ipv6-s2c-loss-1", &format_pct(ipv6_metrics.s2c_loss_rate[0]));
-    set_element_text(&document, "ipv6-s2c-loss-10", &format_pct(ipv6_metrics.s2c_loss_rate[1]));
-    set_element_text(&document, "ipv6-s2c-loss-60", &format_pct(ipv6_metrics.s2c_loss_rate[2]));
-    set_element_text(&document, "ipv6-s2c-reorder-1", &format_pct(ipv6_metrics.s2c_reorder_rate[0]));
-    set_element_text(&document, "ipv6-s2c-reorder-10", &format_pct(ipv6_metrics.s2c_reorder_rate[1]));
-    set_element_text(&document, "ipv6-s2c-reorder-60", &format_pct(ipv6_metrics.s2c_reorder_rate[2]));
+    set_element_text(
+        &document,
+        "ipv6-s2c-tp-1",
+        &format_bytes(ipv6_metrics.s2c_throughput[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-tp-10",
+        &format_bytes(ipv6_metrics.s2c_throughput[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-tp-60",
+        &format_bytes(ipv6_metrics.s2c_throughput[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-delay-1",
+        &format_ms(ipv6_metrics.s2c_delay_avg[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-delay-10",
+        &format_ms(ipv6_metrics.s2c_delay_avg[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-delay-60",
+        &format_ms(ipv6_metrics.s2c_delay_avg[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-jitter-1",
+        &format_ms(ipv6_metrics.s2c_jitter[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-jitter-10",
+        &format_ms(ipv6_metrics.s2c_jitter[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-jitter-60",
+        &format_ms(ipv6_metrics.s2c_jitter[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-loss-1",
+        &format_pct(ipv6_metrics.s2c_loss_rate[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-loss-10",
+        &format_pct(ipv6_metrics.s2c_loss_rate[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-loss-60",
+        &format_pct(ipv6_metrics.s2c_loss_rate[2]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-reorder-1",
+        &format_pct(ipv6_metrics.s2c_reorder_rate[0]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-reorder-10",
+        &format_pct(ipv6_metrics.s2c_reorder_rate[1]),
+    );
+    set_element_text(
+        &document,
+        "ipv6-s2c-reorder-60",
+        &format_pct(ipv6_metrics.s2c_reorder_rate[2]),
+    );
 
     // Update chart with metrics data
     call_add_metrics_data(ipv4_metrics, ipv6_metrics);
 }
 
 /// Notify JavaScript of the current survey session ID for survey-specific PCAP downloads.
-/// 
+///
 /// # Parameters
 /// - `survey_session_id`: The unique survey session ID (UUID) for this test run
 fn notify_survey_session_id_js(survey_session_id: &str) {
-    use wasm_bindgen::JsValue;
     use wasm_bindgen::JsCast;
-    
+    use wasm_bindgen::JsValue;
+
     let window = match window() {
         Some(w) => w,
         None => return,
     };
-    
+
     // Call JavaScript function setSurveySessionId(sessionId)
     if let Ok(set_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("setSurveySessionId")) {
         if let Some(func) = set_fn.dyn_ref::<js_sys::Function>() {
             if let Err(e) = func.call1(&JsValue::NULL, &JsValue::from_str(survey_session_id)) {
                 log::warn!("Failed to call setSurveySessionId: {:?}", e);
             } else {
-                log::info!("Notified JavaScript of survey session ID: {}", survey_session_id);
+                log::info!(
+                    "Notified JavaScript of survey session ID: {}",
+                    survey_session_id
+                );
             }
         }
     }
 }
 
 /// Register a peer connection with JavaScript for display in the peer connections list.
-/// 
+///
 /// # Parameters
 /// - `ip_version`: The IP version of the connection ("ipv4" or "ipv6")
 /// - `conn_index`: The zero-based index of this connection within its IP version group
 /// - `conn_id`: The unique connection ID (UUID) that matches the conn_id in traceroute data
 /// - `local_address`: The local address string (IP:port or placeholder)
 /// - `remote_address`: The remote address string (IP:port or placeholder)
-fn register_peer_connection_js(ip_version: &str, conn_index: usize, conn_id: &str, local_address: &str, remote_address: &str) {
-    use wasm_bindgen::JsValue;
+fn register_peer_connection_js(
+    ip_version: &str,
+    conn_index: usize,
+    conn_id: &str,
+    local_address: &str,
+    remote_address: &str,
+) {
     use wasm_bindgen::JsCast;
-    
+    use wasm_bindgen::JsValue;
+
     let window = match window() {
         Some(w) => w,
         None => return,
     };
-    
+
     // Call JavaScript function registerPeerConnection(ipVersion, connIndex, connId, localAddress, remoteAddress)
-    if let Ok(register_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("registerPeerConnection")) {
+    if let Ok(register_fn) =
+        js_sys::Reflect::get(&window, &JsValue::from_str("registerPeerConnection"))
+    {
         if let Some(func) = register_fn.dyn_ref::<js_sys::Function>() {
             let args = js_sys::Array::new();
             args.push(&JsValue::from_str(ip_version));
@@ -1330,11 +1589,16 @@ fn register_peer_connection_js(ip_version: &str, conn_index: usize, conn_id: &st
             args.push(&JsValue::from_str(conn_id));
             args.push(&JsValue::from_str(local_address));
             args.push(&JsValue::from_str(remote_address));
-            
+
             if let Err(e) = func.apply(&JsValue::NULL, &args) {
                 log::warn!("Failed to call registerPeerConnection: {:?}", e);
             } else {
-                log::info!("Registered peer connection: {} {} conn_id={}", ip_version, conn_index, conn_id);
+                log::info!(
+                    "Registered peer connection: {} {} conn_id={}",
+                    ip_version,
+                    conn_index,
+                    conn_id
+                );
             }
         }
     }
@@ -1342,17 +1606,17 @@ fn register_peer_connection_js(ip_version: &str, conn_index: usize, conn_id: &st
 
 /// Update UI for a specific connection index
 fn update_ui_connection(ip_version: &str, conn_index: usize, metrics: &common::ClientMetrics) {
-    use wasm_bindgen::JsValue;
     use wasm_bindgen::JsCast;
-    
+    use wasm_bindgen::JsValue;
+
     let window = match window() {
         Some(w) => w,
         None => return,
     };
-    
+
     // Convert metrics to JS object
     let metrics_obj = js_sys::Object::new();
-    
+
     // Helper function to set array property
     let set_array_prop = |obj: &js_sys::Object, key: &str, values: &[f64]| {
         let arr = js_sys::Array::new();
@@ -1361,21 +1625,23 @@ fn update_ui_connection(ip_version: &str, conn_index: usize, metrics: &common::C
         }
         let _ = js_sys::Reflect::set(obj, &JsValue::from_str(key), &arr);
     };
-    
+
     set_array_prop(&metrics_obj, "s2c_throughput", &metrics.s2c_throughput);
     set_array_prop(&metrics_obj, "s2c_delay_avg", &metrics.s2c_delay_avg);
     set_array_prop(&metrics_obj, "s2c_jitter", &metrics.s2c_jitter);
     set_array_prop(&metrics_obj, "s2c_loss_rate", &metrics.s2c_loss_rate);
     set_array_prop(&metrics_obj, "s2c_reorder_rate", &metrics.s2c_reorder_rate);
-    
+
     // Call JavaScript function updateConnectionMetrics(ipVersion, connIndex, metrics)
-    if let Ok(update_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("updateConnectionMetrics")) {
+    if let Ok(update_fn) =
+        js_sys::Reflect::get(&window, &JsValue::from_str("updateConnectionMetrics"))
+    {
         if let Some(func) = update_fn.dyn_ref::<js_sys::Function>() {
             if let Err(e) = func.call3(
-                &JsValue::NULL, 
-                &JsValue::from_str(ip_version), 
-                &JsValue::from_f64(conn_index as f64), 
-                &metrics_obj
+                &JsValue::NULL,
+                &JsValue::from_str(ip_version),
+                &JsValue::from_f64(conn_index as f64),
+                &metrics_obj,
             ) {
                 log::warn!("Failed to call updateConnectionMetrics: {:?}", e);
             }
@@ -1383,10 +1649,13 @@ fn update_ui_connection(ip_version: &str, conn_index: usize, metrics: &common::C
     }
 }
 
-fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &common::ClientMetrics) {
-    use wasm_bindgen::JsValue;
+fn call_add_metrics_data(
+    ipv4_metrics: &common::ClientMetrics,
+    ipv6_metrics: &common::ClientMetrics,
+) {
     use wasm_bindgen::JsCast;
-    
+    use wasm_bindgen::JsValue;
+
     // Check if chart data collection should begin (after the delay period)
     let should_collect = CHART_COLLECTION_START_MS.with(|start| {
         match *start.borrow() {
@@ -1394,11 +1663,11 @@ fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &co
             None => true, // If no start time is set, allow collection (e.g., for start_measurement)
         }
     });
-    
+
     if !should_collect {
         return;
     }
-    
+
     let window = match window() {
         Some(w) => w,
         None => return,
@@ -1422,17 +1691,26 @@ fn call_add_metrics_data(ipv4_metrics: &common::ClientMetrics, ipv6_metrics: &co
     set_array_prop(&ipv4_obj, "s2c_delay_avg", &ipv4_metrics.s2c_delay_avg);
     set_array_prop(&ipv4_obj, "s2c_jitter", &ipv4_metrics.s2c_jitter);
     set_array_prop(&ipv4_obj, "s2c_loss_rate", &ipv4_metrics.s2c_loss_rate);
-    set_array_prop(&ipv4_obj, "s2c_reorder_rate", &ipv4_metrics.s2c_reorder_rate);
+    set_array_prop(
+        &ipv4_obj,
+        "s2c_reorder_rate",
+        &ipv4_metrics.s2c_reorder_rate,
+    );
 
     // Set IPv6 metrics
     set_array_prop(&ipv6_obj, "s2c_throughput", &ipv6_metrics.s2c_throughput);
     set_array_prop(&ipv6_obj, "s2c_delay_avg", &ipv6_metrics.s2c_delay_avg);
     set_array_prop(&ipv6_obj, "s2c_jitter", &ipv6_metrics.s2c_jitter);
     set_array_prop(&ipv6_obj, "s2c_loss_rate", &ipv6_metrics.s2c_loss_rate);
-    set_array_prop(&ipv6_obj, "s2c_reorder_rate", &ipv6_metrics.s2c_reorder_rate);
+    set_array_prop(
+        &ipv6_obj,
+        "s2c_reorder_rate",
+        &ipv6_metrics.s2c_reorder_rate,
+    );
 
     // Call JavaScript function
-    if let Ok(add_metrics_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addMetricsData")) {
+    if let Ok(add_metrics_fn) = js_sys::Reflect::get(&window, &JsValue::from_str("addMetricsData"))
+    {
         if let Some(func) = add_metrics_fn.dyn_ref::<js_sys::Function>() {
             if let Err(e) = func.call2(&JsValue::NULL, &ipv4_obj, &ipv6_obj) {
                 log::warn!("Failed to call addMetricsData: {:?}", e);
@@ -1493,31 +1771,87 @@ fn update_ui(metrics: &common::ClientMetrics) {
 
     // C2S metrics (client sends, server measures - we don't have direct access)
     // For now, show as "N/A" or leave empty since C2S is measured on server side
-    
+
     // S2C Throughput
-    set_element_text(&document, "s2c-tp-1", &format_bytes(metrics.s2c_throughput[0]));
-    set_element_text(&document, "s2c-tp-10", &format_bytes(metrics.s2c_throughput[1]));
-    set_element_text(&document, "s2c-tp-60", &format_bytes(metrics.s2c_throughput[2]));
+    set_element_text(
+        &document,
+        "s2c-tp-1",
+        &format_bytes(metrics.s2c_throughput[0]),
+    );
+    set_element_text(
+        &document,
+        "s2c-tp-10",
+        &format_bytes(metrics.s2c_throughput[1]),
+    );
+    set_element_text(
+        &document,
+        "s2c-tp-60",
+        &format_bytes(metrics.s2c_throughput[2]),
+    );
 
     // S2C Delay
-    set_element_text(&document, "s2c-delay-1", &format_ms(metrics.s2c_delay_avg[0]));
-    set_element_text(&document, "s2c-delay-10", &format_ms(metrics.s2c_delay_avg[1]));
-    set_element_text(&document, "s2c-delay-60", &format_ms(metrics.s2c_delay_avg[2]));
+    set_element_text(
+        &document,
+        "s2c-delay-1",
+        &format_ms(metrics.s2c_delay_avg[0]),
+    );
+    set_element_text(
+        &document,
+        "s2c-delay-10",
+        &format_ms(metrics.s2c_delay_avg[1]),
+    );
+    set_element_text(
+        &document,
+        "s2c-delay-60",
+        &format_ms(metrics.s2c_delay_avg[2]),
+    );
 
     // S2C Jitter
     set_element_text(&document, "s2c-jitter-1", &format_ms(metrics.s2c_jitter[0]));
-    set_element_text(&document, "s2c-jitter-10", &format_ms(metrics.s2c_jitter[1]));
-    set_element_text(&document, "s2c-jitter-60", &format_ms(metrics.s2c_jitter[2]));
+    set_element_text(
+        &document,
+        "s2c-jitter-10",
+        &format_ms(metrics.s2c_jitter[1]),
+    );
+    set_element_text(
+        &document,
+        "s2c-jitter-60",
+        &format_ms(metrics.s2c_jitter[2]),
+    );
 
     // S2C Loss Rate
-    set_element_text(&document, "s2c-loss-1", &format_pct(metrics.s2c_loss_rate[0]));
-    set_element_text(&document, "s2c-loss-10", &format_pct(metrics.s2c_loss_rate[1]));
-    set_element_text(&document, "s2c-loss-60", &format_pct(metrics.s2c_loss_rate[2]));
+    set_element_text(
+        &document,
+        "s2c-loss-1",
+        &format_pct(metrics.s2c_loss_rate[0]),
+    );
+    set_element_text(
+        &document,
+        "s2c-loss-10",
+        &format_pct(metrics.s2c_loss_rate[1]),
+    );
+    set_element_text(
+        &document,
+        "s2c-loss-60",
+        &format_pct(metrics.s2c_loss_rate[2]),
+    );
 
-    // S2C Reorder Rate  
-    set_element_text(&document, "s2c-reorder-1", &format_pct(metrics.s2c_reorder_rate[0]));
-    set_element_text(&document, "s2c-reorder-10", &format_pct(metrics.s2c_reorder_rate[1]));
-    set_element_text(&document, "s2c-reorder-60", &format_pct(metrics.s2c_reorder_rate[2]));
+    // S2C Reorder Rate
+    set_element_text(
+        &document,
+        "s2c-reorder-1",
+        &format_pct(metrics.s2c_reorder_rate[0]),
+    );
+    set_element_text(
+        &document,
+        "s2c-reorder-10",
+        &format_pct(metrics.s2c_reorder_rate[1]),
+    );
+    set_element_text(
+        &document,
+        "s2c-reorder-60",
+        &format_pct(metrics.s2c_reorder_rate[2]),
+    );
 
     // Also try the original IDs for backward compatibility
     set_element_text(&document, "c2s-tp-1", "N/A");

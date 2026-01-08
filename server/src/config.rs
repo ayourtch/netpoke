@@ -216,7 +216,10 @@ impl Config {
 
     pub fn load_or_default() -> Self {
         Self::load().unwrap_or_else(|e| {
-            eprintln!("Warning: Failed to load config file: {}. Using defaults.", e);
+            eprintln!(
+                "Warning: Failed to load config file: {}. Using defaults.",
+                e
+            );
             Self::default()
         })
     }

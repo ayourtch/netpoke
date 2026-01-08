@@ -59,9 +59,11 @@ pub struct AuthState {
 
 impl AuthState {
     pub fn new(auth_service: Arc<AuthService>) -> Self {
-        Self { inner: auth_service }
+        Self {
+            inner: auth_service,
+        }
     }
-    
+
     /// Get the inner Arc<AuthService>
     pub fn into_inner(self) -> Arc<AuthService> {
         self.inner
@@ -70,7 +72,7 @@ impl AuthState {
 
 impl Deref for AuthState {
     type Target = AuthService;
-    
+
     fn deref(&self) -> &Self::Target {
         &self.inner
     }

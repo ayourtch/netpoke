@@ -6,25 +6,25 @@ pub struct AuthConfig {
     /// Enable authentication globally
     #[serde(default)]
     pub enable_auth: bool,
-    
+
     /// OAuth2 providers configuration
     #[serde(default)]
     pub oauth: OAuthConfig,
-    
+
     /// Future: Plain login configuration
     #[serde(default)]
     pub plain_login: PlainLoginConfig,
-    
+
     /// Session configuration
     #[serde(default)]
     pub session: SessionConfig,
-    
+
     /// Access control - list of allowed user handles/emails
     /// If empty, all authenticated users are allowed
     /// If not empty, only users in this list can access the application
     #[serde(default)]
     pub allowed_users: Vec<String>,
-    
+
     /// Magic Key configuration for surveyors
     #[serde(default)]
     pub magic_keys: MagicKeyConfig,
@@ -35,35 +35,35 @@ pub struct OAuthConfig {
     /// Enable Bluesky OAuth
     #[serde(default)]
     pub enable_bluesky: bool,
-    
+
     /// Enable GitHub OAuth
     #[serde(default)]
     pub enable_github: bool,
-    
+
     /// Enable Google OAuth
     #[serde(default)]
     pub enable_google: bool,
-    
+
     /// Enable LinkedIn OAuth
     #[serde(default)]
     pub enable_linkedin: bool,
-    
+
     /// Bluesky client ID (URL to client-metadata.json)
     pub bluesky_client_id: Option<String>,
-    
+
     /// Bluesky redirect URL
     pub bluesky_redirect_url: Option<String>,
-    
+
     /// GitHub OAuth credentials
     pub github_client_id: Option<String>,
     pub github_client_secret: Option<String>,
     pub github_redirect_url: Option<String>,
-    
+
     /// Google OAuth credentials
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
     pub google_redirect_url: Option<String>,
-    
+
     /// LinkedIn OAuth credentials
     pub linkedin_client_id: Option<String>,
     pub linkedin_client_secret: Option<String>,
@@ -75,7 +75,7 @@ pub struct PlainLoginConfig {
     /// Enable plain login (username/password)
     #[serde(default)]
     pub enabled: bool,
-    
+
     /// List of allowed users with passwords
     #[serde(default)]
     pub users: Vec<UserCredentials>,
@@ -86,11 +86,11 @@ pub struct PlainLoginConfig {
 pub struct UserCredentials {
     /// Username
     pub username: String,
-    
+
     /// Password (plain text in config, hashed in memory)
     /// In production, use bcrypt or argon2 hashed passwords
     pub password: String,
-    
+
     /// Optional display name
     #[serde(default)]
     pub display_name: Option<String>,
@@ -101,15 +101,15 @@ pub struct SessionConfig {
     /// Session cookie name
     #[serde(default = "default_session_cookie_name")]
     pub cookie_name: String,
-    
+
     /// Session timeout in seconds (default: 24 hours)
     #[serde(default = "default_session_timeout")]
     pub timeout_seconds: u64,
-    
+
     /// Secure cookie (HTTPS only)
     #[serde(default)]
     pub secure: bool,
-    
+
     /// Cookie secret for encrypting session data (base64 encoded, 64 bytes)
     /// If not provided, a random secret is generated on startup
     /// WARNING: If not set, sessions will not persist across server restarts
@@ -122,15 +122,15 @@ pub struct MagicKeyConfig {
     /// Enable Magic Key authentication
     #[serde(default)]
     pub enabled: bool,
-    
+
     /// List of valid Magic Keys
     #[serde(default)]
     pub magic_keys: Vec<String>,
-    
+
     /// Survey session cookie name
     #[serde(default = "default_survey_cookie_name")]
     pub survey_cookie_name: String,
-    
+
     /// Survey session timeout in seconds (default: 8 hours)
     #[serde(default = "default_survey_timeout")]
     pub survey_timeout_seconds: u64,

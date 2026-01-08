@@ -26,7 +26,7 @@ const POST_TEST_DELAY_MS: u64 = 100;
 const UDP_CONNECT_REPLY: u32 = 0x36373839;
 
 /// Normalize an IP address by converting IPv4-mapped IPv6 addresses to IPv4.
-/// 
+///
 /// When an iperf3 server listens on :: (IPv6 any address), IPv4 connections
 /// appear as IPv4-mapped IPv6 addresses (e.g., ::ffff:192.0.2.1). This function
 /// converts them back to IPv4 addresses for consistent auth checks.
@@ -99,7 +99,7 @@ impl Iperf3Server {
     pub async fn is_ip_allowed(&self, ip: IpAddr) -> bool {
         // Normalize the IP address (convert IPv4-mapped IPv6 to IPv4)
         let normalized_ip = normalize_ip(ip);
-        
+
         // If auth is not required, allow all
         if !self.config.require_auth {
             return true;
@@ -137,8 +137,12 @@ impl Iperf3Server {
         }
 
         // Parse the host address first to determine if it's IPv4 or IPv6
-        let ip_addr: IpAddr = self.config.host.parse()
-            .map_err(|e| Iperf3Error::InvalidParameter(format!("Invalid host address {}: {}", self.config.host, e)))?;
+        let ip_addr: IpAddr = self.config.host.parse().map_err(|e| {
+            Iperf3Error::InvalidParameter(format!(
+                "Invalid host address {}: {}",
+                self.config.host, e
+            ))
+        })?;
         let addr = SocketAddr::new(ip_addr, self.config.port);
 
         let listener = TcpListener::bind(&addr).await?;
@@ -236,10 +240,7 @@ impl Iperf3Server {
             let sessions_read = sessions.read().await;
             if let Some(session) = sessions_read.get(&cookie) {
                 // This is a data stream connection
-                tracing::debug!(
-                    "iperf3: Data stream connection for session {}",
-                    cookie
-                );
+                tracing::debug!("iperf3: Data stream connection for session {}", cookie);
                 session.add_data_stream(stream).await;
                 return Ok(());
             }
@@ -337,8 +338,14 @@ impl Iperf3Server {
         if is_udp {
             // For UDP, we need to create a UDP listener and accept connections
             // Pass the client address to determine the correct address family (IPv4 vs IPv6)
-            Self::accept_udp_streams(session.clone(), expected_streams, server_port, timeout, session.client_addr)
-                .await?;
+            Self::accept_udp_streams(
+                session.clone(),
+                expected_streams,
+                server_port,
+                timeout,
+                session.client_addr,
+            )
+            .await?;
         } else {
             // For TCP, wait for data streams to connect (handled by main accept loop)
             while session.stream_count().await < expected_streams {
@@ -468,9 +475,15 @@ impl Iperf3Server {
             // Note: For multiple parallel streams, we would need SO_REUSEPORT or different ports.
             // Currently, parallel UDP streams > 1 may not work correctly.
             let bind_addr: SocketAddr = if client_addr.is_ipv6() {
-                SocketAddr::new(std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED), server_port)
+                SocketAddr::new(
+                    std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED),
+                    server_port,
+                )
             } else {
-                SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED), server_port)
+                SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                    server_port,
+                )
             };
             let socket = UdpSocket::bind(bind_addr).await.map_err(|e| {
                 Iperf3Error::Protocol(format!("Failed to bind UDP socket to {}: {}", bind_addr, e))
@@ -481,26 +494,22 @@ impl Iperf3Server {
             // Wait for a datagram from the client
             let mut buf = [0u8; 4];
             let remaining_timeout = timeout.saturating_sub(start.elapsed());
-            let (_, client_addr) = match tokio::time::timeout(
-                remaining_timeout,
-                socket.recv_from(&mut buf),
-            )
-            .await
-            {
-                Ok(Ok((n, addr))) => (n, addr),
-                Ok(Err(e)) => {
-                    return Err(Iperf3Error::Protocol(format!(
-                        "Failed to receive UDP datagram: {}",
-                        e
-                    )));
-                }
-                Err(_) => {
-                    return Err(Iperf3Error::Protocol(format!(
-                        "Timeout waiting for UDP stream {}",
-                        stream_num + 1
-                    )));
-                }
-            };
+            let (_, client_addr) =
+                match tokio::time::timeout(remaining_timeout, socket.recv_from(&mut buf)).await {
+                    Ok(Ok((n, addr))) => (n, addr),
+                    Ok(Err(e)) => {
+                        return Err(Iperf3Error::Protocol(format!(
+                            "Failed to receive UDP datagram: {}",
+                            e
+                        )));
+                    }
+                    Err(_) => {
+                        return Err(Iperf3Error::Protocol(format!(
+                            "Timeout waiting for UDP stream {}",
+                            stream_num + 1
+                        )));
+                    }
+                };
 
             tracing::debug!(
                 "iperf3: Received UDP datagram from {}, connecting",
@@ -514,9 +523,10 @@ impl Iperf3Server {
 
             // Send reply to confirm connection
             let reply = UDP_CONNECT_REPLY.to_be_bytes();
-            socket.send(&reply).await.map_err(|e| {
-                Iperf3Error::Protocol(format!("Failed to send UDP reply: {}", e))
-            })?;
+            socket
+                .send(&reply)
+                .await
+                .map_err(|e| Iperf3Error::Protocol(format!("Failed to send UDP reply: {}", e)))?;
 
             tracing::debug!(
                 "iperf3: UDP stream {} connected to {}",

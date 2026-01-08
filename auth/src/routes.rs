@@ -3,15 +3,15 @@ use axum::{
     http::{header, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Router, Form,
+    Form, Router,
 };
 use axum_extra::extract::cookie::{Cookie, PrivateCookieJar};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use crate::AuthState;
 use crate::session::SessionData;
 use crate::views::login_page_html;
+use crate::AuthState;
 
 /// Cookie name for storing OAuth temp state ID during OAuth flow
 const OAUTH_STATE_COOKIE: &str = "oauth_state_id";
@@ -64,12 +64,14 @@ async fn login_page(State(auth_state): State<AuthState>) -> Html<String> {
 }
 
 /// Helper to create session cookie
-fn create_session_cookie(auth_state: &AuthState, session_data: &SessionData) -> Result<Cookie<'static>, StatusCode> {
-    let session_json = serde_json::to_string(session_data)
-        .map_err(|e| {
-            tracing::error!("Failed to serialize session data: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+fn create_session_cookie(
+    auth_state: &AuthState,
+    session_data: &SessionData,
+) -> Result<Cookie<'static>, StatusCode> {
+    let session_json = serde_json::to_string(session_data).map_err(|e| {
+        tracing::error!("Failed to serialize session data: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     let cookie_name = auth_state.config.session.cookie_name.clone();
     let mut cookie = Cookie::new(cookie_name, session_json);
     cookie.set_path("/");
@@ -79,7 +81,9 @@ fn create_session_cookie(auth_state: &AuthState, session_data: &SessionData) -> 
         cookie.set_secure(true);
     }
     // Set max age based on session timeout
-    cookie.set_max_age(time::Duration::seconds(auth_state.config.session.timeout_seconds as i64));
+    cookie.set_max_age(time::Duration::seconds(
+        auth_state.config.session.timeout_seconds as i64,
+    ));
     Ok(cookie)
 }
 
@@ -103,7 +107,7 @@ async fn plain_login(
     Form(form): Form<PlainLoginForm>,
 ) -> Result<(PrivateCookieJar, Response), StatusCode> {
     tracing::info!("Plain login request for username: {}", form.username);
-    
+
     let session_data = auth_state
         .authenticate_plain_login(&form.username, &form.password)
         .await
@@ -111,10 +115,10 @@ async fn plain_login(
             tracing::error!("Plain login failed: {}", e);
             StatusCode::UNAUTHORIZED
         })?;
-    
+
     let cookie = create_session_cookie(&auth_state, &session_data)?;
     let updated_jar = jar.add(cookie);
-    
+
     Ok((
         updated_jar,
         (StatusCode::FOUND, [(header::LOCATION, "/".to_string())]).into_response(),
@@ -127,34 +131,38 @@ async fn bluesky_login(
     Form(form): Form<HandleForm>,
 ) -> Result<(PrivateCookieJar, Response), StatusCode> {
     tracing::info!("Bluesky login request for handle: {}", form.handle);
-    
-    let (auth_url, temp_state) = auth_state
-        .start_bluesky_auth(&form.handle)
-        .await
-        .map_err(|e| {
-            tracing::error!("Bluesky auth start failed: {}", e);
-            StatusCode::from(e)
-        })?;
-    
+
+    let (auth_url, temp_state) =
+        auth_state
+            .start_bluesky_auth(&form.handle)
+            .await
+            .map_err(|e| {
+                tracing::error!("Bluesky auth start failed: {}", e);
+                StatusCode::from(e)
+            })?;
+
     // Store temp state in memory with a unique ID
     let state_id = Uuid::new_v4().to_string();
-    auth_state.store_oauth_temp_state(state_id.clone(), temp_state).await;
-    
+    auth_state
+        .store_oauth_temp_state(state_id.clone(), temp_state)
+        .await;
+
     // Store state ID in cookie for callback
     let state_cookie = create_oauth_state_cookie(&state_id, auth_state.config.session.secure);
     let updated_jar = jar.add(state_cookie);
-    
+
     let response = serde_json::json!({
         "auth_url": auth_url
     });
-    
+
     Ok((
         updated_jar,
         (
             StatusCode::OK,
             [(header::CONTENT_TYPE, "application/json".to_string())],
             serde_json::to_string(&response).unwrap(),
-        ).into_response(),
+        )
+            .into_response(),
     ))
 }
 
@@ -164,23 +172,30 @@ async fn bluesky_callback(
     Query(query): Query<AuthCallback>,
 ) -> Result<(PrivateCookieJar, Response), StatusCode> {
     if let Some(error) = &query.error {
-        let error_msg = query.error_description.as_deref().unwrap_or("Unknown error");
+        let error_msg = query
+            .error_description
+            .as_deref()
+            .unwrap_or("Unknown error");
         tracing::error!("Bluesky OAuth error: {} - {}", error, error_msg);
-        return Ok((jar, Redirect::to("/auth/login?error=bluesky_auth_failed").into_response()));
+        return Ok((
+            jar,
+            Redirect::to("/auth/login?error=bluesky_auth_failed").into_response(),
+        ));
     }
-    
+
     let code = query.code.as_ref().ok_or(StatusCode::BAD_REQUEST)?;
-    
+
     // Get OAuth state ID from cookie
-    let state_id = jar.get(OAUTH_STATE_COOKIE)
+    let state_id = jar
+        .get(OAUTH_STATE_COOKIE)
         .map(|c| c.value().to_string())
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let temp_state = auth_state
         .get_oauth_temp_state(&state_id)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let session_data = auth_state
         .complete_bluesky_auth(code, &temp_state)
         .await
@@ -188,14 +203,16 @@ async fn bluesky_callback(
             tracing::error!("Bluesky auth completion failed: {}", e);
             StatusCode::from(e)
         })?;
-    
+
     // Clean up temp state
     auth_state.remove_oauth_temp_state(&state_id).await;
-    
+
     // Store session in private cookie
     let session_cookie = create_session_cookie(&auth_state, &session_data)?;
-    let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
-    
+    let updated_jar = jar
+        .remove(Cookie::from(OAUTH_STATE_COOKIE))
+        .add(session_cookie);
+
     Ok((updated_jar, Redirect::to("/").into_response()))
 }
 
@@ -207,15 +224,17 @@ async fn github_login(
         .start_github_auth()
         .await
         .map_err(|e| StatusCode::from(e))?;
-    
+
     // Store temp state in memory with a unique ID
     let state_id = Uuid::new_v4().to_string();
-    auth_state.store_oauth_temp_state(state_id.clone(), temp_state).await;
-    
+    auth_state
+        .store_oauth_temp_state(state_id.clone(), temp_state)
+        .await;
+
     // Store state ID in cookie for callback
     let state_cookie = create_oauth_state_cookie(&state_id, auth_state.config.session.secure);
     let updated_jar = jar.add(state_cookie);
-    
+
     Ok((
         updated_jar,
         (StatusCode::FOUND, [(header::LOCATION, auth_url)]).into_response(),
@@ -229,33 +248,39 @@ async fn github_callback(
 ) -> Result<(PrivateCookieJar, Response), StatusCode> {
     if let Some(error) = &query.error {
         tracing::error!("GitHub OAuth error: {}", error);
-        return Ok((jar, Redirect::to("/auth/login?error=github_auth_failed").into_response()));
+        return Ok((
+            jar,
+            Redirect::to("/auth/login?error=github_auth_failed").into_response(),
+        ));
     }
-    
+
     let code = query.code.as_ref().ok_or(StatusCode::BAD_REQUEST)?;
-    
+
     // Get OAuth state ID from cookie
-    let state_id = jar.get(OAUTH_STATE_COOKIE)
+    let state_id = jar
+        .get(OAUTH_STATE_COOKIE)
         .map(|c| c.value().to_string())
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let temp_state = auth_state
         .get_oauth_temp_state(&state_id)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let session_data = auth_state
         .complete_github_auth(code, &temp_state)
         .await
         .map_err(|e| StatusCode::from(e))?;
-    
+
     // Clean up temp state
     auth_state.remove_oauth_temp_state(&state_id).await;
-    
+
     // Store session in private cookie
     let session_cookie = create_session_cookie(&auth_state, &session_data)?;
-    let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
-    
+    let updated_jar = jar
+        .remove(Cookie::from(OAUTH_STATE_COOKIE))
+        .add(session_cookie);
+
     Ok((updated_jar, Redirect::to("/").into_response()))
 }
 
@@ -267,15 +292,17 @@ async fn google_login(
         .start_google_auth()
         .await
         .map_err(|e| StatusCode::from(e))?;
-    
+
     // Store temp state in memory with a unique ID
     let state_id = Uuid::new_v4().to_string();
-    auth_state.store_oauth_temp_state(state_id.clone(), temp_state).await;
-    
+    auth_state
+        .store_oauth_temp_state(state_id.clone(), temp_state)
+        .await;
+
     // Store state ID in cookie for callback
     let state_cookie = create_oauth_state_cookie(&state_id, auth_state.config.session.secure);
     let updated_jar = jar.add(state_cookie);
-    
+
     Ok((
         updated_jar,
         (StatusCode::FOUND, [(header::LOCATION, auth_url)]).into_response(),
@@ -289,33 +316,39 @@ async fn google_callback(
 ) -> Result<(PrivateCookieJar, Response), StatusCode> {
     if let Some(error) = &query.error {
         tracing::error!("Google OAuth error: {}", error);
-        return Ok((jar, Redirect::to("/auth/login?error=google_auth_failed").into_response()));
+        return Ok((
+            jar,
+            Redirect::to("/auth/login?error=google_auth_failed").into_response(),
+        ));
     }
-    
+
     let code = query.code.as_ref().ok_or(StatusCode::BAD_REQUEST)?;
-    
+
     // Get OAuth state ID from cookie
-    let state_id = jar.get(OAUTH_STATE_COOKIE)
+    let state_id = jar
+        .get(OAUTH_STATE_COOKIE)
         .map(|c| c.value().to_string())
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let temp_state = auth_state
         .get_oauth_temp_state(&state_id)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let session_data = auth_state
         .complete_google_auth(code, &temp_state)
         .await
         .map_err(|e| StatusCode::from(e))?;
-    
+
     // Clean up temp state
     auth_state.remove_oauth_temp_state(&state_id).await;
-    
+
     // Store session in private cookie
     let session_cookie = create_session_cookie(&auth_state, &session_data)?;
-    let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
-    
+    let updated_jar = jar
+        .remove(Cookie::from(OAUTH_STATE_COOKIE))
+        .add(session_cookie);
+
     Ok((updated_jar, Redirect::to("/").into_response()))
 }
 
@@ -327,15 +360,17 @@ async fn linkedin_login(
         .start_linkedin_auth()
         .await
         .map_err(|e| StatusCode::from(e))?;
-    
+
     // Store temp state in memory with a unique ID
     let state_id = Uuid::new_v4().to_string();
-    auth_state.store_oauth_temp_state(state_id.clone(), temp_state).await;
-    
+    auth_state
+        .store_oauth_temp_state(state_id.clone(), temp_state)
+        .await;
+
     // Store state ID in cookie for callback
     let state_cookie = create_oauth_state_cookie(&state_id, auth_state.config.session.secure);
     let updated_jar = jar.add(state_cookie);
-    
+
     Ok((
         updated_jar,
         (StatusCode::FOUND, [(header::LOCATION, auth_url)]).into_response(),
@@ -349,33 +384,39 @@ async fn linkedin_callback(
 ) -> Result<(PrivateCookieJar, Response), StatusCode> {
     if let Some(error) = &query.error {
         tracing::error!("LinkedIn OAuth error: {}", error);
-        return Ok((jar, Redirect::to("/auth/login?error=linkedin_auth_failed").into_response()));
+        return Ok((
+            jar,
+            Redirect::to("/auth/login?error=linkedin_auth_failed").into_response(),
+        ));
     }
-    
+
     let code = query.code.as_ref().ok_or(StatusCode::BAD_REQUEST)?;
-    
+
     // Get OAuth state ID from cookie
-    let state_id = jar.get(OAUTH_STATE_COOKIE)
+    let state_id = jar
+        .get(OAUTH_STATE_COOKIE)
         .map(|c| c.value().to_string())
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let temp_state = auth_state
         .get_oauth_temp_state(&state_id)
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    
+
     let session_data = auth_state
         .complete_linkedin_auth(code, &temp_state)
         .await
         .map_err(|e| StatusCode::from(e))?;
-    
+
     // Clean up temp state
     auth_state.remove_oauth_temp_state(&state_id).await;
-    
+
     // Store session in private cookie
     let session_cookie = create_session_cookie(&auth_state, &session_data)?;
-    let updated_jar = jar.remove(Cookie::from(OAUTH_STATE_COOKIE)).add(session_cookie);
-    
+    let updated_jar = jar
+        .remove(Cookie::from(OAUTH_STATE_COOKIE))
+        .add(session_cookie);
+
     Ok((updated_jar, Redirect::to("/").into_response()))
 }
 
@@ -386,9 +427,13 @@ async fn logout(
     // Remove session cookie
     let cookie_name = auth_state.config.session.cookie_name.clone();
     let updated_jar = jar.remove(Cookie::from(cookie_name));
-    
+
     Ok((
         updated_jar,
-        (StatusCode::FOUND, [(header::LOCATION, "/auth/login".to_string())]).into_response(),
+        (
+            StatusCode::FOUND,
+            [(header::LOCATION, "/auth/login".to_string())],
+        )
+            .into_response(),
     ))
 }

@@ -2,7 +2,6 @@
 ///
 /// This endpoint exposes configuration settings that the WASM client
 /// needs to know about, such as the delay between WebRTC connection attempts.
-
 use axum::{extract::State, Json};
 use serde::Serialize;
 use std::sync::Arc;

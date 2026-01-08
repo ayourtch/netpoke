@@ -1,21 +1,19 @@
 use axum::{
-    extract::{Request, State, FromRequestParts},
+    extract::{FromRequestParts, Request, State},
     http::StatusCode,
     middleware::Next,
     response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::PrivateCookieJar;
 
-use crate::AuthState;
 use crate::session::SessionData;
 use crate::views::access_denied_page_html;
+use crate::AuthState;
 
 /// Extract session data from PrivateCookieJar
 fn extract_session_from_jar(jar: &PrivateCookieJar, cookie_name: &str) -> Option<SessionData> {
     jar.get(cookie_name)
-        .and_then(|cookie| {
-            serde_json::from_str(cookie.value()).ok()
-        })
+        .and_then(|cookie| serde_json::from_str(cookie.value()).ok())
 }
 
 /// Middleware to require authentication
@@ -28,7 +26,7 @@ pub async fn require_auth(
     if !auth_state.is_enabled() {
         return next.run(request).await;
     }
-    
+
     // Extract PrivateCookieJar from request
     let (mut parts, body) = request.into_parts();
     let jar = match PrivateCookieJar::from_request_parts(&mut parts, &auth_state).await {
@@ -37,9 +35,11 @@ pub async fn require_auth(
             return Redirect::to("/auth/login").into_response();
         }
     };
-    
+
     // Try to extract session from private cookie
-    if let Some(session_data) = extract_session_from_jar(&jar, &auth_state.config.session.cookie_name) {
+    if let Some(session_data) =
+        extract_session_from_jar(&jar, &auth_state.config.session.cookie_name)
+    {
         // Validate session (check expiration)
         if auth_state.validate_session(&session_data).is_ok() {
             // Check if user is in allowed list
@@ -48,14 +48,14 @@ pub async fn require_auth(
                 let html = access_denied_page_html(&session_data.handle);
                 return (StatusCode::FORBIDDEN, Html(html)).into_response();
             }
-            
+
             // Session is valid and user is allowed, continue
             let mut request = Request::from_parts(parts, body);
             request.extensions_mut().insert(session_data);
             return next.run(request).await;
         }
     }
-    
+
     // No valid session, redirect to login
     Redirect::to("/auth/login").into_response()
 }
@@ -70,7 +70,7 @@ pub async fn optional_auth(
     if !auth_state.is_enabled() {
         return next.run(request).await;
     }
-    
+
     // Extract PrivateCookieJar from request
     let (mut parts, body) = request.into_parts();
     let jar = match PrivateCookieJar::from_request_parts(&mut parts, &auth_state).await {
@@ -80,16 +80,18 @@ pub async fn optional_auth(
             return next.run(request).await;
         }
     };
-    
+
     // Try to extract session from private cookie
     let mut request = Request::from_parts(parts, body);
-    if let Some(session_data) = extract_session_from_jar(&jar, &auth_state.config.session.cookie_name) {
+    if let Some(session_data) =
+        extract_session_from_jar(&jar, &auth_state.config.session.cookie_name)
+    {
         // Validate session (check expiration)
         if auth_state.validate_session(&session_data).is_ok() {
             // Store session data in request extensions for handlers to use
             request.extensions_mut().insert(session_data);
         }
     }
-    
+
     next.run(request).await
 }

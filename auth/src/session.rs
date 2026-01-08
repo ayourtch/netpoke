@@ -15,20 +15,20 @@ pub enum AuthProvider {
 pub struct SessionData {
     /// Authentication provider used
     pub auth_provider: AuthProvider,
-    
+
     /// User's unique identifier (DID for Bluesky, provider-specific ID for others)
     pub user_id: String,
-    
+
     /// User's handle/username
     pub handle: String,
-    
+
     /// Display name
     pub display_name: Option<String>,
-    
+
     /// User's groups (for authorization)
     #[serde(default)]
     pub groups: Vec<String>,
-    
+
     /// Session creation timestamp (Unix timestamp)
     pub created_at: u64,
 }
@@ -42,22 +42,22 @@ pub struct SessionData {
 pub struct OAuthTempState {
     /// Authentication provider used
     pub auth_provider: AuthProvider,
-    
+
     /// User's handle/username (for Bluesky)
     pub handle: Option<String>,
-    
+
     /// User's DID (for Bluesky - resolved from handle)
     pub user_did: Option<String>,
-    
+
     /// PKCE verifier (temporary, cleared after token exchange)
     pub pkce_verifier: Option<String>,
-    
+
     /// OAuth endpoints (for Bluesky dynamic discovery)
     pub oauth_endpoints: Option<OAuthEndpoints>,
-    
+
     /// DPoP private key (for Bluesky)
     pub dpop_private_key: Option<String>,
-    
+
     /// State creation timestamp (Unix timestamp)
     pub created_at: u64,
 }
@@ -76,7 +76,7 @@ impl SessionData {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         now - self.created_at > timeout_seconds
     }
 }
@@ -87,7 +87,7 @@ impl OAuthTempState {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        
+
         now - self.created_at > timeout_seconds
     }
 }
