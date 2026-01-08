@@ -1,0 +1,5 @@
+ssh_keys: >
+        ['~/.ssh/id_ed25519.pub']
+label: simple-linode-
+password: "test:revoked"
+token: "test:revoked"

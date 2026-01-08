@@ -1,0 +1,49 @@
+---
+- name: Install nginx on Incus containers
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+  
+  tasks:
+    - name: Update package cache (Ubuntu/Debian)
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    
+    - name: Update package cache (CentOS/RHEL/Rocky)
+      yum:
+        update_cache: yes
+      when: ansible_os_family == "RedHat"
+    
+    - name: Install nginx (Ubuntu/Debian)
+      apt:
+        name: nginx
+        state: present
+      when: ansible_os_family == "Debian"
+    
+    - name: Install nginx (CentOS/RHEL/Rocky)
+      yum:
+        name: nginx
+        state: present
+      when: ansible_os_family == "RedHat"
+    
+    - name: Start and enable nginx service
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+    
+    - name: Ensure nginx is running
+      service:
+        name: nginx
+        state: started
+    
+    - name: Check nginx status
+      command: systemctl is-active nginx
+      register: nginx_status
+      changed_when: false
+    
+    - name: Display nginx status
+      debug:
+        msg: "Nginx is {{ nginx_status.stdout }} on {{ inventory_hostname }}"

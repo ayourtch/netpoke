@@ -1,0 +1,10 @@
+---
+# Simplified version (alternative)
+- name: install linode prerequisites
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  tasks:
+    - name: install linode prerequisite
+      ansible.builtin.command: uv pip install linode_api4

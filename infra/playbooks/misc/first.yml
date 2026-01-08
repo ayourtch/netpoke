@@ -1,0 +1,27 @@
+---
+
+- name: First example
+  hosts: localhost
+  tasks:
+     - name: First task
+       command: echo TEST
+     - name: Create a started container
+       community.general.lxd_container:
+         name: mycontainer
+         url: "unix:/var/lib/incus/unix.socket"
+         ignore_volatile_options: true
+         state: started
+         source:
+           type: image
+           mode: pull
+           # Provides Ubuntu minimal images
+           # server: https://cloud-images.ubuntu.com/minimal/releases/
+           server: https://images.linuxcontainers.org 
+           protocol: simplestreams
+           alias: "ubuntu/24.04"
+         profiles: ["default"]
+         # wait_for_ipv4_addresses: true
+         # timeout: 600
+       connection: local
+       delegate_to: localhost
+

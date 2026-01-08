@@ -1,0 +1,3 @@
+- name: Create a started container
+  community.general.incus:
+    name: mycontainer

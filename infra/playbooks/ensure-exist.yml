@@ -1,0 +1,15 @@
+---
+# Simplified version (alternative)
+- name: Create all webserver containers
+  hosts: webservers
+  connection: local
+  gather_facts: false
+  
+  tasks:
+    - name: Create Incus containers
+      ansible.builtin.command: incus launch images:ubuntu/22.04 {{ inventory_hostname }}
+      register: result
+      failed_when: 
+        - result.rc != 0
+        - "'already exists' not in result.stderr"
+      delegate_to: localhost

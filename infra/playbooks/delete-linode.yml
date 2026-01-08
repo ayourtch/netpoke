@@ -1,0 +1,12 @@
+- name: Delete Linode
+  hosts: localhost
+  vars_files:
+    - ./group_vars/example_group/vars
+  tasks:
+  - name: Delete your Linode Instance.
+    linode_v4:
+      label: "{{ item }}"
+      state: absent
+    loop: "{{ (groups['example_group'] | list) }}"
+      
+      

@@ -1,0 +1,97 @@
+---
+
+- name: Ensure nginx is installed
+  package: name=nginx update_cache=yes
+
+- name: Check nginx status (distro-independent) on sandbox before proceeding on non-sandbox hosts
+  ansible.builtin.service:
+    name: nginx
+    state: started
+  check_mode: yes
+  register: nginx_status
+  failed_when: false
+  delegate_to: "{{ control_host }}"
+  when: inventory_hostname != control_host
+
+
+- name: Show a debug
+  debug:
+    msg: "This is a debug message {{ server_name }}"
+
+- name: Ensure directory exists for config
+  file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+      - /etc/nginx/sites-enabled
+      - /etc/nginx/sites-available
+      - /usr/share/nginx/html
+
+- name: Remove old nginx include lines from http block
+  lineinfile:
+    path: /etc/nginx/nginx.conf
+    regexp: "{{ item }}"
+    state: absent
+    backup: yes
+  loop:
+    - '^\s*#\s*Includes virtual hosts configs\.\s*'
+    - '^\s*include\s+/etc/nginx/http\.d/\*\.conf;\s*'
+  notify: reload nginx
+
+- name: Ensure nginx include lines are present in http block
+  blockinfile:
+    path: /etc/nginx/nginx.conf
+    marker: "# {mark} ANSIBLE MANAGED INCLUDES"
+    insertafter: 'http\s*{'
+    block: |
+          include /etc/nginx/conf.d/*.conf;
+          include /etc/nginx/sites-enabled/*;
+    backup: yes
+  notify: reload nginx
+
+- name: Manage nginx config template
+  template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/default
+  notify: reload nginx
+
+- name: Copy TLS files
+  copy:
+    src: "{{ item }}"
+    dest: "{{ tls_dir }}/"
+    mode: '0600'
+  loop:
+    - "{{ key_file }}"
+    - "{{ cert_file }}"
+  notify: reload nginx
+
+- name: Enable configuration
+  file: >
+    dest=/etc/nginx/sites-enabled/default
+    src={{ conf_file }}
+    state=link
+  notify: reload nginx
+
+- name: Copy index.html
+  template: >
+    src=index.html.j2
+    dest=/usr/share/nginx/html/index.html
+
+- name: Force restart nginx
+  service: name=nginx state=restarted
+  changed_when: false
+
+- name: Check nginx status (distro-independent)
+  ansible.builtin.service:
+    name: nginx
+    state: started
+  check_mode: yes
+  register: nginx_status
+  failed_when: false
+  delegate_to: "{{ control_host }}"
+  when: inventory_hostname == control_host
+
+# handlers:
+#   - name: reload nginx
+#    service: name=nginx state=restarted
+...
