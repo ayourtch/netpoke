@@ -1,9 +1,16 @@
-/// Project Raindrops login page HTML
-pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: bool, enable_google: bool, enable_linkedin: bool) -> String {
+/// Project Raindrops login page HTML - light theme with blue/orange accents
+pub fn login_page_html(
+    enable_plain: bool,
+    enable_bluesky: bool,
+    enable_github: bool,
+    enable_google: bool,
+    enable_linkedin: bool,
+) -> String {
     let mut providers_html = String::new();
-    
+
     if enable_plain {
-        providers_html.push_str(r#"
+        providers_html.push_str(
+            r#"
         <div class="provider-section">
             <h3>Login with Username & Password</h3>
             <form method="post" action="/auth/plain/login">
@@ -22,11 +29,13 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
                 <button type="submit" class="btn btn-primary">Login</button>
             </form>
         </div>
-        "#);
+        "#,
+        );
     }
-    
+
     if enable_bluesky {
-        providers_html.push_str(r#"
+        providers_html.push_str(
+            r#"
         <div class="provider-section">
             <h3>Login with Bluesky</h3>
             <p>Enter your Bluesky handle to authenticate:</p>
@@ -43,9 +52,10 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
             </form>
             <div id="error-message" class="error" style="display: none;"></div>
         </div>
-        "#);
+        "#,
+        );
     }
-    
+
     if enable_github {
         providers_html.push_str(r#"
         <div class="provider-section">
@@ -59,7 +69,7 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         </div>
         "#);
     }
-    
+
     if enable_google {
         providers_html.push_str(r#"
         <div class="provider-section">
@@ -76,7 +86,7 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         </div>
         "#);
     }
-    
+
     if enable_linkedin {
         providers_html.push_str(r#"
         <div class="provider-section">
@@ -90,8 +100,9 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         </div>
         "#);
     }
-    
-    format!(r#"<!DOCTYPE html>
+
+    format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Login - Project Raindrops</title>
@@ -105,8 +116,8 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         }}
         
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -116,27 +127,48 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         
         .login-container {{
             background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 500px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 450px;
             width: 100%;
             padding: 40px;
+            border-top: 4px solid #2196F3;
         }}
         
         .header {{
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 32px;
         }}
         
         .logo {{
-            font-size: 48px;
-            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }}
+        
+        .logo-icon {{
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #2196F3 0%, #FF9800 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        
+        .logo-icon svg {{
+            width: 24px;
+            height: 24px;
+            fill: white;
         }}
         
         h1 {{
             color: #333;
-            font-size: 28px;
-            margin-bottom: 8px;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 4px;
         }}
         
         .subtitle {{
@@ -145,9 +177,9 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         }}
         
         .provider-section {{
-            margin-bottom: 30px;
-            padding-bottom: 30px;
-            border-bottom: 1px solid #e0e0e0;
+            margin-bottom: 24px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid #ddd;
         }}
         
         .provider-section:last-child {{
@@ -158,33 +190,35 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         
         h3 {{
             color: #333;
-            font-size: 16px;
-            margin-bottom: 10px;
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 12px;
         }}
         
         p {{
             color: #666;
             font-size: 14px;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }}
         
         .form-group {{
-            margin: 15px 0;
+            margin: 12px 0;
         }}
         
         input[type="text"],
         input[type="password"] {{
             width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 16px;
-            transition: border-color 0.3s ease;
+            padding: 12px 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 15px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }}
         
         input[type="text"]:focus,
         input[type="password"]:focus {{
-            border-color: #667eea;
+            border-color: #2196F3;
+            box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
             outline: none;
         }}
         
@@ -193,28 +227,31 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
             align-items: center;
             justify-content: center;
             width: 100%;
-            padding: 12px 24px;
+            padding: 12px 20px;
             border: none;
-            border-radius: 8px;
-            font-size: 16px;
+            border-radius: 4px;
+            font-size: 15px;
             font-weight: 600;
             text-decoration: none;
             cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
         }}
         
         .btn:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         }}
         
         .btn:active {{
-            transform: translateY(0);
+            box-shadow: none;
         }}
         
         .btn-primary {{
-            background-color: #667eea;
+            background-color: #2196F3;
             color: white;
+        }}
+        
+        .btn-primary:hover {{
+            background-color: #1976D2;
         }}
         
         .btn-bluesky {{
@@ -222,9 +259,17 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
             color: white;
         }}
         
+        .btn-bluesky:hover {{
+            background-color: #0070d6;
+        }}
+        
         .btn-github {{
             background-color: #24292e;
             color: white;
+        }}
+        
+        .btn-github:hover {{
+            background-color: #1a1e22;
         }}
         
         .btn-google {{
@@ -232,40 +277,97 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
             color: white;
         }}
         
+        .btn-google:hover {{
+            background-color: #3367d6;
+        }}
+        
         .btn-linkedin {{
             background-color: #0077b5;
             color: white;
         }}
         
+        .btn-linkedin:hover {{
+            background-color: #006097;
+        }}
+        
         .error {{
-            color: #dc3545;
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            border-radius: 8px;
+            color: #c62828;
+            background-color: #ffebee;
+            border: 1px solid #ef9a9a;
+            border-radius: 4px;
             padding: 12px;
-            margin-top: 15px;
+            margin-top: 12px;
             font-size: 14px;
         }}
         
         .footer {{
             text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #ddd;
         }}
         
         .footer p {{
             color: #999;
             font-size: 12px;
+            margin-bottom: 0;
+        }}
+        
+        .footer a {{
+            color: #2196F3;
+            text-decoration: none;
+        }}
+        
+        .footer a:hover {{
+            text-decoration: underline;
+        }}
+        
+        /* Dual-stack indicator bar */
+        .stack-indicator {{
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-top: 8px;
+        }}
+        
+        .stack-indicator span {{
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-weight: 500;
+        }}
+        
+        .ipv4-badge {{
+            background-color: rgba(33, 150, 243, 0.1);
+            color: #2196F3;
+            border: 1px solid rgba(33, 150, 243, 0.3);
+        }}
+        
+        .ipv6-badge {{
+            background-color: rgba(255, 152, 0, 0.1);
+            color: #FF9800;
+            border: 1px solid rgba(255, 152, 0, 0.3);
         }}
     </style>
 </head>
 <body>
     <div class="login-container">
         <div class="header">
-            <div class="logo">🌧️</div>
-            <h1>Project Raindrops</h1>
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"/>
+                        <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/>
+                        <circle cx="12" cy="12" r="1.5"/>
+                    </svg>
+                </div>
+                <h1>Project Raindrops</h1>
+            </div>
             <p class="subtitle">Secure Authentication</p>
+            <div class="stack-indicator">
+                <span class="ipv4-badge">IPv4</span>
+                <span class="ipv6-badge">IPv6</span>
+            </div>
         </div>
         
         {}
@@ -310,12 +412,15 @@ pub fn login_page_html(enable_plain: bool, enable_bluesky: bool, enable_github: 
         }}
     </script>
 </body>
-</html>"#, providers_html)
+</html>"#,
+        providers_html
+    )
 }
 
 /// Access denied page HTML for users who authenticated but are not in the allowed list
 pub fn access_denied_page_html(user_handle: &str) -> String {
-    format!(r#"<!DOCTYPE html>
+    format!(
+        r#"<!DOCTYPE html>
 <html>
 <head>
     <title>Access Denied - Project Raindrops</title>
@@ -329,8 +434,8 @@ pub fn access_denied_page_html(user_handle: &str) -> String {
         }}
         
         body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -340,37 +445,52 @@ pub fn access_denied_page_html(user_handle: &str) -> String {
         
         .container {{
             background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            max-width: 500px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            max-width: 450px;
             width: 100%;
             padding: 40px;
             text-align: center;
+            border-top: 4px solid #FF9800;
         }}
         
         .icon {{
-            font-size: 64px;
-            margin-bottom: 20px;
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 20px;
+            background-color: #fff3e0;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        
+        .icon svg {{
+            width: 32px;
+            height: 32px;
+            fill: #FF9800;
         }}
         
         h1 {{
-            color: #dc3545;
-            font-size: 28px;
+            color: #e65100;
+            font-size: 24px;
+            font-weight: bold;
             margin-bottom: 16px;
         }}
         
         p {{
             color: #666;
-            font-size: 16px;
+            font-size: 14px;
             line-height: 1.6;
             margin-bottom: 12px;
         }}
         
         .user-info {{
-            background-color: #f8f9fa;
-            border-radius: 8px;
+            background-color: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             padding: 16px;
-            margin: 24px 0;
+            margin: 20px 0;
             word-break: break-word;
         }}
         
@@ -378,45 +498,63 @@ pub fn access_denied_page_html(user_handle: &str) -> String {
             font-weight: 600;
             color: #333;
             font-family: monospace;
+            font-size: 14px;
         }}
         
         .btn {{
             display: inline-block;
-            margin-top: 24px;
+            margin-top: 20px;
             padding: 12px 24px;
-            background-color: #667eea;
+            background-color: #2196F3;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border: none;
+            border-radius: 4px;
+            font-size: 15px;
             font-weight: 600;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
         }}
         
         .btn:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            background-color: #1976D2;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         }}
         
         .footer {{
-            margin-top: 32px;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #ddd;
         }}
         
         .footer p {{
             color: #999;
             font-size: 12px;
+            margin-bottom: 0;
+        }}
+        
+        .footer a {{
+            color: #2196F3;
+            text-decoration: none;
+        }}
+        
+        .footer a:hover {{
+            text-decoration: underline;
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="icon">🚫</div>
+        <div class="icon">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm6.31-3.1L7.1 5.69C8.45 4.63 10.15 4 12 4c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z"/>
+            </svg>
+        </div>
         <h1>Access Denied</h1>
         <p>You have successfully authenticated, but your account does not have access to this application.</p>
         
         <div class="user-info">
-            <p style="margin-bottom: 8px; color: #666; font-size: 14px;">Authenticated as:</p>
+            <p style="margin-bottom: 8px; color: #666; font-size: 13px;">Authenticated as:</p>
             <p class="user-handle">{}</p>
         </div>
         
@@ -431,5 +569,7 @@ pub fn access_denied_page_html(user_handle: &str) -> String {
         </div>
     </div>
 </body>
-</html>"#, user_handle)
+</html>"#,
+        user_handle
+    )
 }

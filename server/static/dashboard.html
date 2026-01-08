@@ -4,50 +4,270 @@
     <meta charset="utf-8">
     <title>Network Measurement Dashboard</title>
     <style>
-        table { border-collapse: collapse; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #4CAF50; color: white; }
-        .disconnected { background-color: #ffcccc; }
-        .ipv4 { background-color: #e3f2fd !important; }
-        .ipv6 { background-color: #fff3e0 !important; }
-        .parent-id { font-size: 0.9em; color: #666; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        /* Header with logo */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding: 16px 24px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #2196F3 0%, #FF9800 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .logo-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+        
+        .logo h1 {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .header-badges {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .badge {
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 3px;
+            font-weight: 500;
+        }
+        
+        .badge-ipv4 {
+            background-color: rgba(33, 150, 243, 0.1);
+            color: #2196F3;
+            border: 1px solid rgba(33, 150, 243, 0.3);
+        }
+        
+        .badge-ipv6 {
+            background-color: rgba(255, 152, 0, 0.1);
+            color: #FF9800;
+            border: 1px solid rgba(255, 152, 0, 0.3);
+        }
+        
+        /* Status bar */
+        #status {
+            padding: 12px 16px;
+            background: white;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            color: #666;
+            border-left: 4px solid #2196F3;
+        }
+        
+        #status.connected {
+            border-left-color: #4CAF50;
+            color: #2e7d32;
+        }
+        
+        #status.error {
+            border-left-color: #f44336;
+            color: #c62828;
+        }
+        
+        /* Table card */
+        .table-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 13px;
+        }
+        
+        th {
+            background-color: #2196F3;
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        
+        tr:hover {
+            background-color: #f0f7ff;
+        }
+        
+        .disconnected {
+            background-color: #ffebee !important;
+        }
+        
+        .ipv4 {
+            background-color: rgba(33, 150, 243, 0.05) !important;
+        }
+        
+        .ipv6 {
+            background-color: rgba(255, 152, 0, 0.05) !important;
+        }
+        
+        .parent-id {
+            font-size: 0.85em;
+            color: #666;
+            font-family: monospace;
+        }
+        
+        /* Buttons */
         .cleanup-btn {
             background-color: #f44336;
             color: white;
             border: none;
-            padding: 4px 8px;
+            padding: 6px 12px;
             cursor: pointer;
-            font-size: 0.9em;
-            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 4px;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
         }
+        
         .cleanup-btn:hover {
             background-color: #d32f2f;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 12px;
+            margin-top: 24px;
+        }
+        
+        .footer a {
+            color: #2196F3;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+            
+            .table-card {
+                overflow-x: auto;
+            }
+            
+            th, td {
+                padding: 8px;
+                font-size: 12px;
+            }
         }
     </style>
 </head>
 <body>
-    <h1>Network Measurement Dashboard</h1>
-    <div id="status">Connecting...</div>
-    <table id="clients-table">
-        <thead>
-            <tr>
-                <th>Client ID</th>
-                <th>Conn ID</th>
-                <th>Parent ID</th>
-                <th>IP Version</th>
-                <th>Peer Address</th>
-                <th>C2S Throughput (1s/10s/60s)</th>
-                <th>S2C Throughput (1s/10s/60s)</th>
-                <th>C2S Delay (1s/10s/60s)</th>
-                <th>S2C Delay (1s/10s/60s)</th>
-                <th>Current Seq</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody id="clients-body">
-            <tr><td colspan="11">No clients connected</td></tr>
-        </tbody>
-    </table>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"/>
+                        <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/>
+                        <circle cx="12" cy="12" r="1.5"/>
+                    </svg>
+                </div>
+                <h1>Network Measurement Dashboard</h1>
+            </div>
+            <div class="header-badges">
+                <span class="badge badge-ipv4">IPv4</span>
+                <span class="badge badge-ipv6">IPv6</span>
+            </div>
+        </div>
+        
+        <div id="status">Connecting...</div>
+        
+        <div class="table-card">
+            <table id="clients-table">
+                <thead>
+                    <tr>
+                        <th>Client ID</th>
+                        <th>Conn ID</th>
+                        <th>Parent ID</th>
+                        <th>IP Version</th>
+                        <th>Peer Address</th>
+                        <th>C2S Throughput (1s/10s/60s)</th>
+                        <th>S2C Throughput (1s/10s/60s)</th>
+                        <th>C2S Delay (1s/10s/60s)</th>
+                        <th>S2C Delay (1s/10s/60s)</th>
+                        <th>Current Seq</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="clients-body">
+                    <tr><td colspan="11" style="text-align: center; color: #999; padding: 40px;">No clients connected</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="footer">
+            <a href="/static/nettest.html">Run Network Test</a> | 
+            <a href="/">Home</a>
+        </div>
+    </div>
+    
     <script src="/static/dashboard.js"></script>
 </body>
 </html>
