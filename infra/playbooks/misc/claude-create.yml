@@ -1,0 +1,15 @@
+---
+# Simplified version (alternative)
+- name: Create 5 Incus containers (simple)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  tasks:
+    - name: Create Incus containers
+      ansible.builtin.command: incus launch images:ubuntu/22.04 web-server-host-{{ item }}
+      loop: "{{ (range(1, 6) | list) + ['sandbox'] }}"
+      register: result
+      failed_when: 
+        - result.rc != 0
+        - "'already exists' not in result.stderr"

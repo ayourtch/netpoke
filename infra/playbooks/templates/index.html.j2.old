@@ -1,0 +1,10 @@
+<html>
+	<head>
+	<title>Welcome to nginx on {{inventory_hostname }}</title>
+	</head>
+
+	<body>
+	<h1>Nginx, configured by ansible</h1>
+	<p>If you can see this, ansible installed the nginx on {{ inventory_hostname }}</p>
+	</body>
+</html>

@@ -1,0 +1,66 @@
+- name: Update /etc/hosts with inventory entries
+  delegate_to: localhost
+  block:
+    - name: Gather all inventory hosts
+      set_fact:
+        inventory_hosts_my: "{{ groups['all'] | map('extract', hostvars) | list }}"
+
+    - debug:
+         msg: "Got hosts: {{ inventory_hosts_my }}"
+
+    - name: Build hosts entries list
+      set_fact:
+        hosts_entries: >-
+          [
+            {%- for host in (inventory_hosts_my | selectattr('ipv4', 'defined')) -%}
+              {%- if not loop.first -%},{%- endif -%}
+              {
+                "ip": {{ host.ipv4[0] | to_json }},
+                "hostname": {{ host.inventory_hostname | to_json }}
+              }
+            {%- endfor -%}
+          ]
+
+    - name: Debug hosts entries to be added
+      debug:
+        msg: "Will ensure these entries exist in /etc/hosts: {{ hosts_entries }}"
+
+    - name: Ensure hosts entries exist
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ item.ip }} {{ item.hostname }}"
+        state: present
+        backup: yes
+        regexp: "^{{ item.ip | regex_escape }}\\s+{{ item.hostname | regex_escape }}.*"
+      loop: "{{ hosts_entries }}"
+      when: hosts_entries | length > 0
+      become: yes
+
+    - name: Verify each host entry exists in /etc/hosts
+      shell: "grep -q '^{{ item.ip | regex_escape }}\\s\\+{{ item.hostname | regex_escape }}' /etc/hosts"
+      loop: "{{ hosts_entries }}"
+      when: hosts_entries | length > 0
+      changed_when: false
+      failed_when: false
+      register: verification_results
+
+    - name: Check for missing entries
+      fail:
+        msg: "Missing /etc/hosts entry: {{ item.item.ip }} {{ item.item.hostname }}"
+      loop: "{{ verification_results.results | default([]) }}"
+      when: 
+        - hosts_entries | length > 0
+        - item.rc != 0
+
+    - name: Display successful verification
+      debug:
+        msg: "✓ All {{ hosts_entries | length }} inventory host entries verified in /etc/hosts"
+      when: 
+        - hosts_entries | length > 0
+        - verification_results.results | selectattr('rc', 'equalto', 0) | list | length == hosts_entries | length
+
+
+    - name: Display verification results
+      debug:
+        msg: "Current /etc/hosts entries for inventory hosts: {{ hosts_verification.stdout_lines | default([]) }}"
+      when: hosts_entries | length > 0

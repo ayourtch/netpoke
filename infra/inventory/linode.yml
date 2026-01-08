@@ -1,0 +1,6 @@
+plugin: linode
+regions:
+  - us-east
+groups:
+types:
+  - g6-nanode-1

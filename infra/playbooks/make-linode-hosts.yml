@@ -1,0 +1,19 @@
+---
+
+- name: Make-linode-hosts
+  hosts: localhost
+  vars_files:
+    - ./group_vars/example_group/vars
+  tasks:
+    - name: Some initial task
+      debug:
+        msg: "Make a linode host"
+
+    - include_tasks: tasks/linode-create.yml
+      vars:
+        linode_label: "{{ item }}"
+      loop:
+        - web-server-sandbox
+        - web-server-1
+
+

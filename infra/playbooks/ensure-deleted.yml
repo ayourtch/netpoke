@@ -1,0 +1,22 @@
+---
+# Simplified version (alternative)
+- name: Destroy all webserver containers
+  hosts: webservers
+  connection: local
+  gather_facts: false
+  
+  tasks:
+    - name: Stop Incus containers
+      ansible.builtin.command: "incus stop {{ inventory_hostname }}"
+      register: result
+      failed_when: 
+        - result.rc != 0
+        - "'error: The instance is already stopped' not in result.stderr"
+      delegate_to: localhost
+    - name: Destroy Incus containers
+      ansible.builtin.command: "incus delete {{ inventory_hostname }}"
+      register: result
+      failed_when: 
+        - result.rc != 0
+        - "'Instance not found' not in result.stderr"
+      delegate_to: localhost

@@ -1,0 +1,10 @@
+#!/bin/bash
+
+#
+# This script initializes the venv for the ansible to work with linode
+# 
+uv venv
+source .venv/bin/activate
+uv pip install ansible
+uv pip install linode_api4
+
