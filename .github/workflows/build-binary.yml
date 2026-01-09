@@ -29,16 +29,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y musl-tools musl-dev
 
-      - name: Set up cross-compilation
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-          override: true
-
       - name: Build release binary
         run: |
           if [ "${{ runner.os }}" == "Linux" ]; then
-            cargo build --release --target ${{ matrix.target }}
+            cargo build --release
           fi
 
       - name: Upload artifact
@@ -46,7 +40,7 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            netpoke/target/${{ matrix.target }}/release/netpoke
+            netpoke/target/release/netpoke
 
 
 
