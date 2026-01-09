@@ -1,6 +1,6 @@
 FROM ghcr.io/linuxcontainers/alpine:latest AS build
 
-RUN apk add git make curl libgcc clang libressl-dev
+RUN apk add git make curl libgcc clang libressl-dev libpcap-dev sudo
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
 RUN <<EOF
   . "$HOME/.cargo/env"
