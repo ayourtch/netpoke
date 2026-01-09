@@ -188,7 +188,7 @@ fn get_make_service(
 
             // Protected static files - require authentication
             let protected_static = Router::new()
-                .route("/static/*path", get(embedded::serve_static))
+                .route("/static/{*path}", get(embedded::serve_static))
                 .route_layer(middleware::from_fn_with_state(
                     auth_state.clone(),
                     require_auth,
@@ -197,7 +197,7 @@ fn get_make_service(
             // Network test page and its dependencies - allow EITHER regular auth OR survey session (Magic Key)
             let nettest_route = Router::new()
                 .route("/static/nettest.html", get(serve_nettest_html))
-                .route("/static/lib/*path", get(serve_static_lib))
+                .route("/static/lib/{*path}", get(serve_static_lib))
                 .route_layer(middleware::from_fn_with_state(
                     auth_state.clone(),
                     survey_middleware::require_auth_or_survey_session,
@@ -209,7 +209,7 @@ fn get_make_service(
                 .merge(public_api)
                 .merge(client_config_routes)
                 .route("/", get(embedded::serve_index))
-                .route("/public/*path", get(embedded::serve_public))
+                .route("/public/{*path}", get(embedded::serve_public))
                 .route("/health", get(health_check))
                 .merge(nettest_route)
                 .merge(hybrid_signaling)
@@ -230,8 +230,8 @@ fn get_make_service(
                 .merge(keylog_routes)
                 .merge(client_config_routes)
                 .route("/", get(embedded::serve_index))
-                .route("/public/*path", get(embedded::serve_public))
-                .route("/static/*path", get(embedded::serve_static))
+                .route("/public/{*path}", get(embedded::serve_public))
+                .route("/static/{*path}", get(embedded::serve_static))
                 .layer(TraceLayer::new_for_http())
         }
     } else {
@@ -245,8 +245,8 @@ fn get_make_service(
             .merge(keylog_routes)
             .merge(client_config_routes)
             .route("/", get(embedded::serve_index))
-            .route("/public/*path", get(embedded::serve_public))
-            .route("/static/*path", get(embedded::serve_static))
+            .route("/public/{*path}", get(embedded::serve_public))
+            .route("/static/{*path}", get(embedded::serve_static))
             .layer(TraceLayer::new_for_http())
     };
 
