@@ -21,6 +21,9 @@ update-server: pull build restart
 pull:
 	git pull
 
+docker:
+	docker build . --progress=plain
+
 
 install-service:
 	sudo cp misc/netpoke.service /etc/systemd/system/
