@@ -35,3 +35,5 @@ pcap = { version = "2.4.0", features = ["capture-stream"] }
 parking_lot = "0.12"
 chrono = "0.4"
 hex = "0.4"
+rust-embed = "8.5"
+mime_guess = "2"

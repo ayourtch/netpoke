@@ -9,6 +9,7 @@ mod dashboard;
 mod data_channels;
 mod dtls_keylog;
 mod dtls_keylog_api;
+mod embedded;
 mod icmp_listener;
 mod measurements;
 mod packet_capture;
@@ -33,8 +34,7 @@ use rustls;
 use state::AppState;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tower_http::services::ServeFile;
-use tower_http::{services::ServeDir, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use tracing_subscriber;
 use webrtc::ice::candidate::CandidatePairState;
 use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
@@ -188,7 +188,7 @@ fn get_make_service(
 
             // Protected static files - require authentication
             let protected_static = Router::new()
-                .nest_service("/static", ServeDir::new("server/static"))
+                .route("/static/*path", get(embedded::serve_static))
                 .route_layer(middleware::from_fn_with_state(
                     auth_state.clone(),
                     require_auth,
@@ -196,11 +196,8 @@ fn get_make_service(
 
             // Network test page and its dependencies - allow EITHER regular auth OR survey session (Magic Key)
             let nettest_route = Router::new()
-                .route_service(
-                    "/static/nettest.html",
-                    ServeFile::new("server/static/nettest.html"),
-                )
-                .nest_service("/static/lib", ServeDir::new("server/static/lib"))
+                .route("/static/nettest.html", get(serve_nettest_html))
+                .route("/static/lib/*path", get(serve_static_lib))
                 .route_layer(middleware::from_fn_with_state(
                     auth_state.clone(),
                     survey_middleware::require_auth_or_survey_session,
@@ -211,8 +208,8 @@ fn get_make_service(
                 .nest("/auth", auth_router)
                 .merge(public_api)
                 .merge(client_config_routes)
-                .route_service("/", ServeFile::new("server/static/public/index.html"))
-                .nest_service("/public", ServeDir::new("server/static/public"))
+                .route("/", get(embedded::serve_index))
+                .route("/public/*path", get(embedded::serve_public))
                 .route("/health", get(health_check))
                 .merge(nettest_route)
                 .merge(hybrid_signaling)
@@ -232,9 +229,9 @@ fn get_make_service(
                 .merge(tracing_routes)
                 .merge(keylog_routes)
                 .merge(client_config_routes)
-                .route_service("/", ServeFile::new("server/static/public/index.html"))
-                .nest_service("/public", ServeDir::new("server/static/public"))
-                .nest_service("/static", ServeDir::new("server/static"))
+                .route("/", get(embedded::serve_index))
+                .route("/public/*path", get(embedded::serve_public))
+                .route("/static/*path", get(embedded::serve_static))
                 .layer(TraceLayer::new_for_http())
         }
     } else {
@@ -247,9 +244,9 @@ fn get_make_service(
             .merge(tracing_routes)
             .merge(keylog_routes)
             .merge(client_config_routes)
-            .route_service("/", ServeFile::new("server/static/public/index.html"))
-            .nest_service("/public", ServeDir::new("server/static/public"))
-            .nest_service("/static", ServeDir::new("server/static"))
+            .route("/", get(embedded::serve_index))
+            .route("/public/*path", get(embedded::serve_public))
+            .route("/static/*path", get(embedded::serve_static))
             .layer(TraceLayer::new_for_http())
     };
 
@@ -890,6 +887,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// Serve the nettest.html file from embedded assets
+async fn serve_nettest_html() -> impl axum::response::IntoResponse {
+    embedded::embedded_file_response("nettest.html")
+}
+
+/// Serve files from the static/lib directory
+async fn serve_static_lib(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> impl axum::response::IntoResponse {
+    let full_path = format!("lib/{}", path);
+    embedded::embedded_file_response(&full_path)
 }
 
 async fn health_check() -> &'static str {

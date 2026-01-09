@@ -1,11 +1,19 @@
-.PHONY: all build install-service restart pull update-server
+.PHONY: all build build-wasm build-server install-service restart pull update-server
 
 all: build restart
 
-build:
-	cargo build --release
+# Build WASM client first, then the server (so WASM is embedded)
+build: build-wasm build-server
+	@echo "Build complete. Single executable at target/release/netpoke-server"
+
+# Build the WASM client to be embedded in the server
+build-wasm:
 	(cd client && ./build.sh)
-	sudo /usr/sbin/setcap cap_net_raw=+ep /home/netpoke/wifi-verify/target/release/wifi-verify-server
+
+# Build the server (includes embedded static files and WASM)
+build-server:
+	cargo build --release -p netpoke-server
+	-sudo /usr/sbin/setcap cap_net_raw=+ep target/release/netpoke-server
 
 update-server: pull build restart
 	echo "Server updated!"
