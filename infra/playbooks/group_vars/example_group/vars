@@ -1,5 +1,5 @@
-ssh_keys: >
-        ['~/.ssh/id_ed25519.pub']
+ssh_keys:
+   - 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJv7pl8fzHrIvY9+BPl60j2notG1TxecDf/FV0+1Oy8+ ayourtch@Andrews-MacBook-Pro.local'
 label: simple-linode-
 password: "30376134633639613832373335313062366536313334316465303462656664333064373933393831"
 token: "8eeb57fc1af722b1320656784bd7539ae4650167148079cd00c8447b6774d4bb"
