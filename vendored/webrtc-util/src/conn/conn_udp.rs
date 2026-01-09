@@ -10,6 +10,8 @@ use libc::{
     IP_TTL,
 };
 
+type msg_controllen_type = u32;
+
 #[async_trait]
 impl Conn for UdpSocket {
     async fn connect(&self, addr: SocketAddr) -> Result<()> {
@@ -286,7 +288,7 @@ fn sendmsg_with_options(
 
         // Prepare control message buffer
         let mut cmsg_buf = vec![0u8; 256];
-        let mut cmsg_len = 0usize;
+        let mut cmsg_len = 0usize as msg_controllen_type;
 
         // Build the msghdr structure
         // CRITICAL FIX: We must keep the address storage alive for the entire duration
@@ -327,7 +329,7 @@ fn sendmsg_with_options(
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = cmsg_buf.as_mut_ptr() as *mut c_void;
-        msg.msg_controllen = cmsg_buf.len();
+        msg.msg_controllen = cmsg_buf.len() as msg_controllen_type;
 
         // Add control messages based on SOCKET family (not destination family)
         // An IPv6 socket must use IPv6 control messages even when sending to IPv4 addresses
@@ -342,7 +344,7 @@ fn sendmsg_with_options(
                 if !cmsg.is_null() {
                     (*cmsg).cmsg_level = IPPROTO_IPV6;
                     (*cmsg).cmsg_type = IPV6_HOPLIMIT;
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize as msg_controllen_type;
 
                     let data_ptr = libc::CMSG_DATA(cmsg);
                     *(data_ptr as *mut i32) = ttl as i32;
@@ -366,7 +368,7 @@ fn sendmsg_with_options(
                 if !cmsg.is_null() {
                     (*cmsg).cmsg_level = IPPROTO_IPV6;
                     (*cmsg).cmsg_type = IPV6_TCLASS;
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize as msg_controllen_type;
 
                     let data_ptr = libc::CMSG_DATA(cmsg);
                     *(data_ptr as *mut i32) = tos as i32;
@@ -384,7 +386,7 @@ fn sendmsg_with_options(
                     (*cmsg).cmsg_type = IP_TTL;
                     // CRITICAL FIX: IP_TTL expects int (i32), not u8
                     // See: ip(7) man page - IP_TTL takes an integer argument
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize as msg_controllen_type;
 
                     let data_ptr = libc::CMSG_DATA(cmsg);
                     *(data_ptr as *mut i32) = ttl as i32;
@@ -412,12 +414,12 @@ fn sendmsg_with_options(
                     (*cmsg).cmsg_type = IP_TOS;
                     // IP_TOS also expects int (i32), not u8
                     // See: ip(7) man page - IP_TOS takes an integer argument
-                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize;
+                    (*cmsg).cmsg_len = libc::CMSG_LEN(std::mem::size_of::<i32>() as u32) as usize as msg_controllen_type;
 
                     let data_ptr = libc::CMSG_DATA(cmsg);
                     *(data_ptr as *mut i32) = tos as i32;
 
-                    cmsg_len += (*cmsg).cmsg_len;
+                    cmsg_len += (*cmsg).cmsg_len as msg_controllen_type;
                 }
             }
         }
