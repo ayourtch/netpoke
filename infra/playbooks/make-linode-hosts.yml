@@ -7,7 +7,7 @@
   tasks:
     - name: Some initial task
       debug:
-        msg: "Make a linode host"
+        msg: "Make a linode host, ssh: {{ ssh_keys }}"
 
     - include_tasks: tasks/linode-create.yml
       vars:

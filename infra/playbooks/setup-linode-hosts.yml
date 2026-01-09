@@ -39,11 +39,11 @@
         msg: "Setup a linode host"
 
 
-    - include_tasks: tasks/setup-webserver.yml
+    # - include_tasks: tasks/setup-webserver.yml
 
-  handlers:
-    - name: reload nginx
-      service: name=nginx state=restarted
+  # handlers:
+  #  - name: reload nginx
+  #    service: name=nginx state=restarted
 
 
 
