@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=netpoke
-ExecStart=/home/netpoke/wifi-verify/target/release/wifi-verify-server
+ExecStart=/usr/local/bin/netpoke-server
 Restart=on-failure
 RestartSec=5s
 
