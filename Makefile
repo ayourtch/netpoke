@@ -21,19 +21,14 @@ update-server: pull build restart
 pull:
 	git pull
 
+
+build-everything: netpoke-server
+
+netpoke-server: docker
+	docker run --rm -v $$(pwd):/out netpoke-builder:latest cp /netpoke/target/release/netpoke /out/
+
 docker:
-	docker build . --progress=plain
-
-in-docker-build: in-docker-prep build
-
-in-docker-prep:
-	. "${HOME}/.cargo/env" && \
-	cargo install wasm-pack && \
-	MACH="$$(uname -m)" && \
-	RTARG="$${MACH}-unknown-linux-gnu" && \
-	rustup target add $${RTARG}  && \
-	true
-
+	docker build -t netpoke-build:latest . --progress=plain
 
 install-service:
 	sudo cp misc/netpoke.service /etc/systemd/system/

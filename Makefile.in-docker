@@ -1,0 +1,10 @@
+.PHONY: in-docker-prep
+
+in-docker-prep:
+	. "${HOME}/.cargo/env" && \
+	cargo install wasm-pack && \
+	MACH="$$(uname -m)" && \
+	RTARG="$${MACH}-unknown-linux-gnu" && \
+	rustup target add $${RTARG}  && \
+	true
+
