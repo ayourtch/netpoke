@@ -21,11 +21,15 @@ update-server: pull build restart
 pull:
 	git pull
 
+clean-out:
+	rm -rf ./out || true
+	mkdir ./out || true
 
-build-everything: netpoke-server
+
+build-everything: clean-out netpoke-server
 
 netpoke-server: docker
-	docker run --rm -v $$(pwd):/out netpoke-builder:latest cp /netpoke/target/release/netpoke /out/
+	docker run --rm -v $$(pwd)/out:/out netpoke-builder:latest cp /netpoke/target/release/netpoke-server /out/
 
 docker:
 	docker build -t netpoke-build:latest . --progress=plain
