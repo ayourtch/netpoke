@@ -26,20 +26,19 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools musl-dev libpcap-dev libssl-dev pkg-config
-          cargo install wasm-pack
+          sudo apt-get install -y podman-docker
 
       - name: Build release binary
         run: |
           pwd && ls -la 
-          make docker
+          make build-everything
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            netpoke/target/release/netpoke
+            out/netpoke-server
 
 
 
