@@ -34,6 +34,11 @@ netpoke-server: docker
 docker:
 	docker build -t netpoke-build:latest . --progress=plain
 
+install-bin:
+	strip out/netpoke-server
+	sudo cp out/netpoke-server /usr/local/bin/
+	sudo /usr/sbin/setcap cap_net_raw=+ep /usr/local/bin/netpoke-server
+
 install-service:
 	sudo cp misc/netpoke.service /etc/systemd/system/
 	sudo systemctl daemon-reload
