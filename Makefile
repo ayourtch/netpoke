@@ -24,6 +24,16 @@ pull:
 docker:
 	docker build . --progress=plain
 
+in-docker-build: in-docker-prep build
+
+in-docker-prep:
+	. "${HOME}/.cargo/env" && \
+	cargo install wasm-pack && \
+	MACH="$$(uname -m)" && \
+	RTARG="$${MACH}-unknown-linux-gnu" && \
+	rustup target add $${RTARG}  && \
+	true
+
 
 install-service:
 	sudo cp misc/netpoke.service /etc/systemd/system/
