@@ -1,0 +1,11 @@
+#!/sbin/openrc-run
+
+name="netpoke"
+command="/usr/local/bin/netpoke-server"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+    need net
+    after firewall
+}

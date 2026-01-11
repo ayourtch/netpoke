@@ -1,0 +1,206 @@
+# WiFi Verify Server Configuration
+
+[server]
+# Host to bind to
+host = "0.0.0.0"
+
+# HTTP server settings
+http_port = 3000
+enable_http = false
+
+# HTTPS server settings
+https_port = 3443
+enable_https = true
+
+# SSL certificate paths (required for HTTPS)
+ssl_cert_path = "/etc/netpoke/certs/server.crt"
+ssl_key_path = "/etc/netpoke/certs/server.key"
+
+# Domain for automatic HTTPS (optional, used with Let's Encrypt)
+# domain = "your-domain.com"
+# auto_https = false
+
+[logging]
+# Log level: trace, debug, info, warn, error
+# level = "debug"
+level = "info"
+
+# Optional: Fine-grained log filter using tracing-subscriber's EnvFilter syntax
+# When specified, this takes precedence over the `level` setting above.
+# Examples:
+#   filter = "debug"                           # Set all targets to debug
+#   filter = "info,wifi_verify_server=debug"   # Default to info, server at debug
+#   filter = "debug,hyper=info,tokio=info"     # Debug all except hyper/tokio
+#   filter = "trace,webrtc=info"               # Trace all except webrtc crate
+# filter = "debug"
+
+
+[security]
+# Enable CORS (cross-origin resource sharing)
+enable_cors = true
+
+# Allowed origins for CORS (when enabled)
+allowed_origins = ["http://localhost:3000", "https://localhost:3443"]
+
+# Authentication Configuration
+[auth]
+# Enable authentication globally
+enable_auth = true
+
+# Access Control - List of allowed user handles/emails
+# If empty, all authenticated users are allowed
+# If not empty, only users in this list can access the application
+# For OAuth: use email or handle from the provider (e.g., "user@example.com" or "@alice.bsky.social")
+# For plain login: use the username configured in [[auth.plain_login.users]]
+allowed_users = []
+
+# Example with allowed users (uncomment to enable):
+# allowed_users = [
+#     "admin",                    # Plain login username
+#     "@alice.bsky.social",       # Bluesky handle
+#     "user@example.com",         # OAuth email (GitHub, Google, LinkedIn)
+# ]
+
+# OAuth2 Providers
+[auth.oauth]
+# Enable specific OAuth providers
+enable_bluesky = false
+enable_github = false
+enable_google = false
+enable_linkedin = false
+
+# Bluesky OAuth (decentralized, no central registration required!)
+# The client_id should be a URL to your client-metadata.json file
+# bluesky_client_id = "http://localhost:3000/public/client-metadata.json"
+# bluesky_redirect_url = "http://localhost:3000/auth/bluesky/callback"
+
+# GitHub OAuth (get credentials from https://github.com/settings/developers)
+# github_client_id = "your_github_client_id"
+# github_client_secret = "your_github_client_secret"
+# github_redirect_url = "http://localhost:3000/auth/github/callback"
+
+# Google OAuth (get credentials from https://console.cloud.google.com/apis/credentials)
+# google_client_id = "your_google_client_id"
+# google_client_secret = "your_google_client_secret"
+# google_redirect_url = "http://localhost:3000/auth/google/callback"
+
+# LinkedIn OAuth (get credentials from https://www.linkedin.com/developers/apps)
+# linkedin_client_id = "your_linkedin_client_id"
+# linkedin_client_secret = "your_linkedin_client_secret"
+# linkedin_redirect_url = "http://localhost:3000/auth/linkedin/callback"
+
+# Plain Login (username/password) - File-based authentication
+[auth.plain_login]
+enabled = true
+
+# List of allowed users with passwords
+# SECURITY NOTE: In production, use bcrypt hashed passwords (starting with $2)
+# To generate a bcrypt hash: use online tools or bcrypt CLI
+# Example bcrypt hash: $2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe
+# For now, plain text passwords are supported but NOT recommended for production
+
+# Example users (commented out by default):
+[[auth.plain_login.users]]
+username = "admin"
+password = "nettest"  # Plain text (not recommended for production)
+display_name = "Administrator"
+#
+# [[auth.plain_login.users]]
+# username = "user1"
+# password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5xyJNPtYPmvwe"  # bcrypt hash
+# display_name = "User One"
+
+# Session Configuration
+[auth.session]
+cookie_name = "session_id"
+timeout_seconds = 86400  # 24 hours
+secure = false  # Set to true for HTTPS only cookies
+
+# Magic Key Authentication for Surveyors
+[auth.magic_keys]
+# Enable Magic Key authentication for field surveyors
+enabled = true
+
+# List of valid Magic Keys for survey access
+# Each key should be unique and given to individual surveyors
+# Later this will be checked against database of active surveys
+# magic_keys = ["SURVEY-2024-001", "SURVEY-2024-002", "SURVEY-2024-003"]
+magic_keys = ["XXQQ", "CLEUR26", "JB", "DEMO"]
+
+# Cookie name for survey sessions (different from regular auth sessions)
+survey_cookie_name = "survey_session_id"
+survey_timeout_seconds = 28800  # 8 hours
+
+# Packet Capture Configuration (uses libpcap - same as tcpdump)
+[capture]
+# Enable packet capture for traffic analysis
+# Requires CAP_NET_RAW capability or root privileges
+enabled = true
+
+# Maximum number of packets to store in the ring buffer
+max_packets = 800000
+
+# Maximum bytes per packet to capture (packets larger than this are truncated)
+# 65535 = full packet capture
+snaplen = 65535
+
+# Network interface to capture on
+# Empty string = use first available interface (like tcpdump default)
+# "any" = capture on all interfaces (Linux only)
+# "eth0", "wlan0", etc. = capture on specific interface
+interface = ""
+
+# Enable promiscuous mode (capture all packets, not just those addressed to this host)
+promiscuous = false
+
+# Tracing Buffer Configuration (logs with microsecond timestamps)
+[tracing]
+# Enable tracing to circular buffer
+# When enabled, all log messages are stored in a circular buffer with microsecond timestamps
+# and can be downloaded via the web interface (next to PCAP download)
+enabled = true
+
+# Maximum number of log entries to store in the ring buffer
+max_log_entries = 1000000
+
+[client]
+# Delay in milliseconds between WebRTC connection establishment attempts
+# This helps space out connection attempts to reduce network congestion
+# Default: 50
+webrtc_connection_delay_ms = 5
+
+# iperf3 Server Configuration
+# A built-in iperf3-compatible server for bandwidth testing
+[iperf3]
+# Enable the iperf3 server
+enabled = true
+
+# Host/IP address to bind to
+# host = "0.0.0.0"
+host = "::"
+
+# Control port (default: 5201, same as standard iperf3)
+port = 5201
+
+# Maximum number of concurrent test sessions
+max_sessions = 10
+
+# Maximum test duration in seconds (0 = unlimited)
+# Limits how long a single test can run to prevent resource exhaustion
+max_duration_secs = 600
+
+# Whether to require IP-based authentication
+# When true, only IPs from recently authenticated HTTP/HTTPS sessions
+# or active WebRTC sessions can connect
+# When false, all IPs are allowed
+require_auth = true
+
+# How long (in seconds) an authenticated address remains valid for iperf3 access
+# This controls how recently a user must have authenticated via HTTP/HTTPS
+# or had an active WebRTC session to use iperf3
+# Default: 300 (5 minutes)
+auth_timeout_secs = 300
+
+# Maximum bandwidth per stream in bits/second (0 = unlimited)
+# Can be used to limit the bandwidth used by iperf3 tests
+max_bandwidth = 0

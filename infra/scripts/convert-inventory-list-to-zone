@@ -42,6 +42,6 @@ jq -r '
   # Strip CIDR notation from IPv6
   ipv6="${ipv6%%/*}"
   
-  printf "%s\t%s\tIN\tA\t%s\n" "$record_name" "$TTL" "$ipv4"
-  printf "%s\t%s\tIN\tAAAA\t%s\n" "$record_name" "$TTL" "$ipv6"
+  printf "%s\t%s\tA\t%s\n" "$record_name" "$TTL" "$ipv4"
+  printf "%s\t%s\tAAAA\t%s\n" "$record_name" "$TTL" "$ipv6"
 done

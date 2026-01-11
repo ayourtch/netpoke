@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 # Script to generate self-signed SSL certificates for development/testing
 # This creates certificates that will work for HTTPS but will show security warnings in browsers

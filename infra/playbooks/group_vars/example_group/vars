@@ -1,5 +1,6 @@
 ssh_keys:
    - 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJv7pl8fzHrIvY9+BPl60j2notG1TxecDf/FV0+1Oy8+ ayourtch@Andrews-MacBook-Pro.local'
+   - 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHnsCW+6EVpMvkYlvfH9qEqudJ0moI6Tj2tsovKzfX3I ayourtch@beehost'
 label: simple-linode-
 password: "test:revoked"
 token: "test:revoked"

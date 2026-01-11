@@ -1,0 +1,8 @@
+
+[domains."netpoke.com"]
+# DNS provider name (currently only "namecheap" is supported)
+provider = "namecheap"
+
+# Path to zone file for this domain
+# Can be relative to this config file or an absolute path
+zone_file = "zones/netpoke.com"
