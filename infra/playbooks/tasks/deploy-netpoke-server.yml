@@ -1,0 +1,29 @@
+---
+
+- name: Show a debug
+  debug:
+    msg: "This is a debug message {{ server_name }}"
+
+- name: Copy netpoke with owner and permissions
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../out/netpoke-server"
+    dest: /usr/local/bin/netpoke-server
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Force restart netpoke
+  service: name=netpoke state=restarted
+  changed_when: false
+
+- name: Check netpoke status (distro-independent)
+  ansible.builtin.service:
+    name: netpoke
+    state: started
+  check_mode: yes
+  register: netpoke_status
+  failed_when: false
+  delegate_to: "{{ control_host }}"
+  when: inventory_hostname == control_host
+
+...
