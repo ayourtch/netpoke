@@ -13,7 +13,7 @@
       vars:
         linode_label: "{{ item }}"
       loop:
-        - web-server-sandbox
-        - web-server-1
+        - sandbox
+        - www1
 
 

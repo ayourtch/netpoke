@@ -1,0 +1,24 @@
+---
+
+
+- name: Configure servers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Re-add hosts with FQDN
+      add_host:
+        name: "{{ item }}.netpoke.com"
+        ansible_host: "{{ item }}.netpoke.com"
+        groups: example_group_fqdn
+      loop: "{{ groups['example_group'] }}"
+      run_once: true
+
+- name: show servers from fqdn group
+  hosts: example_group_fqdn
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Some debug
+      debug:
+        msg: "Setup a linode host"

@@ -1,0 +1,86 @@
+---
+
+- name: Show a debug
+  debug:
+    msg: "This is a debug message {{ server_name }}"
+
+- name: Ensure directory exists for config
+  file:
+    path: "{{ item }}"
+    state: directory
+  loop:
+      - /etc/netpoke
+      - /etc/netpoke/certs
+
+- name: Copy make-certs file with owner and permissions
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../generate_certs.sh"
+    dest: /root/generate_certs.sh
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Generate certs
+  shell: /root/generate_certs.sh
+  args:
+    chdir: /root/
+
+- name: Copy certificate on remote host
+  copy:
+    src: /root/certs/server.crt
+    dest: /etc/netpoke/certs/server.crt
+    remote_src: yes
+
+- name: Copy key on remote host
+  copy:
+    src: /root/certs/server.key
+    dest: /etc/netpoke/certs/server.key
+    remote_src: yes
+
+- name: Copy netpoke config from baseline
+  copy:
+    src: files/server_config.toml.src
+    dest: /etc/netpoke/server_config.toml
+
+- name: Copy netpoke with owner and permissions
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../out/netpoke-server"
+    dest: /usr/local/bin/netpoke-server
+    owner: root
+    group: root
+    mode: '0700'
+
+
+- name: Copy service file
+  copy:
+    src: "{{ playbook_dir }}/../../misc/alpine-service"
+    dest: /etc/init.d/netpoke
+    owner: root
+    group: root
+    mode: '0755'
+
+
+- name: register netpoke service
+  command: rc-update add netpoke default  # Start on boot
+
+- name: start netpoke service
+  command: rc-service netpoke start
+
+- name: Force restart netpoke
+  service: name=netpoke state=restarted
+  changed_when: false
+
+- name: Check netpoke status (distro-independent)
+  ansible.builtin.service:
+    name: netpoke
+    state: started
+  check_mode: yes
+  register: netpoke_status
+  failed_when: false
+  delegate_to: "{{ control_host }}"
+  when: inventory_hostname == control_host
+
+# handlers:
+#   - name: reload nginx
+#    service: name=nginx state=restarted
+...
