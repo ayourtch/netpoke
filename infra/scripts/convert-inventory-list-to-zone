@@ -1,0 +1,47 @@
+#!/bin/bash
+#
+## Default rule
+# cat inventory.json | ./script.sh 3600
+
+# Single custom rule
+# cat inventory.json | ./script.sh 3600 "web-server-:www"
+
+# Multiple rules
+# cat inventory.json | ./script.sh 3600 "web-server-:srv" "-sandbox:.test" "-1:.prod"
+
+
+TTL="${1:-3600}"
+shift
+
+# Parse replacement rules as "pattern:replacement" pairs
+declare -A REPLACEMENTS
+if [ $# -eq 0 ]; then
+  REPLACEMENTS["web-server-sandbox"]="sandbox"
+  REPLACEMENTS["web-server-"]="www"
+else
+  for rule in "$@"; do
+    pattern="${rule%%:*}"
+    replacement="${rule#*:}"
+    REPLACEMENTS["$pattern"]="$replacement"
+  done
+fi
+
+jq -r '
+  ._meta.hostvars | 
+  to_entries[] | 
+  select(.value.ipv4 and .value.ipv4[0]) |
+  "\(.key)\t\(.value.ipv4[0].__ansible_unsafe // .value.ipv4[0])\t\(.value.ipv6.__ansible_unsafe // .value.ipv6)"
+' | while IFS=$'\t' read -r hostname ipv4 ipv6; do
+  record_name="$hostname"
+  
+  # Apply all replacement rules
+  for pattern in "${!REPLACEMENTS[@]}"; do
+    record_name="${record_name//$pattern/${REPLACEMENTS[$pattern]}}"
+  done
+
+  # Strip CIDR notation from IPv6
+  ipv6="${ipv6%%/*}"
+  
+  printf "%s\t%s\tIN\tA\t%s\n" "$record_name" "$TTL" "$ipv4"
+  printf "%s\t%s\tIN\tAAAA\t%s\n" "$record_name" "$TTL" "$ipv6"
+done

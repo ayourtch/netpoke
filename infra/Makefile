@@ -4,7 +4,8 @@
 all:
 
 install:
-	bash create-env
+	curl -LsSf https://astral.sh/uv/install.sh | sh
+	bash scripts/create-env
 
 create-blue:
 	. .venv/bin/activate

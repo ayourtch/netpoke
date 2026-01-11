@@ -3,6 +3,7 @@
 #
 # This script initializes the venv for the ansible to work with linode
 # 
+source $HOME/.local/bin/env
 uv venv
 source .venv/bin/activate
 uv pip install ansible
