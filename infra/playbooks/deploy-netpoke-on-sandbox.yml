@@ -1,0 +1,77 @@
+---
+
+- name: Update /etc/hosts
+  hosts: localhost
+  vars:
+    ansible_host: "{{ inventory_hostname }}.netpoke.com"
+  become: false
+    # true
+  tasks:
+    - name: Initial setup
+      debug:
+        msg: "Setup a linode host"
+
+          # - include_tasks: tasks/update-etc-hosts.yml
+          # run_once: true
+          #
+          #
+
+- name: Configure servers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add hosts with FQDN
+      add_host:
+        name: "sandbox.netpoke.com"
+        ansible_host: "sandbox.netpoke.com"
+        groups: example_group_fqdn
+      run_once: true
+
+- name: show servers from fqdn group
+  hosts: example_group_fqdn
+  gather_facts: false
+  connection: local
+  tasks:
+    - name: Some debug
+      debug:
+        msg: "Setup a linode host"
+
+- name: Configure servers
+  hosts: example_group_fqdn
+  # linode wants root
+  remote_user: root
+  # be paranoid
+  serial:
+    - 1        # Run on 1 host first
+    - "100%"   # Then run on all remaining hosts
+  max_fail_percentage: 0
+  # variables
+  vars:
+    control_host: "{{ groups['example_group'][0] }}"
+    tls_dir: /etc/nginx/ssl
+    key_file: nginx.key
+    cert_file: nginx.crt
+    conf_file: /etc/nginx/sites-available/default
+    server_name: localhost
+
+  vars_files:
+    - ./group_vars/example_group/vars
+
+  become: true
+  tasks:
+    - name: Initial setup
+      debug:
+        msg: "Setup a linode host"
+
+    - include_tasks: tasks/deploy-netpoke-server.yml
+
+    # - include_tasks: tasks/setup-webserver.yml
+
+  # handlers:
+  #  - name: reload nginx
+  #    service: name=nginx state=restarted
+
+
+
+
