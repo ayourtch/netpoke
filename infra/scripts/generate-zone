@@ -1,4 +1,4 @@
 ansible-inventory --list | bash scripts/convert-inventory-list-to-zone 60 >zones/netpoke.com
-echo "www	60	CNAME	www1.apileo.com" >>zones/netpoke.com
-echo "@ 60	CNAME	www1.apileo.com" >>zones/netpoke.com
+echo "www	60	CNAME	www1.netpoke.com" >>zones/netpoke.com
+echo "@ 60	CNAME	www1.netpoke.com" >>zones/netpoke.com
 dnsfixer sync
