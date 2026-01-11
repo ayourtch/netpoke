@@ -33,6 +33,16 @@ netpoke-server-copy:
 	cp out/netpoke-server out/netpoke-server-symbols
 	strip out/netpoke-server
 
+deploy-sandbox:
+	cd infra && \
+	UV_VENV_CLEAR=1 make install && \
+	ansible-playbook playbooks/deploy-netpoke-on-sandbox.yml
+
+setup-linode-all:
+	cd infra && \
+	UV_VENV_CLEAR=1 make install && \
+	ansible-playbook playbooks/setup-linode-hosts.yml
+
 netpoke-server: docker netpoke-server-copy
 	echo "Netpoke server done!"
 

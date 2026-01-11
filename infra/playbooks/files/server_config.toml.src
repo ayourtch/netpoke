@@ -9,7 +9,7 @@ http_port = 3000
 enable_http = false
 
 # HTTPS server settings
-https_port = 3443
+https_port = 443
 enable_https = true
 
 # SSL certificate paths (required for HTTPS)
