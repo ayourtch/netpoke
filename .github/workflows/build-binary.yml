@@ -33,6 +33,11 @@ jobs:
           pwd && ls -la 
           make build-everything
 
+      - name: Deploy on sandbox
+        run: |
+          make deploy-sandbox
+
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
