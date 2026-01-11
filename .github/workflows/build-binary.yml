@@ -23,6 +23,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -34,6 +42,8 @@ jobs:
           make build-everything
 
       - name: Deploy on sandbox
+        env:
+          LINODE_ACCESS_TOKEN: ${{ secrets.LINODE_ACCESS_TOKEN }}
         run: |
           make deploy-sandbox
 
@@ -52,5 +62,8 @@ jobs:
           path: |
             out/netpoke-server-symbols
 
-
+      - name: Cleanup ssh
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa
 
