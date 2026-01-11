@@ -28,8 +28,11 @@ clean-out:
 
 build-everything: clean-out netpoke-server
 
-netpoke-server: docker
-	docker run --rm -v $$(pwd)/out:/out netpoke-builder:latest cp /netpoke/target/release/netpoke-server /out/
+netpoke-server-copy:
+	docker run --rm -v $$(pwd)/out:/out netpoke-build:latest cp /netpoke/result/netpoke-server /out/
+
+netpoke-server: docker netpoke-server-copy
+	echo "Netpoke server done!"
 
 docker:
 	docker build -t netpoke-build:latest . --progress=plain
