@@ -36,6 +36,7 @@ netpoke-server-copy:
 deploy-sandbox:
 	cd infra && \
 	UV_VENV_CLEAR=1 make install && \
+	. .venv/bin/activate && \
 	ansible-playbook playbooks/deploy-netpoke-on-sandbox.yml
 
 setup-linode-all:
