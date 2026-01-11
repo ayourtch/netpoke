@@ -3,9 +3,7 @@
 #
 # This script initializes the venv for the ansible to work with linode
 # 
-source $HOME/.local/bin/env || export PATH="${HOME}/.local/bin:${PATH}"
+export PATH="${HOME}/.local/bin:${PATH}"
 uv venv
-source .venv/bin/activate
-uv pip install ansible
-uv pip install linode_api4
+source .venv/bin/activate && uv pip install ansible linode_api4
 
