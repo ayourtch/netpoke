@@ -7,8 +7,8 @@ COPY ./Makefile.in-docker /netpoke/
 
 RUN . "${HOME}/.cargo/env" && make -f Makefile.in-docker in-docker-prep
 COPY . /netpoke
-RUN . "${HOME}/.cargo/env" && make build
-RUN mkdir result && cp target/release/netpoke-server result/
-RUN . "${HOME}/.cargo/env" && cargo clean
+
+# Do it all at once to avoid running out of disk space
+RUN . "${HOME}/.cargo/env" && make build && mkdir result && cp target/release/netpoke-server result/ && cargo clean
 
 

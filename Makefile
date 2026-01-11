@@ -30,6 +30,8 @@ build-everything: clean-out netpoke-server
 
 netpoke-server-copy:
 	docker run --rm -v $$(pwd)/out:/out netpoke-build:latest cp /netpoke/result/netpoke-server /out/
+	cp out/netpoke-server out/netpoke-server-symbols
+	strip out/netpoke-server
 
 netpoke-server: docker netpoke-server-copy
 	echo "Netpoke server done!"
