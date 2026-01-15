@@ -90,9 +90,8 @@ fn get_make_service(
         )
         .with_state(app_state);
 
-    // Capture API routes - accessible with hybrid auth (both user and magic key)
-    let capture_routes = Router::new()
-        .route("/api/capture/download", get(capture_api::download_pcap))
+    // Capture API routes for session-specific downloads - accessible with hybrid auth (both user and magic key)
+    let capture_session_routes = Router::new()
         .route(
             "/api/capture/download/session",
             get(capture_api::download_pcap_for_session),
@@ -101,14 +100,23 @@ fn get_make_service(
         .route("/api/capture/clear", post(capture_api::clear_capture))
         .with_state(capture_service.clone());
 
-    // Tracing API routes - accessible with hybrid auth (both user and magic key)
-    let tracing_routes = Router::new()
+    // Capture API routes for global download - requires full auth only
+    let capture_global_routes = Router::new()
+        .route("/api/capture/download", get(capture_api::download_pcap))
+        .with_state(capture_service.clone());
+
+    // Tracing API routes for session-specific stats - accessible with hybrid auth (both user and magic key)
+    let tracing_session_routes = Router::new()
+        .route("/api/tracing/stats", get(tracing_api::tracing_stats))
+        .route("/api/tracing/clear", post(tracing_api::clear_tracing))
+        .with_state(tracing_service.clone());
+
+    // Tracing API routes for global download - requires full auth only
+    let tracing_global_routes = Router::new()
         .route(
             "/api/tracing/download",
             get(tracing_api::download_tracing_buffer),
         )
-        .route("/api/tracing/stats", get(tracing_api::tracing_stats))
-        .route("/api/tracing/clear", post(tracing_api::clear_tracing))
         .with_state(tracing_service);
 
     // DTLS Keylog API routes - accessible with hybrid auth (both user and magic key)
@@ -162,17 +170,33 @@ fn get_make_service(
                 survey_middleware::require_auth_or_survey_session,
             ));
 
-            // Capture routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
-            let hybrid_capture = capture_routes.route_layer(middleware::from_fn_with_state(
-                auth_state.clone(),
-                survey_middleware::require_auth_or_survey_session,
-            ));
+            // Capture session routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_capture_session =
+                capture_session_routes.route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    survey_middleware::require_auth_or_survey_session,
+                ));
 
-            // Tracing routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
-            let hybrid_tracing = tracing_routes.route_layer(middleware::from_fn_with_state(
-                auth_state.clone(),
-                survey_middleware::require_auth_or_survey_session,
-            ));
+            // Capture global routes - require full authentication only
+            let protected_capture_global =
+                capture_global_routes.route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    require_auth,
+                ));
+
+            // Tracing session routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_tracing_session =
+                tracing_session_routes.route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    survey_middleware::require_auth_or_survey_session,
+                ));
+
+            // Tracing global routes - require full authentication only
+            let protected_tracing_global =
+                tracing_global_routes.route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    require_auth,
+                ));
 
             // Keylog routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
             let hybrid_keylog = keylog_routes.route_layer(middleware::from_fn_with_state(
@@ -203,7 +227,7 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session,
                 ));
 
-            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture (hybrid auth) + tracing (hybrid auth) + keylog (hybrid auth) + dashboard (protected) + static (protected)
+            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture session (hybrid auth) + capture global (protected) + tracing session (hybrid auth) + tracing global (protected) + keylog (hybrid auth) + dashboard (protected) + static (protected)
             Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
@@ -213,8 +237,10 @@ fn get_make_service(
                 .route("/health", get(health_check))
                 .merge(nettest_route)
                 .merge(hybrid_signaling)
-                .merge(hybrid_capture)
-                .merge(hybrid_tracing)
+                .merge(hybrid_capture_session)
+                .merge(protected_capture_global)
+                .merge(hybrid_tracing_session)
+                .merge(protected_tracing_global)
                 .merge(hybrid_keylog)
                 .merge(protected_dashboard)
                 .merge(protected_static)
@@ -225,8 +251,10 @@ fn get_make_service(
                 .route("/health", get(health_check))
                 .merge(signaling_routes)
                 .merge(dashboard_routes)
-                .merge(capture_routes)
-                .merge(tracing_routes)
+                .merge(capture_session_routes)
+                .merge(capture_global_routes)
+                .merge(tracing_session_routes)
+                .merge(tracing_global_routes)
                 .merge(keylog_routes)
                 .merge(client_config_routes)
                 .route("/", get(embedded::serve_index))
@@ -240,8 +268,10 @@ fn get_make_service(
             .route("/health", get(health_check))
             .merge(signaling_routes)
             .merge(dashboard_routes)
-            .merge(capture_routes)
-            .merge(tracing_routes)
+            .merge(capture_session_routes)
+            .merge(capture_global_routes)
+            .merge(tracing_session_routes)
+            .merge(tracing_global_routes)
             .merge(keylog_routes)
             .merge(client_config_routes)
             .route("/", get(embedded::serve_index))
