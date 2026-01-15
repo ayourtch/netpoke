@@ -33,6 +33,9 @@ pub struct MagicKeyRequest {
 #[derive(Serialize)]
 pub struct AuthStatusResponse {
     authenticated: bool,
+    /// Type of authentication: "full" for OAuth/password login, "magic_key" for Magic Key access
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     user: Option<UserInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -71,6 +74,7 @@ pub async fn auth_status(
     if !auth_state.is_enabled() {
         return Json(AuthStatusResponse {
             authenticated: false,
+            auth_type: None,
             user: None,
             stats: None,
         });
@@ -86,6 +90,7 @@ pub async fn auth_status(
             if auth_state.is_user_allowed(&session_data.handle) {
                 return Json(AuthStatusResponse {
                     authenticated: true,
+                    auth_type: Some("full".to_string()),
                     user: Some(UserInfo {
                         name: session_data.handle.clone(),
                     }),
@@ -101,6 +106,7 @@ pub async fn auth_status(
 
     Json(AuthStatusResponse {
         authenticated: false,
+        auth_type: None,
         user: None,
         stats: None,
     })
@@ -118,6 +124,7 @@ pub async fn auth_status_with_cache(
     if !auth_state.is_enabled() {
         return Json(AuthStatusResponse {
             authenticated: false,
+            auth_type: None,
             user: None,
             stats: None,
         });
@@ -143,6 +150,7 @@ pub async fn auth_status_with_cache(
 
                 return Json(AuthStatusResponse {
                     authenticated: true,
+                    auth_type: Some("full".to_string()),
                     user: Some(UserInfo {
                         name: session_data.handle.clone(),
                     }),
@@ -158,6 +166,7 @@ pub async fn auth_status_with_cache(
 
     Json(AuthStatusResponse {
         authenticated: false,
+        auth_type: None,
         user: None,
         stats: None,
     })
