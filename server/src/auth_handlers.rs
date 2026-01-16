@@ -1,7 +1,7 @@
 use crate::auth_cache::SharedAuthAddressCache;
 use axum::{
     extract::{ConnectInfo, FromRef, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -33,6 +33,9 @@ pub struct MagicKeyRequest {
 #[derive(Serialize)]
 pub struct AuthStatusResponse {
     authenticated: bool,
+    /// Type of authentication: "full" for OAuth/password login, "magic_key" for Magic Key access
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     user: Option<UserInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -62,21 +65,99 @@ fn extract_session_from_jar(jar: &PrivateCookieJar, cookie_name: &str) -> Option
         .and_then(|cookie| serde_json::from_str(cookie.value()).ok())
 }
 
+/// Collect all cookies from potentially multiple cookie headers
+fn collect_all_cookies(headers: &HeaderMap) -> String {
+    headers
+        .get_all("cookie")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .fold(String::new(), |mut acc, s| {
+            if !acc.is_empty() {
+                acc.push_str("; ");
+            }
+            acc.push_str(s);
+            acc
+        })
+}
+
+/// Extract a session ID from a cookie string
+fn extract_session_id(cookie_str: &str, cookie_name: &str) -> Option<String> {
+    cookie_str.split(';').find_map(|cookie| {
+        let parts: Vec<&str> = cookie.trim().split('=').collect();
+        if parts.len() == 2 && parts[0] == cookie_name {
+            Some(parts[1].to_string())
+        } else {
+            None
+        }
+    })
+}
+
+/// Validate survey session format and check expiration
+/// Session format: "survey_{magic_key}_{timestamp}_{uuid}"
+fn validate_survey_session(
+    session_id: &str,
+    config: &netpoke_auth::config::MagicKeyConfig,
+) -> bool {
+    // Check if it starts with "survey_"
+    if !session_id.starts_with("survey_") {
+        return false;
+    }
+
+    // Parse the session format
+    let parts: Vec<&str> = session_id.split('_').collect();
+    if parts.len() < 4 {
+        return false;
+    }
+
+    // Extract timestamp (second-to-last part before UUID)
+    let timestamp_str = parts[parts.len() - 2];
+    let timestamp = match timestamp_str.parse::<u64>() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
+    // Check if session has expired
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let elapsed = current_time.saturating_sub(timestamp);
+    if elapsed > config.survey_timeout_seconds {
+        return false;
+    }
+
+    // Extract and validate the Magic Key is still in the allowed list
+    let magic_key_parts: Vec<String> = parts[1..parts.len() - 2]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let magic_key = magic_key_parts.join("-");
+
+    if !config.magic_keys.contains(&magic_key) {
+        return false;
+    }
+
+    true
+}
+
 /// Check authentication status
 pub async fn auth_status(
     State(auth_state): State<AuthState>,
+    headers: HeaderMap,
     jar: PrivateCookieJar,
 ) -> Json<AuthStatusResponse> {
     // Skip if auth is disabled
     if !auth_state.is_enabled() {
         return Json(AuthStatusResponse {
             authenticated: false,
+            auth_type: None,
             user: None,
             stats: None,
         });
     }
 
-    // Try to extract session from private cookie
+    // Try to extract session from private cookie (full auth takes precedence)
     if let Some(session_data) =
         extract_session_from_jar(&jar, &auth_state.config.session.cookie_name)
     {
@@ -86,6 +167,7 @@ pub async fn auth_status(
             if auth_state.is_user_allowed(&session_data.handle) {
                 return Json(AuthStatusResponse {
                     authenticated: true,
+                    auth_type: Some("full".to_string()),
                     user: Some(UserInfo {
                         name: session_data.handle.clone(),
                     }),
@@ -99,8 +181,26 @@ pub async fn auth_status(
         }
     }
 
+    // Check for magic key session (fallback)
+    if auth_state.config.magic_keys.enabled {
+        let cookie_str = collect_all_cookies(&headers);
+        if let Some(survey_session_id) =
+            extract_session_id(&cookie_str, &auth_state.config.magic_keys.survey_cookie_name)
+        {
+            if validate_survey_session(&survey_session_id, &auth_state.config.magic_keys) {
+                return Json(AuthStatusResponse {
+                    authenticated: true,
+                    auth_type: Some("magic_key".to_string()),
+                    user: None,
+                    stats: None,
+                });
+            }
+        }
+    }
+
     Json(AuthStatusResponse {
         authenticated: false,
+        auth_type: None,
         user: None,
         stats: None,
     })
@@ -110,6 +210,7 @@ pub async fn auth_status(
 pub async fn auth_status_with_cache(
     State(handler_state): State<AuthHandlerState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     jar: PrivateCookieJar,
 ) -> Json<AuthStatusResponse> {
     let auth_state = &handler_state.auth_state;
@@ -118,12 +219,13 @@ pub async fn auth_status_with_cache(
     if !auth_state.is_enabled() {
         return Json(AuthStatusResponse {
             authenticated: false,
+            auth_type: None,
             user: None,
             stats: None,
         });
     }
 
-    // Try to extract session from private cookie
+    // Try to extract session from private cookie (full auth takes precedence)
     if let Some(session_data) =
         extract_session_from_jar(&jar, &auth_state.config.session.cookie_name)
     {
@@ -143,6 +245,7 @@ pub async fn auth_status_with_cache(
 
                 return Json(AuthStatusResponse {
                     authenticated: true,
+                    auth_type: Some("full".to_string()),
                     user: Some(UserInfo {
                         name: session_data.handle.clone(),
                     }),
@@ -156,8 +259,36 @@ pub async fn auth_status_with_cache(
         }
     }
 
+    // Check for magic key session (fallback)
+    if auth_state.config.magic_keys.enabled {
+        let cookie_str = collect_all_cookies(&headers);
+        if let Some(survey_session_id) =
+            extract_session_id(&cookie_str, &auth_state.config.magic_keys.survey_cookie_name)
+        {
+            if validate_survey_session(&survey_session_id, &auth_state.config.magic_keys) {
+                // Record magic key auth to cache
+                if let Some(cache) = &handler_state.auth_cache {
+                    cache.record_auth(
+                        addr.ip(),
+                        "magic_key_user".to_string(),
+                        None,
+                        "magic_key".to_string(),
+                    );
+                }
+
+                return Json(AuthStatusResponse {
+                    authenticated: true,
+                    auth_type: Some("magic_key".to_string()),
+                    user: None,
+                    stats: None,
+                });
+            }
+        }
+    }
+
     Json(AuthStatusResponse {
         authenticated: false,
+        auth_type: None,
         user: None,
         stats: None,
     })

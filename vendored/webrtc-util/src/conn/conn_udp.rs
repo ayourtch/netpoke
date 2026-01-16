@@ -10,6 +10,12 @@ use libc::{
     IP_TTL,
 };
 
+// On Linux, msghdr.msg_controllen is usize
+#[cfg(target_os = "linux")]
+type msg_controllen_type = usize;
+
+// On other platforms (macOS, etc.) msghdr.msg_controllen is u32
+#[cfg(not(target_os = "linux"))]
 type msg_controllen_type = u32;
 
 #[async_trait]
