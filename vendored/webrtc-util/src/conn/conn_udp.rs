@@ -10,9 +10,13 @@ use libc::{
     IP_TTL,
 };
 
-// On Linux, msghdr.msg_controllen is usize
-#[cfg(target_os = "linux")]
+// On Linux with glibc, msghdr.msg_controllen is usize (size_t)
+#[cfg(all(target_os = "linux", not(target_env = "musl")))]
 type msg_controllen_type = usize;
+
+// On Linux with musl (Alpine Linux), msghdr.msg_controllen is u32 (socklen_t)
+#[cfg(all(target_os = "linux", target_env = "musl"))]
+type msg_controllen_type = u32;
 
 // On other platforms (macOS, etc.) msghdr.msg_controllen is u32
 #[cfg(not(target_os = "linux"))]
