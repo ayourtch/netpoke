@@ -43,10 +43,12 @@
     - "100%"   # Then run on all remaining hosts
   max_fail_percentage: 0
   vars:
+    # control_host is used by deploy-netpoke-server.yml for status checks
     control_host: "{{ groups['deploy_targets'][0] }}"
     binary_path: "{{ playbook_dir }}/../../out/netpoke-server"
     server_name: "{{ inventory_hostname }}"
   vars_files:
+    # Shared SSH keys and common configuration
     - ./group_vars/example_group/vars
   become: true
   tasks:
