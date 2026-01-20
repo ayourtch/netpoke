@@ -18,6 +18,8 @@ jobs:
   validate:
     name: Validate deployment
     runs-on: ubuntu-latest
+    permissions:
+      contents: none
     steps:
       - name: Validate confirmation
         run: |
@@ -109,7 +111,15 @@ jobs:
           echo "Waiting for service to start..."
           sleep 10
           echo "Checking if www1.netpoke.com is responding..."
-          curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://www1.netpoke.com/ || echo "Note: Could not verify HTTPS endpoint"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://www1.netpoke.com/ || echo "000")
+          echo "HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "000" ]; then
+            echo "::warning::Could not connect to www1.netpoke.com - service may still be starting"
+          elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "Service is responding correctly"
+          else
+            echo "::warning::Service returned HTTP $HTTP_STATUS"
+          fi
 
       - name: Cleanup SSH
         if: always()
