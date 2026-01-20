@@ -1,4 +1,4 @@
-.PHONY: all build build-wasm build-server install-service restart pull update-server
+.PHONY: all build build-wasm build-server install-service restart pull update-server deploy-host
 
 all: build restart
 
@@ -64,4 +64,15 @@ install-service:
 restart:
 	sudo systemctl stop netpoke
 	sudo systemctl start netpoke
+
+# Deploy to a specific host by FQDN
+# Usage: make deploy-host HOST=www1.netpoke.com
+deploy-host:
+ifndef HOST
+	$(error HOST is required. Usage: make deploy-host HOST=www1.netpoke.com)
+endif
+	cd infra && \
+	UV_VENV_CLEAR=1 make install && \
+	. .venv/bin/activate && \
+	ansible-playbook playbooks/deploy-netpoke.yml -e "target_fqdn=$(HOST)"
 

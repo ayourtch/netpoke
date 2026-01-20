@@ -1,0 +1,108 @@
+name: Deploy to Host
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_host:
+        description: 'Target host FQDN (e.g., www1.netpoke.com)'
+        required: true
+        type: string
+      commit_sha:
+        description: 'Commit SHA to deploy (leave empty to use current HEAD)'
+        required: false
+        type: string
+        default: ''
+      artifact_name:
+        description: 'Artifact name pattern (optional, auto-detected if empty)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.target_host }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    
+    steps:
+      - name: Validate inputs
+        run: |
+          if [ -z "${{ inputs.target_host }}" ]; then
+            echo "Error: target_host is required"
+            exit 1
+          fi
+          echo "Deploying to: ${{ inputs.target_host }}"
+          echo "Commit SHA: ${{ inputs.commit_sha || github.sha }}"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+
+      - name: Add host to known_hosts
+        run: |
+          ssh-keyscan -H ${{ inputs.target_host }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Determine artifact name
+        id: artifact
+        run: |
+          COMMIT_SHA="${{ inputs.commit_sha || github.sha }}"
+          if [ -n "${{ inputs.artifact_name }}" ]; then
+            echo "name=${{ inputs.artifact_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=netpoke-x86_64-linux-musl-${COMMIT_SHA}-lean" >> $GITHUB_OUTPUT
+          fi
+          echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Download artifact from previous build
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-binary.yml
+          commit: ${{ steps.artifact.outputs.commit_sha }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: out/
+        continue-on-error: true
+        id: download
+
+      - name: Check if artifact was downloaded
+        if: steps.download.outcome == 'failure'
+        run: |
+          echo "::error::Failed to download artifact '${{ steps.artifact.outputs.name }}' for commit ${{ steps.artifact.outputs.commit_sha }}"
+          echo "Make sure the build workflow has run for this commit and artifacts exist."
+          exit 1
+
+      - name: Verify artifact exists
+        run: |
+          if [ ! -f "out/netpoke-server" ]; then
+            echo "::error::netpoke-server binary not found in artifact"
+            ls -la out/ || echo "out/ directory does not exist"
+            exit 1
+          fi
+          echo "Artifact verified: out/netpoke-server"
+          ls -la out/
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip3 install ansible
+
+      - name: Deploy to target host
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "false"
+        run: |
+          cd infra
+          ansible-playbook playbooks/deploy-netpoke.yml -e "target_fqdn=${{ inputs.target_host }}"
+
+      - name: Cleanup SSH
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa
