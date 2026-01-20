@@ -1,0 +1,58 @@
+---
+# Generalized NetPoke deployment playbook
+# Usage: ansible-playbook deploy-netpoke.yml -e "target_fqdn=www1.netpoke.com"
+#
+# Required variables:
+#   target_fqdn: The fully qualified domain name of the target server (e.g., www1.netpoke.com)
+#
+# Optional variables:
+#   remote_user: The SSH user to connect as (default: root)
+#   binary_path: Path to the netpoke-server binary (default: ../../out/netpoke-server)
+
+- name: Validate required variables
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check that target_fqdn is defined
+      fail:
+        msg: "target_fqdn variable is required. Use -e 'target_fqdn=host.example.com'"
+      when: target_fqdn is not defined or target_fqdn == ""
+
+    - name: Display deployment target
+      debug:
+        msg: "Deploying NetPoke to {{ target_fqdn }}"
+
+- name: Configure target hosts
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Add target host with FQDN
+      add_host:
+        name: "{{ target_fqdn }}"
+        ansible_host: "{{ target_fqdn }}"
+        groups: deploy_targets
+      run_once: true
+
+- name: Deploy NetPoke server
+  hosts: deploy_targets
+  remote_user: "{{ remote_user | default('root') }}"
+  serial:
+    - 1        # Run on 1 host first
+    - "100%"   # Then run on all remaining hosts
+  max_fail_percentage: 0
+  vars:
+    control_host: "{{ groups['deploy_targets'][0] }}"
+    binary_path: "{{ playbook_dir }}/../../out/netpoke-server"
+    server_name: "{{ inventory_hostname }}"
+  vars_files:
+    - ./group_vars/example_group/vars
+  become: true
+  tasks:
+    - name: Display deployment info
+      debug:
+        msg: "Deploying NetPoke to {{ server_name }}"
+
+    - include_tasks: tasks/deploy-netpoke-server.yml
+
