@@ -2,187 +2,828 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Network Measurement Client</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Measurement</title>
     <style>
-        body { font-family: Arial, sans-serif; padding: 20px; }
-        #status { font-weight: bold; margin: 20px 0; }
-        #metrics { margin-top: 20px; }
-        .dual-stack-container { display: flex; gap: 20px; }
-        .stack-column { flex: 1; }
-        table { border-collapse: collapse; margin-top: 10px; width: 100%; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #4CAF50; color: white; }
-        td:first-child { text-align: left; }
-        .ipv4 th { background-color: #2196F3; }
-        .ipv6 th { background-color: #FF9800; }
-        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
-        button:hover { background-color: #ddd; }
-        button:disabled { 
-            background-color: #ccc; 
-            color: #666; 
-            cursor: not-allowed; 
-            opacity: 0.6;
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-        #stop-testing-btn { 
-            background-color: #f44336; 
-            color: white; 
-            margin-left: 10px;
+        
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #f5f5f5;
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
         }
-        #stop-testing-btn:hover:not(:disabled) { 
-            background-color: #d32f2f; 
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
         }
-        #stop-testing-btn:disabled {
+        
+        /* Header with logo */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding: 16px 24px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #2196F3 0%, #FF9800 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .logo-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+        
+        .logo h1 {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .header-badges {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .badge {
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+        
+        .badge-ipv4 {
+            background-color: rgba(33, 150, 243, 0.1);
+            color: #2196F3;
+            border: 1px solid rgba(33, 150, 243, 0.3);
+        }
+        
+        .badge-ipv6 {
+            background-color: rgba(255, 152, 0, 0.1);
+            color: #FF9800;
+            border: 1px solid rgba(255, 152, 0, 0.3);
+        }
+        
+        /* Collapsible info section */
+        .info-section {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+        
+        .info-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 24px;
+            background: linear-gradient(135deg, rgba(33, 150, 243, 0.05) 0%, rgba(255, 152, 0, 0.05) 100%);
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s ease;
+        }
+        
+        .info-header:hover {
+            background: linear-gradient(135deg, rgba(33, 150, 243, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
+        }
+        
+        .info-header h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .info-header h2 svg {
+            width: 20px;
+            height: 20px;
+            fill: #2196F3;
+        }
+        
+        .info-toggle {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            background: rgba(33, 150, 243, 0.1);
+            transition: transform 0.3s ease, background-color 0.2s ease;
+        }
+        
+        .info-toggle svg {
+            width: 16px;
+            height: 16px;
+            fill: #2196F3;
+        }
+        
+        .info-section.collapsed .info-toggle {
+            transform: rotate(-90deg);
+        }
+        
+        .info-content {
+            padding: 20px 24px;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.7;
+            border-top: 1px solid #eee;
+            transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.2s ease;
+            max-height: 500px;
+            opacity: 1;
+            overflow: hidden;
+        }
+        
+        .info-section.collapsed .info-content {
+            max-height: 0;
+            padding-top: 0;
+            padding-bottom: 0;
+            opacity: 0;
+            border-top: none;
+        }
+        
+        .info-content p {
+            margin-bottom: 12px;
+        }
+        
+        .info-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .info-content strong {
+            color: #333;
+        }
+        
+        /* Card sections */
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .card h2 {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .card-description {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 16px;
+            font-style: italic;
+        }
+        
+        /* Controls section */
+        .controls-section {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .control-group label {
+            font-weight: 600;
+            font-size: 14px;
+            color: #333;
+        }
+        
+        select {
+            padding: 10px 14px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        select:focus {
+            outline: none;
+            border-color: #2196F3;
+            box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.1);
+        }
+        
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+        }
+        
+        .btn:hover:not(:disabled) {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            transform: translateY(-1px);
+        }
+        
+        .btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        
+        .btn-primary {
+            background-color: #2196F3;
+            color: white;
+        }
+        
+        .btn-primary:hover:not(:disabled) {
+            background-color: #1976D2;
+        }
+        
+        .btn-danger {
+            background-color: #f44336;
+            color: white;
+        }
+        
+        .btn-danger:hover:not(:disabled) {
+            background-color: #d32f2f;
+        }
+        
+        .btn:disabled {
             background-color: #ccc;
             color: #666;
+            cursor: not-allowed;
+            opacity: 0.6;
         }
-        .running { color: green; }
-        .error { color: red; }
-        #probe-stats-chart-container { margin-top: 40px; }
-        #probe-stats-chart { max-height: 300px; }
-        .chart-controls { margin: 20px 0; }
-        .chart-controls button { margin-right: 10px; }
+        
         #wake-lock-status { 
-            display: inline-block;
-            margin-left: 15px;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
             background-color: #f0f0f0;
             color: #666;
         }
+        
         #wake-lock-status.active { 
             background-color: #4CAF50;
             color: white;
         }
+        
         #wake-lock-status.unsupported { 
             background-color: #ff9800;
             color: white;
         }
+        
+        /* Status bar */
+        #status {
+            padding: 14px 20px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-weight: 500;
+            color: #666;
+            border-left: 4px solid #2196F3;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+        
+        #status.running {
+            border-left-color: #4CAF50;
+            color: #2e7d32;
+        }
+        
+        #status.error {
+            border-left-color: #f44336;
+            color: #c62828;
+        }
+        
+        #error {
+            color: #c62828;
+            font-weight: bold;
+            padding: 12px 16px;
+            background-color: #ffebee;
+            border: 1px solid #ef9a9a;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            display: none;
+        }
+        
+        #error:not(:empty) {
+            display: block;
+        }
+        
+        /* Dual stack containers */
+        .dual-stack-container { 
+            display: flex; 
+            gap: 20px; 
+        }
+        
+        .stack-column { 
+            flex: 1; 
+        }
+        
+        .stack-column h3 {
+            font-size: 15px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        
+        /* Tables */
+        table { 
+            border-collapse: collapse; 
+            margin-top: 10px; 
+            width: 100%; 
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th, td { 
+            border: 1px solid #e0e0e0; 
+            padding: 10px 12px; 
+            text-align: center; 
+            font-size: 13px;
+        }
+        
+        th { 
+            background-color: #4CAF50; 
+            color: white;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+        
+        td:first-child { 
+            text-align: left; 
+        }
+        
+        .ipv4 th { 
+            background-color: #2196F3; 
+        }
+        
+        .ipv6 th { 
+            background-color: #FF9800; 
+        }
+        
+        tr:nth-child(even) {
+            background-color: #fafafa;
+        }
+        
+        tr:hover {
+            background-color: #f0f7ff;
+        }
+        
+        /* Peer connections grid */
+        #peer-connections-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 16px;
+        }
+        
+        .peer-connection-placeholder {
+            text-align: center;
+            color: #999;
+            padding: 24px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+        
+        /* Traceroute visualization */
+        .traceroute-box {
+            border: 1px solid #e0e0e0;
+            background-color: #fafafa;
+            padding: 20px;
+            min-height: 200px;
+            overflow-x: auto;
+            border-radius: 10px;
+        }
+        
+        .traceroute-box.ipv4 {
+            border-color: rgba(33, 150, 243, 0.3);
+        }
+        
+        .traceroute-box.ipv6 {
+            border-color: rgba(255, 152, 0, 0.3);
+        }
+        
+        .traceroute-placeholder {
+            text-align: center;
+            color: #999;
+            padding: 40px;
+        }
+        
+        /* Server messages */
+        #server-messages {
+            width: 100%;
+            height: 150px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            padding: 14px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            background-color: #fafafa;
+            resize: vertical;
+        }
+        
+        /* Packet capture section */
+        .capture-buttons {
+            display: flex;
+            gap: 16px;
+            align-items: flex-start;
+            flex-wrap: wrap;
+        }
+        
+        .capture-item {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        
+        .capture-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            text-align: center;
+            cursor: pointer;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .capture-btn:hover:not(:disabled) {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+        
+        .capture-btn.green {
+            background-color: #4CAF50;
+            color: white;
+        }
+        
+        .capture-btn.green:hover {
+            background-color: #43A047;
+        }
+        
+        .capture-btn.purple {
+            background-color: #9C27B0;
+            color: white;
+        }
+        
+        .capture-btn.purple:hover:not(:disabled) {
+            background-color: #8E24AA;
+        }
+        
+        .capture-btn.deep-purple {
+            background-color: #673AB7;
+            color: white;
+        }
+        
+        .capture-btn.deep-purple:hover:not(:disabled) {
+            background-color: #5E35B1;
+        }
+        
+        .capture-btn.blue {
+            background-color: #2196F3;
+            color: white;
+        }
+        
+        .capture-btn.blue:hover {
+            background-color: #1E88E5;
+        }
+        
+        .capture-btn:disabled {
+            background-color: #ccc;
+            color: #666;
+            cursor: not-allowed;
+        }
+        
+        .capture-status {
+            color: #666;
+            font-size: 13px;
+        }
+        
+        /* Probe stats */
+        .probe-stats-box {
+            padding: 16px;
+            background: #fafafa;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            min-height: 120px;
+        }
+        
+        .probe-stats-placeholder {
+            text-align: center;
+            color: #999;
+        }
+        
+        /* Chart container */
+        #probe-stats-chart-container { 
+            margin-top: 24px; 
+        }
+        
+        .probe-stats-chart-controls {
+            margin-bottom: 16px;
+        }
+        
+        #probe-stats-chart { 
+            max-height: 300px; 
+        }
+        
+        .chart-controls { 
+            margin: 20px 0; 
+        }
+        
+        .chart-controls button { 
+            margin-right: 10px; 
+        }
+        
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 24px;
+            color: #999;
+            font-size: 12px;
+        }
+        
+        .footer a {
+            color: #2196F3;
+            text-decoration: none;
+        }
+        
+        .footer a:hover {
+            text-decoration: underline;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+            
+            .controls-section {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .control-group {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .dual-stack-container {
+                flex-direction: column;
+            }
+            
+            #peer-connections-list {
+                grid-template-columns: 1fr;
+            }
+            
+            .capture-buttons {
+                flex-direction: column;
+            }
+        }
     </style>
 </head>
 <body>
-    <h1>Network Measurement Client</h1>
-    <div style="margin-bottom: 15px;">
-        <label for="conn-count" style="font-weight: bold; margin-right: 10px;">Connections per Address Family (ECMP):</label>
-        <select id="conn-count" style="padding: 5px; font-size: 14px;">
-            <option value="1" selected>1 connection</option>
-            <option value="2">2 connections</option>
-            <option value="4">4 connections</option>
-            <option value="8">8 connections</option>
-            <option value="16">16 connections</option>
-        </select>
-    </div>
-    <button id="analyze-network-btn" onclick="analyzeNetwork()">Analyze Network</button>
-    <button id="stop-testing-btn" onclick="stopTesting()" disabled>Stop Testing</button>
-    <span id="wake-lock-status">Wake Lock: Checking...</span>
-    <div id="status">Loading WASM module...</div>
-    <div id="ayxx"></div>
-    <div id="error" style="color: red; font-weight: bold; margin: 10px 0;"></div>
-
-    <div id="peer-connections-container" style="margin-top: 20px;">
-        <h2>Peer Connections</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Active peer connections with their connection IDs (matching traceroute data) and address information.</em></p>
-        <div id="peer-connections-list" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px;">
-            <div style="text-align: center; color: #999; padding: 20px; border: 1px dashed #ccc; border-radius: 4px;">No active connections. Click "Analyze Network" to start.</div>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"/>
+                        <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/>
+                        <circle cx="12" cy="12" r="1.5"/>
+                    </svg>
+                </div>
+                <h1>Network Measurement</h1>
+            </div>
+            <div class="header-badges">
+                <span class="badge badge-ipv4">IPv4</span>
+                <span class="badge badge-ipv6">IPv6</span>
+            </div>
         </div>
-    </div>
-
-    <div id="traceroute-visualization" style="margin-top: 20px;">
-        <h2>Traceroute Path Visualization</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 10px;"><em>Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</em></p>
         
-        <div class="dual-stack-container">
-            <div class="stack-column">
-                <h3 style="color: #2196F3;">IPv4 Path</h3>
-                <div id="traceroute-graph-ipv4" style="border: 1px solid #2196F3; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
-                    <div style="text-align: center; color: #999; padding: 40px;">No IPv4 traceroute data available.</div>
+        <!-- Collapsible Info Section -->
+        <div class="info-section" id="info-section">
+            <div class="info-header" onclick="toggleInfoSection()">
+                <h2>
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
+                    </svg>
+                    About Network Measurement
+                </h2>
+                <div class="info-toggle">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                    </svg>
                 </div>
             </div>
-            <div class="stack-column">
-                <h3 style="color: #FF9800;">IPv6 Path</h3>
-                <div id="traceroute-graph-ipv6" style="border: 1px solid #FF9800; background-color: #fafafa; padding: 20px; min-height: 200px; overflow-x: auto;">
-                    <div style="text-align: center; color: #999; padding: 40px;">No IPv6 traceroute data available.</div>
-                </div>
+            <div class="info-content">
+                <p>
+                    This tool performs <strong>end-to-end application-layer network measurements</strong> to understand what your applications actually experience when communicating over the network. Unlike traditional WiFi survey tools that focus on radio frequency (RF) metrics, NetPoke measures real network performance.
+                </p>
+                <p>
+                    <strong>How it works:</strong> The measurement uses WebRTC data channels to establish connections to our measurement server. It then performs traceroute analysis to discover the network path, followed by continuous probe streams to measure latency, jitter, packet loss, and reordering. Multiple connections can be established to detect ECMP (Equal-Cost Multi-Path) routing in your network.
+                </p>
+                <p>
+                    <strong>What is measured:</strong> Round-trip delay (latency), delay variation (jitter), packet loss rate, out-of-order packet delivery, and network path characteristics. Results are shown for both IPv4 and IPv6 when available, giving you a complete dual-stack view of your network performance.
+                </p>
             </div>
         </div>
-    </div>
+        
+        <!-- Controls Card -->
+        <div class="card">
+            <div class="controls-section">
+                <div class="control-group">
+                    <label for="conn-count">Connections per Address Family (ECMP):</label>
+                    <select id="conn-count">
+                        <option value="1" selected>1 connection</option>
+                        <option value="2">2 connections</option>
+                        <option value="4">4 connections</option>
+                        <option value="8">8 connections</option>
+                        <option value="16">16 connections</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <button id="analyze-network-btn" class="btn btn-primary" onclick="analyzeNetwork()">Analyze Network</button>
+                    <button id="stop-testing-btn" class="btn btn-danger" onclick="stopTesting()" disabled>Stop Testing</button>
+                </div>
+                <span id="wake-lock-status">Wake Lock: Checking...</span>
+            </div>
+        </div>
+        
+        <!-- Status -->
+        <div id="status">Loading WASM module...</div>
+        <div id="ayxx"></div>
+        <div id="error"></div>
 
-    <div id="server-messages-container" style="margin-top: 20px;">
-        <h2>Server Messages (Traceroute Log)</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 5px;"><em>Raw traceroute messages. Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</em></p>
-        <textarea id="server-messages" readonly style="width: 100%; height: 150px; font-family: monospace; font-size: 12px; padding: 10px; border: 1px solid #ddd; background-color: #f5f5f5;"></textarea>
-    </div>
-
-    <div id="packet-capture-container" style="margin-top: 20px;">
-        <h2>Packet Capture & Tracing</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
-            <em>Download captured network traffic (PCAP) or server logs (tracing buffer) for analysis.</em>
-        </p>
-        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
-            <div id="download-pcap-container" style="display: none; flex-direction: column; gap: 5px;">
-                <a id="download-pcap-btn" href="/api/capture/download" 
-                   style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-align: center;">
-                    📥 Download PCAP
-                </a>
-                <span id="capture-status" style="color: #666; font-size: 14px;">Checking capture status...</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <button id="download-survey-pcap-btn" onclick="downloadSurveyPcap()" 
-                   style="padding: 10px 20px; background-color: #9C27B0; color: white; border: none; border-radius: 4px; font-weight: bold; text-align: center; cursor: pointer;" 
-                   disabled>
-                    📥 Download Survey PCAP
-                </button>
-                <span id="survey-pcap-status" style="color: #666; font-size: 14px;">Start a survey session first</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 5px;">
-                <button id="download-survey-keylog-btn" onclick="downloadSurveyKeylog()" 
-                   style="padding: 10px 20px; background-color: #673AB7; color: white; border: none; border-radius: 4px; font-weight: bold; text-align: center; cursor: pointer;" 
-                   disabled>
-                    🔐 Download Survey DTLS keys
-                </button>
-                <span id="survey-keylog-status" style="color: #666; font-size: 14px;">Start a survey session first</span>
-            </div>
-            <div id="download-tracing-container" style="display: none; flex-direction: column; gap: 5px;">
-                <a id="download-tracing-btn" href="/api/tracing/download" 
-                   style="display: inline-block; padding: 10px 20px; background-color: #2196F3; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; text-align: center;">
-                    📋 Download Tracing Log
-                </a>
-                <span id="tracing-status" style="color: #666; font-size: 14px;">Checking tracing status...</span>
+        <!-- Peer Connections Card -->
+        <div class="card" id="peer-connections-container">
+            <h2>Peer Connections</h2>
+            <p class="card-description">Active peer connections with their connection IDs (matching traceroute data) and address information.</p>
+            <div id="peer-connections-list">
+                <div class="peer-connection-placeholder">No active connections. Click "Analyze Network" to start.</div>
             </div>
         </div>
-    </div>
 
-    <div id="probe-stats-container" style="margin-top: 20px;">
-        <h2>Probe Stream Statistics (Baseline Measurement)</h2>
-        <p style="font-size: 12px; color: #666; margin-bottom: 10px;">
-            <em>Real-time statistics from 100pps probe streams. Delay deviation shows deviation from incrementally calculated baseline. Bands show 50th/99th percentile and full range.</em>
-        </p>
-        <div class="dual-stack-container">
-            <div class="stack-column">
-                <h3 style="color: #2196F3;">IPv4 Statistics</h3>
-                <div id="probe-stats-ipv4" style="padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; min-height: 120px;">
-                    <div style="text-align: center; color: #999;">Waiting for probe data...</div>
+        <!-- Traceroute Visualization Card -->
+        <div class="card" id="traceroute-visualization">
+            <h2>Traceroute Path Visualization</h2>
+            <p class="card-description">Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</p>
+            
+            <div class="dual-stack-container">
+                <div class="stack-column">
+                    <h3 style="color: #2196F3;">IPv4 Path</h3>
+                    <div id="traceroute-graph-ipv4" class="traceroute-box ipv4">
+                        <div class="traceroute-placeholder">No IPv4 traceroute data available.</div>
+                    </div>
                 </div>
-            </div>
-            <div class="stack-column">
-                <h3 style="color: #FF9800;">IPv6 Statistics</h3>
-                <div id="probe-stats-ipv6" style="padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 8px; min-height: 120px;">
-                    <div style="text-align: center; color: #999;">Waiting for probe data...</div>
+                <div class="stack-column">
+                    <h3 style="color: #FF9800;">IPv6 Path</h3>
+                    <div id="traceroute-graph-ipv6" class="traceroute-box ipv6">
+                        <div class="traceroute-placeholder">No IPv6 traceroute data available.</div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div id="probe-stats-chart-container" style="margin-top: 20px;">
-            <div class="probe-stats-chart-controls">
-                <button onclick="resetZoom()">Reset Zoom</button>
-            </div>
-            <canvas id="probe-stats-chart" height="300"></canvas>
+
+        <!-- Server Messages Card -->
+        <div class="card" id="server-messages-container">
+            <h2>Server Messages (Traceroute Log)</h2>
+            <p class="card-description">Raw traceroute messages. Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</p>
+            <textarea id="server-messages" readonly></textarea>
         </div>
-    </div>
+
+        <!-- Packet Capture Card -->
+        <div class="card" id="packet-capture-container">
+            <h2>Packet Capture & Tracing</h2>
+            <p class="card-description">Download captured network traffic (PCAP) or server logs (tracing buffer) for analysis.</p>
+            <div class="capture-buttons">
+                <div class="capture-item" id="download-pcap-container" style="display: none;">
+                    <a id="download-pcap-btn" href="/api/capture/download" class="capture-btn green">
+                        📥 Download PCAP
+                    </a>
+                    <span id="capture-status" class="capture-status">Checking capture status...</span>
+                </div>
+                <div class="capture-item">
+                    <button id="download-survey-pcap-btn" onclick="downloadSurveyPcap()" class="capture-btn purple" disabled>
+                        📥 Download Survey PCAP
+                    </button>
+                    <span id="survey-pcap-status" class="capture-status">Start a survey session first</span>
+                </div>
+                <div class="capture-item">
+                    <button id="download-survey-keylog-btn" onclick="downloadSurveyKeylog()" class="capture-btn deep-purple" disabled>
+                        🔐 Download Survey DTLS keys
+                    </button>
+                    <span id="survey-keylog-status" class="capture-status">Start a survey session first</span>
+                </div>
+                <div class="capture-item" id="download-tracing-container" style="display: none;">
+                    <a id="download-tracing-btn" href="/api/tracing/download" class="capture-btn blue">
+                        📋 Download Tracing Log
+                    </a>
+                    <span id="tracing-status" class="capture-status">Checking tracing status...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Probe Stats Card -->
+        <div class="card" id="probe-stats-container">
+            <h2>Probe Stream Statistics (Baseline Measurement)</h2>
+            <p class="card-description">Real-time statistics from 100pps probe streams. Delay deviation shows deviation from incrementally calculated baseline. Bands show 50th/99th percentile and full range.</p>
+            <div class="dual-stack-container">
+                <div class="stack-column">
+                    <h3 style="color: #2196F3;">IPv4 Statistics</h3>
+                    <div id="probe-stats-ipv4" class="probe-stats-box">
+                        <div class="probe-stats-placeholder">Waiting for probe data...</div>
+                    </div>
+                </div>
+                <div class="stack-column">
+                    <h3 style="color: #FF9800;">IPv6 Statistics</h3>
+                    <div id="probe-stats-ipv6" class="probe-stats-box">
+                        <div class="probe-stats-placeholder">Waiting for probe data...</div>
+                    </div>
+                </div>
+            </div>
+            <div id="probe-stats-chart-container">
+                <div class="probe-stats-chart-controls">
+                    <button class="btn btn-primary" onclick="resetZoom()">Reset Zoom</button>
+                </div>
+                <canvas id="probe-stats-chart" height="300"></canvas>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <a href="/static/dashboard.html">Dashboard</a> | 
+            <a href="/">Home</a>
+        </div>
+    </div> <!-- End container -->
 
     <script src="/static/lib/chart.umd.js"></script>
     <script src="/static/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="/static/lib/chartjs-plugin-zoom.min.js"></script>
     <script>
+        // Collapsible info section with localStorage persistence
+        const INFO_COLLAPSED_KEY = 'netpoke_info_collapsed';
+        
+        function toggleInfoSection() {
+            const section = document.getElementById('info-section');
+            const isCollapsed = section.classList.toggle('collapsed');
+            localStorage.setItem(INFO_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+        }
+        
+        function initInfoSection() {
+            const section = document.getElementById('info-section');
+            const savedState = localStorage.getItem(INFO_COLLAPSED_KEY);
+            if (savedState === 'true') {
+                section.classList.add('collapsed');
+            }
+        }
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', initInfoSection);
+        
         // Global variables for chart management
         let metricsChart = null;
         let chartData = {
