@@ -1,0 +1,137 @@
+name: Deploy to www1.netpoke.com
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Commit SHA to deploy (leave empty to use current HEAD)'
+        required: false
+        type: string
+        default: ''
+      confirm_production:
+        description: 'Type "yes" to confirm production deployment'
+        required: true
+        type: string
+        default: ''
+
+jobs:
+  validate:
+    name: Validate deployment
+    runs-on: ubuntu-latest
+    permissions:
+      contents: none
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ inputs.confirm_production }}" != "yes" ]; then
+            echo "::error::Production deployment not confirmed. Please type 'yes' in the confirm_production field."
+            exit 1
+          fi
+          echo "Production deployment confirmed"
+
+  deploy:
+    name: Deploy to www1.netpoke.com
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    environment:
+      name: production
+      url: https://www1.netpoke.com
+    
+    steps:
+      - name: Display deployment info
+        run: |
+          echo "========================================="
+          echo "PRODUCTION DEPLOYMENT"
+          echo "========================================="
+          echo "Target: www1.netpoke.com"
+          echo "Commit: ${{ inputs.commit_sha || github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+          echo "========================================="
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+
+      - name: Add host to known_hosts
+        run: |
+          ssh-keyscan -H www1.netpoke.com >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Determine artifact name
+        id: artifact
+        run: |
+          COMMIT_SHA="${{ inputs.commit_sha || github.sha }}"
+          echo "name=netpoke-x86_64-linux-musl-${COMMIT_SHA}-lean" >> $GITHUB_OUTPUT
+          echo "commit_sha=${COMMIT_SHA}" >> $GITHUB_OUTPUT
+          echo "Artifact name: netpoke-x86_64-linux-musl-${COMMIT_SHA}-lean"
+
+      - name: Download artifact from previous build
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build-binary.yml
+          commit: ${{ steps.artifact.outputs.commit_sha }}
+          name: ${{ steps.artifact.outputs.name }}
+          path: out/
+        id: download
+
+      - name: Verify artifact exists
+        run: |
+          if [ ! -f "out/netpoke-server" ]; then
+            echo "::error::netpoke-server binary not found in artifact"
+            ls -la out/ || echo "out/ directory does not exist"
+            exit 1
+          fi
+          echo "Artifact verified: out/netpoke-server"
+          ls -la out/
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          pip3 install ansible
+
+      - name: Deploy to www1.netpoke.com
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "false"
+        run: |
+          cd infra
+          ansible-playbook playbooks/deploy-netpoke.yml -e "target_fqdn=www1.netpoke.com"
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting for service to start..."
+          sleep 10
+          echo "Checking if www1.netpoke.com is responding..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://www1.netpoke.com/ || echo "000")
+          echo "HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "000" ]; then
+            echo "::warning::Could not connect to www1.netpoke.com - service may still be starting"
+          elif [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 400 ]; then
+            echo "Service is responding correctly"
+          else
+            echo "::warning::Service returned HTTP $HTTP_STATUS"
+          fi
+
+      - name: Cleanup SSH
+        if: always()
+        run: |
+          rm -f ~/.ssh/id_rsa
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "========================================="
+          echo "DEPLOYMENT SUCCESSFUL"
+          echo "========================================="
+          echo "Target: www1.netpoke.com"
+          echo "Commit: ${{ steps.artifact.outputs.commit_sha }}"
+          echo "========================================="
