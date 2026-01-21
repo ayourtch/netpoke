@@ -810,14 +810,24 @@
         function toggleInfoSection() {
             const section = document.getElementById('info-section');
             const isCollapsed = section.classList.toggle('collapsed');
-            localStorage.setItem(INFO_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+            try {
+                localStorage.setItem(INFO_COLLAPSED_KEY, isCollapsed ? 'true' : 'false');
+            } catch (e) {
+                // localStorage may be unavailable (private browsing, storage quota exceeded)
+                console.warn('Could not save info section state to localStorage:', e);
+            }
         }
         
         function initInfoSection() {
             const section = document.getElementById('info-section');
-            const savedState = localStorage.getItem(INFO_COLLAPSED_KEY);
-            if (savedState === 'true') {
-                section.classList.add('collapsed');
+            try {
+                const savedState = localStorage.getItem(INFO_COLLAPSED_KEY);
+                if (savedState === 'true') {
+                    section.classList.add('collapsed');
+                }
+            } catch (e) {
+                // localStorage may be unavailable (private browsing, storage quota exceeded)
+                console.warn('Could not read info section state from localStorage:', e);
             }
         }
         
