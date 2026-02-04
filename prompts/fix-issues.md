@@ -96,6 +96,22 @@ This prompt directs you to review and fix issues tracked in `docs/issues/open/`.
 
 7. **Issue Descriptions May Be Outdated**: The codebase evolves. Issue descriptions may reference code that no longer exists or has been refactored.
 
+### Lessons Learned - Session 2 (Issues 021-025)
+
+8. **Verify Features Before Assuming Missing**: Issue 025 (chart compositing) was already fully implemented. Check the actual code in detail before starting work.
+
+9. **iOS Safari Has Strict Timing Requirements**: Event listeners for motion/orientation sensors MUST be registered in the same synchronous task as permission grant on iOS. Any `await` in between breaks the context and sensors won't work.
+
+10. **Combine Related Issues**: Issues 021 (magnetometer export) and 024 (sensor permission timing) were naturally solved together since both involve sensor listener setup. Look for natural groupings.
+
+11. **Function Signature Mismatches Are Critical**: Issue 022 (wrong parameter count) would have caused runtime errors. Always verify WASM function signatures match JavaScript calls.
+
+12. **Deprecation Over Deletion**: For legacy files (Issue 023), adding a deprecation banner is better than refactoring or deleting. Preserves history while guiding users to the correct path.
+
+13. **Standalone Test Files Need Maintenance**: Reference implementations in `tmp/camera-standalone-for-cross-check/` should be kept in sync with main code, especially function signatures.
+
+14. **WASM Build Confirms Multiple Issues**: A single WASM build verifies multiple changes at once. Build early and often to catch signature mismatches and export issues.
+
 ### Quick Reference Commands
 
 ```bash
@@ -124,4 +140,75 @@ grep -r "fn function_name" client/src/
 - Building and verifying: ~3-10 minutes per build
 - Documenting resolutions: ~5 minutes per issue
 - Total for 7 issues: ~2-3 hours
+
+## Self-Improvement Process
+
+After completing work on issues, always update this prompt with new insights:
+
+### What to Add
+
+1. **New Lessons Learned**: Document any new patterns, gotchas, or best practices discovered during this session. Number them sequentially to build on previous sessions.
+
+2. **Updated Context**: If issue patterns change or new subsystems are added:
+   - Update the "Code Organization" section
+   - Add new directories or important files
+   - Document new architectural patterns
+
+3. **Process Improvements**: If you discover a better way to:
+   - Verify issues
+   - Test changes
+   - Document resolutions
+   - Build or deploy
+   
+   Add it to the appropriate section.
+
+4. **New Command Patterns**: Add any new commands to the "Quick Reference Commands" section.
+
+5. **Revised Time Estimates**: If actual time differs significantly from estimates, update the "Time Estimates" section.
+
+### How to Update This Prompt
+
+1. **After Each Session**: Before finalizing your work:
+   - Review what you learned
+   - Add new lessons learned with sequential numbering (e.g., "Session 3: Issues 026-030")
+   - Update any sections that are now outdated
+   - Add any new common patterns you discovered
+
+2. **Keep It Actionable**: Focus on concrete, actionable advice. Avoid:
+   - Vague generalizations
+   - Obvious statements
+   - Information that's already documented elsewhere
+
+3. **Preserve History**: Don't delete old lessons unless they're wrong. Instead:
+   - Mark as outdated if needed: "~~Old approach~~ (superseded by...)"
+   - Add clarifications: "Note: This changed in..."
+   - Keep the evolution visible
+
+4. **Format Consistently**:
+   - Use "Session N" headings for new lesson groups
+   - Number lessons sequentially across all sessions
+   - Use code blocks for examples
+   - Include file paths and line numbers where relevant
+
+### Example Session Update
+
+```markdown
+### Lessons Learned - Session 3 (Issues 026-030)
+
+15. **New Pattern Discovered**: [Description]
+
+16. **Common Pitfall**: [What to watch out for]
+
+17. **Better Approach**: [Improved method for X]
+```
+
+### Commit This Update
+
+After updating this prompt:
+```bash
+git add prompts/fix-issues.md
+git commit -m "Update fix-issues prompt with Session N lessons learned"
+```
+
+Include the prompt update in your final PR for the session.
 
