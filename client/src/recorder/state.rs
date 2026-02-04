@@ -56,6 +56,7 @@ impl RecorderState {
 
     pub async fn start_recording(&mut self) -> Result<(), JsValue> {
         use crate::recorder::media_streams::{get_camera_stream, get_screen_stream};
+        use crate::recorder::types::CameraFacing;
         use crate::recorder::utils::log;
 
         log("[Recorder] Starting recording");
@@ -64,6 +65,10 @@ impl RecorderState {
             .ok_or("No window")?
             .document()
             .ok_or("No document")?;
+
+        // Initialize start time (Issue 007)
+        let start_time = js_sys::Date::now();
+        self.start_time = start_time;
 
         // Get media streams and create video elements based on source type
         match self.source_type {
@@ -106,6 +111,26 @@ impl RecorderState {
             }
         }
 
+        // Initialize sensor manager (Issue 007, 010)
+        let camera_facing = match self.source_type {
+            SourceType::Camera | SourceType::Combined => CameraFacing::User,
+            SourceType::Screen => CameraFacing::Unknown,
+        };
+
+        let mut sensor_manager = SensorManager::new(start_time, camera_facing);
+
+        // Check if sensor overlay checkbox is checked
+        if let Some(checkbox) = document.get_element_by_id("show-sensors-overlay") {
+            if let Ok(input) = checkbox.dyn_into::<web_sys::HtmlInputElement>() {
+                sensor_manager.set_overlay_enabled(input.checked());
+            }
+        }
+
+        // Update global sensor manager
+        if let Ok(mut global_mgr) = crate::SENSOR_MANAGER.lock() {
+            *global_mgr = Some(sensor_manager);
+        }
+
         // Initialize canvas renderer
         let canvas: web_sys::HtmlCanvasElement = document
             .get_element_by_id("recordingCanvas")
@@ -118,6 +143,22 @@ impl RecorderState {
         let canvas_stream = canvas
             .capture_stream()
             .map_err(|_| "Failed to capture canvas stream")?;
+
+        // Add audio track from source stream (Issue 004)
+        let source_stream = match self.source_type {
+            SourceType::Camera | SourceType::Combined => self.camera_stream.as_ref(),
+            SourceType::Screen => self.screen_stream.as_ref(),
+        };
+
+        if let Some(stream) = source_stream {
+            let audio_tracks = stream.get_audio_tracks();
+            log(&format!("[Recorder] Found {} audio tracks", audio_tracks.length()));
+            if audio_tracks.length() > 0 {
+                let audio_track = web_sys::MediaStreamTrack::from(audio_tracks.get(0));
+                canvas_stream.add_track(&audio_track);
+                log("[Recorder] Added audio track to recording");
+            }
+        }
 
         self.recorder = Some(Recorder::new(&canvas_stream)?);
         if let Some(recorder) = &self.recorder {
@@ -180,9 +221,11 @@ impl RecorderState {
                                 let canvas_width = canvas.width() as f64;
                                 let canvas_height = canvas.height() as f64;
 
-                                // Calculate chart dimensions
-                                let chart_width = 300.0 * self.chart_size;
-                                let chart_height = 200.0 * self.chart_size;
+                                // Calculate chart dimensions (Issue 016)
+                                // chart_size is a percentage (0.0 - 1.0), use it as percentage of canvas width
+                                let chart_width = canvas_width * self.chart_size;
+                                // Maintain 4:3 aspect ratio (common for charts)
+                                let chart_height = chart_width * 0.75;
                                 let margin = 20.0;
 
                                 // Calculate position based on chart position
@@ -254,15 +297,15 @@ impl RecorderState {
             return Err("No recorder".into());
         };
 
-        // Get motion data from global SENSOR_MANAGER
-        let motion_data = if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
+        // Get motion data and camera facing from global SENSOR_MANAGER (Issue 010)
+        let (motion_data, camera_facing) = if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
             if let Some(ref mgr) = *manager_guard {
-                mgr.get_motion_data().clone()
+                (mgr.get_motion_data().clone(), mgr.get_camera_facing())
             } else {
-                Vec::new()
+                (Vec::new(), CameraFacing::Unknown)
             }
         } else {
-            Vec::new()
+            (Vec::new(), CameraFacing::Unknown)
         };
 
         // Calculate duration
@@ -277,7 +320,7 @@ impl RecorderState {
             start_time_utc: crate::recorder::utils::format_timestamp(self.start_time),
             end_time_utc: crate::recorder::utils::format_timestamp(end_time),
             source_type: self.source_type,
-            camera_facing: CameraFacing::Unknown,
+            camera_facing,  // Now uses actual camera facing from sensor manager
             chart_included: self.chart_enabled,
             chart_type: if self.chart_enabled {
                 Some(self.chart_type.clone())
@@ -302,6 +345,13 @@ impl RecorderState {
         self.recorder = None;
         self.renderer = None;
         self.recording = false;
+
+        // Clear global sensor manager (Issue 007)
+        if let Ok(mut manager_guard) = crate::SENSOR_MANAGER.lock() {
+            if let Some(ref mut mgr) = *manager_guard {
+                mgr.clear();
+            }
+        }
 
         log("[Recorder] Recording saved");
         Ok(())

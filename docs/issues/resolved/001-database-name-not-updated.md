@@ -37,5 +37,14 @@ The database should be named 'NetpokeRecordingsDB' to reflect the netpoke produc
    - OR accepting data loss for users who have existing recordings (simple)
    - OR keeping the database name as-is if sharing with camera app is desired
 
+## Resolution
+**Fixed in commit b10cf2c**
+
+Changed the database name in `server/static/lib/recorder/indexed_db.js` from `'CameraTrackingDB'` to `'NetpokeRecordingsDB'` and updated the version from 2 to 1 to match the design specification.
+
+Files modified:
+- `server/static/lib/recorder/indexed_db.js`
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
