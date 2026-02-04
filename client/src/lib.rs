@@ -1977,6 +1977,148 @@ pub fn init_recorder() {
     recorder::ui::init_recorder_panel();
 }
 
+// Recorder download and management functions (Issue 012)
+#[wasm_bindgen]
+pub async fn download_video(id: String) -> Result<(), JsValue> {
+    use recorder::utils::log;
+
+    log(&format!("[Recorder] Downloading video: {}", id));
+
+    let window = web_sys::window().ok_or("No window")?;
+    let document = window.document().ok_or("No document")?;
+
+    // Get recording from IndexedDB
+    let recording_js = recorder::storage::getRecording(&id).await?;
+
+    let obj = js_sys::Object::from(recording_js);
+    let video_blob_js = js_sys::Reflect::get(&obj, &"videoBlob".into())?;
+    let video_blob: web_sys::Blob = video_blob_js.dyn_into()?;
+
+    let metadata_js = js_sys::Reflect::get(&obj, &"metadata".into())?;
+    let mime_type = js_sys::Reflect::get(&metadata_js, &"mimeType".into())?
+        .as_string()
+        .unwrap_or("video/webm".to_string());
+
+    // Create blob URL
+    let url = web_sys::Url::create_object_url_with_blob(&video_blob)?;
+
+    // Create anchor element and trigger download
+    let a: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
+    a.set_href(&url);
+
+    let extension = if mime_type.contains("mp4") { "mp4" } else { "webm" };
+    a.set_download(&format!("netpoke_recording_{}.{}", id, extension));
+    a.click();
+
+    // Revoke URL after delay
+    let url_clone = url.clone();
+    let closure = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+        let _ = web_sys::Url::revoke_object_url(&url_clone);
+    }) as Box<dyn Fn()>);
+    window.set_timeout_with_callback_and_timeout_and_arguments_0(
+        closure.as_ref().unchecked_ref(),
+        1000,
+    )?;
+    closure.forget();
+
+    log(&format!("[Recorder] Video download triggered: {}", id));
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub async fn download_motion_data(id: String) -> Result<(), JsValue> {
+    use recorder::utils::log;
+
+    log(&format!("[Recorder] Downloading motion data: {}", id));
+
+    let window = web_sys::window().ok_or("No window")?;
+    let document = window.document().ok_or("No document")?;
+
+    // Get recording from IndexedDB
+    let recording_js = recorder::storage::getRecording(&id).await?;
+
+    let obj = js_sys::Object::from(recording_js);
+    let metadata_js = js_sys::Reflect::get(&obj, &"metadata".into())?;
+    let motion_data_js = js_sys::Reflect::get(&obj, &"motionData".into())?;
+
+    // Create combined JSON
+    let export_data = js_sys::Object::new();
+    js_sys::Reflect::set(&export_data, &"metadata".into(), &metadata_js)?;
+    js_sys::Reflect::set(&export_data, &"motionData".into(), &motion_data_js)?;
+
+    let json_string = js_sys::JSON::stringify(&export_data)?
+        .as_string()
+        .ok_or("Failed to stringify JSON")?;
+
+    // Create blob
+    let array = js_sys::Uint8Array::from(json_string.as_bytes());
+    let blob_parts = js_sys::Array::new();
+    blob_parts.push(&array);
+    
+    let mut blob_options = web_sys::BlobPropertyBag::new();
+    blob_options.type_("application/json");
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&blob_parts, &blob_options)?;
+
+    // Create blob URL
+    let url = web_sys::Url::create_object_url_with_blob(&blob)?;
+
+    // Create anchor element and trigger download
+    let a: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
+    a.set_href(&url);
+    a.set_download(&format!("netpoke_motion_{}.json", id));
+    a.click();
+
+    // Revoke URL after delay
+    let url_clone = url.clone();
+    let closure = wasm_bindgen::closure::Closure::wrap(Box::new(move || {
+        let _ = web_sys::Url::revoke_object_url(&url_clone);
+    }) as Box<dyn Fn()>);
+    window.set_timeout_with_callback_and_timeout_and_arguments_0(
+        closure.as_ref().unchecked_ref(),
+        1000,
+    )?;
+    closure.forget();
+
+    log(&format!("[Recorder] Motion data download triggered: {}", id));
+    Ok(())
+}
+
+#[wasm_bindgen]
+pub async fn delete_recording_by_id(id: String) -> Result<(), JsValue> {
+    use recorder::storage::IndexedDbWrapper;
+    use recorder::utils::log;
+
+    log(&format!("[Recorder] Deleting recording: {}", id));
+
+    // Confirm deletion
+    let window = web_sys::window().ok_or("No window")?;
+    let confirmed = window.confirm_with_message(&format!(
+        "Are you sure you want to delete recording {}?",
+        id
+    ))?;
+
+    if !confirmed {
+        log("[Recorder] Deletion cancelled by user");
+        return Ok(());
+    }
+
+    // Delete from IndexedDB
+    let db = IndexedDbWrapper::open().await?;
+    db.delete_recording(&id).await?;
+
+    log(&format!("[Recorder] Recording deleted: {}", id));
+
+    // Refresh recordings list (call JavaScript function if available)
+    if let Ok(refresh_fn) = js_sys::Reflect::get(&window, &"refreshRecordingsList".into()) {
+        if refresh_fn.is_function() {
+            let func: js_sys::Function = refresh_fn.dyn_into()?;
+            let _ = func.call0(&window);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
