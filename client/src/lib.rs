@@ -1,4 +1,5 @@
 mod measurements;
+mod recorder;
 mod signaling;
 mod webrtc;
 use crate::measurements::current_time_ms;
