@@ -180,7 +180,7 @@ impl CanvasRenderer {
     }
 
     fn draw_marquee(&self, canvas_width: f64) -> Result<(), JsValue> {
-        let text = "https://stdio.be/cast - record your own screencast";
+        let text = "NetPoke - Network Measurement Tool";
         let font_size = 20.0;
         let marquee_y = 30.0;
 
