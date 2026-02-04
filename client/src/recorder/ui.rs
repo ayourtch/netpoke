@@ -24,6 +24,7 @@ pub fn init_recorder_panel() {
     setup_mode_selection(&document);
     setup_pip_controls(&document);
     setup_chart_controls(&document);
+    setup_sensor_overlay_toggle(&document);  // Issue 015
     setup_recording_buttons(&document);
 
     crate::recorder::utils::log("[Recorder] Panel initialized");
@@ -201,6 +202,34 @@ fn setup_chart_position_button(document: &web_sys::Document, id: &str, position:
 
         if let Ok(element) = button.dyn_into::<web_sys::HtmlElement>() {
             let _ = element.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
+        }
+        closure.forget();
+    }
+}
+
+fn setup_sensor_overlay_toggle(document: &web_sys::Document) {
+    // Sensor overlay checkbox (Issue 015)
+    if let Some(checkbox) = document.get_element_by_id("show-sensors-overlay") {
+        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+            if let Some(target) = event.target() {
+                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                    let enabled = input.checked();
+                    // Update global sensor manager overlay setting
+                    if let Ok(mut manager_guard) = crate::SENSOR_MANAGER.lock() {
+                        if let Some(ref mut mgr) = *manager_guard {
+                            mgr.set_overlay_enabled(enabled);
+                            crate::recorder::utils::log(&format!(
+                                "[Recorder] Sensor overlay {}",
+                                if enabled { "enabled" } else { "disabled" }
+                            ));
+                        }
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        if let Ok(element) = checkbox.dyn_into::<web_sys::HtmlElement>() {
+            let _ = element.add_event_listener_with_callback("change", closure.as_ref().unchecked_ref());
         }
         closure.forget();
     }
