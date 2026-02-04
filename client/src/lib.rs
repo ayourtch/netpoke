@@ -2017,10 +2017,25 @@ pub fn on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
     }
 }
 
+#[wasm_bindgen]
+pub fn set_sensor_overlay_enabled(enabled: bool) {
+    if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
+        if let Some(ref mut mgr) = *manager_guard {
+            mgr.set_overlay_enabled(enabled);
+        }
+    }
+}
+
 // Recorder initialization
 #[wasm_bindgen]
 pub fn init_recorder() {
     recorder::ui::init_recorder_panel();
+}
+
+// Export recorder_render_frame from ui module
+#[wasm_bindgen]
+pub fn recorder_render_frame() {
+    recorder::ui::recorder_render_frame();
 }
 
 // Recorder download and management functions (Issue 012)

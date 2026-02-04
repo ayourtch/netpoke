@@ -965,6 +965,15 @@
                 <button id="start-recording" class="btn-primary">Start Recording</button>
                 <button id="stop-recording" class="btn-danger" style="display:none">Stop Recording</button>
 
+                <!-- Recording Metrics Display -->
+                <div id="recording-metrics" style="display:none; margin-top: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px;">
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <span><strong>Duration:</strong> <span id="recording-duration">0.0s</span></span>
+                        <span><strong>Frames:</strong> <span id="recording-frames">0</span></span>
+                        <span><strong>Size:</strong> <span id="recording-size">0.00 MB</span></span>
+                    </div>
+                </div>
+
                 <!-- Saved Recordings List -->
                 <div id="recordings-list" class="recordings-list">
                     <h3>Saved Recordings</h3>
@@ -2455,7 +2464,10 @@
             const downloadBtn = document.getElementById('download-pcap-btn');
             
             try {
-                const response = await fetch('/api/capture/stats');
+                const response = await fetch('/api/capture/stats', {
+                    credentials: 'include',
+                    mode: 'same-origin'
+                });
                 if (response.ok) {
                     const data = await response.json();
                     if (data.enabled && data.stats) {
@@ -2472,6 +2484,12 @@
                         downloadBtn.style.pointerEvents = 'none';
                         downloadBtn.style.opacity = '0.6';
                     }
+                } else if (response.status === 401 || response.status === 403) {
+                    captureStatusEl.textContent = 'Authentication required for capture stats';
+                    captureStatusEl.style.color = '#ff9800';
+                    downloadBtn.style.backgroundColor = '#ccc';
+                    downloadBtn.style.pointerEvents = 'none';
+                    downloadBtn.style.opacity = '0.6';
                 } else {
                     captureStatusEl.textContent = 'Unable to check capture status';
                     captureStatusEl.style.color = '#f44336';
@@ -2489,7 +2507,10 @@
             const downloadBtn = document.getElementById('download-tracing-btn');
             
             try {
-                const response = await fetch('/api/tracing/stats');
+                const response = await fetch('/api/tracing/stats', {
+                    credentials: 'include',
+                    mode: 'same-origin'
+                });
                 if (response.ok) {
                     const data = await response.json();
                     if (data.enabled) {
@@ -2505,6 +2526,12 @@
                         downloadBtn.style.pointerEvents = 'none';
                         downloadBtn.style.opacity = '0.6';
                     }
+                } else if (response.status === 401 || response.status === 403) {
+                    tracingStatusEl.textContent = 'Authentication required for tracing stats';
+                    tracingStatusEl.style.color = '#ff9800';
+                    downloadBtn.style.backgroundColor = '#ccc';
+                    downloadBtn.style.pointerEvents = 'none';
+                    downloadBtn.style.opacity = '0.6';
                 } else {
                     tracingStatusEl.textContent = 'Unable to check tracing status';
                     tracingStatusEl.style.color = '#f44336';

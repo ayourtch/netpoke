@@ -352,6 +352,66 @@ fn update_recording_ui(recording: bool) {
                     }
                 }
             }
+
+            // Update recording status badge
+            if let Some(status_badge) = document.get_element_by_id("recording-status") {
+                if recording {
+                    status_badge.set_text_content(Some("Recording"));
+                    status_badge.set_class_name("status-badge recording");
+                } else {
+                    status_badge.set_text_content(Some("Ready"));
+                    status_badge.set_class_name("status-badge ready");
+                }
+            }
+
+            // Show/hide metrics display
+            if let Some(metrics) = document.get_element_by_id("recording-metrics") {
+                if let Ok(element) = metrics.dyn_into::<web_sys::HtmlElement>() {
+                    if recording {
+                        element.style().set_property("display", "block").ok();
+                    } else {
+                        element.style().set_property("display", "none").ok();
+                    }
+                }
+            }
+
+            // Show/hide recording buttons
+            if let Some(start_btn) = document.get_element_by_id("start-recording") {
+                if let Ok(element) = start_btn.dyn_into::<web_sys::HtmlElement>() {
+                    if recording {
+                        element.style().set_property("display", "none").ok();
+                    } else {
+                        element.style().set_property("display", "inline-block").ok();
+                    }
+                }
+            }
+            if let Some(stop_btn) = document.get_element_by_id("stop-recording") {
+                if let Ok(element) = stop_btn.dyn_into::<web_sys::HtmlElement>() {
+                    if recording {
+                        element.style().set_property("display", "inline-block").ok();
+                    } else {
+                        element.style().set_property("display", "none").ok();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Update recording metrics display (called from render loop)
+pub fn update_recording_metrics(duration_secs: f64, frame_count: u32, size_bytes: u64) {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Some(el) = document.get_element_by_id("recording-duration") {
+                el.set_text_content(Some(&format!("{:.1}s", duration_secs)));
+            }
+            if let Some(el) = document.get_element_by_id("recording-frames") {
+                el.set_text_content(Some(&frame_count.to_string()));
+            }
+            if let Some(el) = document.get_element_by_id("recording-size") {
+                let size_mb = size_bytes as f64 / (1024.0 * 1024.0);
+                el.set_text_content(Some(&format!("{:.2} MB", size_mb)));
+            }
         }
     }
 }
