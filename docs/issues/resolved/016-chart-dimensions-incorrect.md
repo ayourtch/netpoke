@@ -79,3 +79,18 @@ let chart_height = chart_width * 0.6; // 5:3 aspect ratio (common for charts)
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit a2ebc9d**
+
+Updated chart dimension calculation in `client/src/recorder/state.rs` `render_frame()` function:
+- Changed from hardcoded `300.0 * chart_size` and `200.0 * chart_size` 
+- To `canvas_width * chart_size` for width
+- And `chart_width * 0.75` for height (maintaining 4:3 aspect ratio)
+- Chart size is now properly calculated as percentage of recording canvas width
+
+Files modified:
+- `client/src/recorder/state.rs`
+
+---
+*Resolved: 2026-02-04*

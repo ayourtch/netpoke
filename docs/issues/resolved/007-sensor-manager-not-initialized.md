@@ -112,3 +112,20 @@ if let Ok(mut manager_guard) = crate::SENSOR_MANAGER.lock() {
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit 6854bb8**
+
+Initialized the SensorManager in `client/src/recorder/state.rs` `start_recording()` function:
+1. Initialize start_time at the beginning of recording
+2. Determine camera_facing based on source_type (User for camera/combined, Unknown for screen)
+3. Create SensorManager with start_time and camera_facing
+4. Check sensor overlay checkbox state and set on manager
+5. Update global SENSOR_MANAGER
+6. Added cleanup in stop_recording() to clear the sensor manager
+
+Files modified:
+- `client/src/recorder/state.rs`
+
+---
+*Resolved: 2026-02-04*
