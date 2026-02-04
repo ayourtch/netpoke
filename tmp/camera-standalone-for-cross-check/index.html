@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Simple Screencast Recorder</title>
+    <script>
+        // Detect screen sharing support immediately (before page renders)
+        (function() {
+            const hasScreenSharing = navigator.mediaDevices &&
+                                    navigator.mediaDevices.getDisplayMedia;
+            if (!hasScreenSharing) {
+                document.documentElement.classList.add('no-screen-sharing');
+            }
+        })();
+    </script>
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            background: #000;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #preview {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100vh;
+            z-index: -1;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        #hiddenVideos {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
+        }
+        button {
+            display: block;
+            margin: 10px 0;
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:disabled {
+            background: #ccc;
+        }
+        button.danger {
+            background: #FF3B30;
+        }
+        button.secondary {
+            background: #5856D6;
+        }
+        button.combined {
+            background: #FF9500;
+        }
+        .data {
+            font-family: monospace;
+            font-size: 11px;
+            margin: 5px 0;
+        }
+        .recording-item {
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .recording-item button {
+            margin: 5px 0;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .source-label {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-left: 5px;
+        }
+        .source-camera { background: #34C759; }
+        .source-screen { background: #FF9500; }
+        .source-combined { background: #AF52DE; }
+        
+        .pip-controls {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 5px;
+        }
+        .pip-controls label {
+            display: block;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+        .pip-controls select, .pip-controls input {
+            margin-left: 10px;
+            padding: 4px;
+            border-radius: 4px;
+            border: none;
+        }
+
+        /* Hide screen sharing buttons when feature is not supported */
+        .no-screen-sharing #startScreenBtn,
+        .no-screen-sharing #startCombinedBtn {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="preview"></canvas>
+    
+    <div id="hiddenVideos">
+        <video id="screenVideo" playsinline autoplay muted></video>
+        <video id="cameraVideo" playsinline autoplay muted></video>
+    </div>
+    
+    <div id="info">
+        <div id="status">Ready to start</div>
+        <button id="startCameraBtn">Start Camera Only</button>
+        <button id="startScreenBtn" class="secondary">Start Screen Only</button>
+        <button id="startCombinedBtn" class="combined">Start Screen + Camera (PiP)</button>
+        <button id="stopBtn" style="display:none;">Stop Recording</button>
+        
+        <div id="pipControls" class="pip-controls" style="display:none;">
+            <label>PiP Position:
+                <select id="pipPosition">
+                    <option value="bottom-right">Bottom Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="top-left">Top Left</option>
+                </select>
+            </label>
+            <label>PiP Size:
+                <input type="range" id="pipSize" min="10" max="40" value="25">
+                <span id="pipSizeLabel">25%</span>
+            </label>
+        </div>
+        
+        <div id="metrics" style="display:none; margin-top:10px;">
+            <div style="margin-bottom: 10px;">
+                <label>
+                    <input type="checkbox" id="showSensorsOverlay" checked>
+                    Show Sensors in Video
+                </label>
+            </div>
+            <div class="data">Source: <span id="sourceType">-</span></div>
+            <div class="data">Frames: <span id="frames">0</span></div>
+            <div class="data">GPS: <span id="gps">acquiring...</span></div>
+            <div class="data">Magnetometer: <span id="magnetometer">-</span></div>
+            <div class="data">Orientation: <span id="orientation">-</span></div>
+            <div class="data">Acceleration: <span id="acceleration">-</span></div>
+            <div class="data">Recording: <span id="duration">0.0s</span></div>
+            <div class="data">Video size: <span id="videoSize">0 MB</span></div>
+        </div>
+
+        <div id="recordings" style="margin-top: 20px;">
+            <h3 style="margin: 10px 0;">Saved Recordings</h3>
+            <div id="recordingsList"></div>
+        </div>
+
+        <div id="debugLog" style="margin-top: 20px; padding: 10px; background: rgba(0,100,0,0.3); border-radius: 5px;">
+            <h3 style="margin: 5px 0; cursor: pointer; user-select: none;" id="debugLogHeader">Debug Log (click to toggle)</h3>
+            <div id="debugLogContent" class="data" style="font-size: 10px; max-height: 300px; overflow-y: auto;"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Simple version number - increment this when you rebuild to force cache clear
+        const APP_VERSION = 18;
+
+        // Debug logging function that outputs to both console and screen
+        function debugLog(message, data) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logMessage = `[${timestamp}] ${message}`;
+            console.log(logMessage, data || '');
+
+            const debugContent = document.getElementById('debugLogContent');
+            if (debugContent) {
+                const logEntry = document.createElement('div');
+                logEntry.style.marginBottom = '3px';
+                logEntry.textContent = data ? `${logMessage} ${JSON.stringify(data)}` : logMessage;
+                debugContent.appendChild(logEntry);
+                // Auto-scroll to bottom
+                const debugLog = document.getElementById('debugLog');
+                if (debugLog) {
+                    debugLog.scrollTop = debugLog.scrollHeight;
+                }
+            }
+        }
+
+        debugLog(`[WASM] Starting WASM module load (version ${APP_VERSION})...`);
+        const wasmModule = await import(`./pkg/camera_wasm.js?v=${APP_VERSION}`);
+        debugLog('[WASM] Module JS loaded, extracting exports...');
+        const {
+            default: init,
+            start,
+            download_video,
+            delete_recording_by_id,
+            download_motion_data,
+            on_gps_update,
+            on_orientation,
+            on_magnetometer,
+            on_motion,
+            set_sensor_overlay_enabled
+        } = wasmModule;
+        debugLog('[WASM] Exports extracted, calling init()...');
+
+        // Make functions globally available
+        window.downloadVideo = download_video;
+        window.deleteRecordingById = delete_recording_by_id;
+        window.downloadMotionData = download_motion_data;
+
+        let gpsWatchId = null;
+        let sensorListenersActive = false;
+
+        // Sensor event handlers
+        let motionEventCount = 0;
+        let orientationEventCount = 0;
+        let magnetometerEventCount = 0;
+
+        function handleMotion(e) {
+            motionEventCount++;
+            if (motionEventCount === 1) {
+                debugLog('[SENSOR] First devicemotion event received', {
+                    hasAccel: !!e.acceleration,
+                    hasAccelG: !!e.accelerationIncludingGravity,
+                    hasRotation: !!e.rotationRate
+                });
+            }
+            if (motionEventCount % 60 === 0) {
+                debugLog('[SENSOR] devicemotion events:', motionEventCount);
+            }
+
+            on_motion(
+                e.acceleration?.x || 0,
+                e.acceleration?.y || 0,
+                e.acceleration?.z || 0,
+                e.accelerationIncludingGravity?.x || 0,
+                e.accelerationIncludingGravity?.y || 0,
+                e.accelerationIncludingGravity?.z || 0,
+                e.rotationRate?.alpha || 0,
+                e.rotationRate?.beta || 0,
+                e.rotationRate?.gamma || 0
+            );
+
+            // Update UI
+            const accelEl = document.getElementById('acceleration');
+            if (accelEl && e.acceleration) {
+                accelEl.textContent = `x:${(e.acceleration.x || 0).toFixed(2)} y:${(e.acceleration.y || 0).toFixed(2)} z:${(e.acceleration.z || 0).toFixed(2)}`;
+            }
+        }
+
+        function handleOrientation(e) {
+            orientationEventCount++;
+            if (orientationEventCount === 1) {
+                debugLog('[SENSOR] First deviceorientation event received', {
+                    alpha: e.alpha,
+                    beta: e.beta,
+                    gamma: e.gamma,
+                    absolute: e.absolute
+                });
+            }
+            if (orientationEventCount % 60 === 0) {
+                debugLog('[SENSOR] deviceorientation events:', orientationEventCount);
+            }
+
+            // iOS Safari provides compass heading in alpha but doesn't set absolute=true
+            // Always treat alpha as compass heading on iOS if we have a value
+            const hasCompass = e.alpha !== null && e.alpha !== undefined;
+            const effectiveAbsolute = e.absolute || hasCompass;
+
+            if (orientationEventCount === 1) {
+                debugLog('[JS] About to call on_orientation with:', {
+                    alpha: e.alpha,
+                    beta: e.beta,
+                    gamma: e.gamma,
+                    effectiveAbsolute
+                });
+            }
+
+            on_orientation(e.alpha, e.beta, e.gamma, effectiveAbsolute);
+
+            if (orientationEventCount === 1) {
+                debugLog('[JS] on_orientation call completed');
+            }
+
+            // On iOS Safari, alpha is compass heading even when absolute flag is false
+            // Always pass to magnetometer if we have alpha value
+            if (hasCompass) {
+                on_magnetometer(e.alpha, e.beta, e.gamma);
+            }
+
+            // Update UI
+            const orientEl = document.getElementById('orientation');
+            if (orientEl) {
+                orientEl.textContent = `α:${e.alpha?.toFixed(0) || '-'}° β:${e.beta?.toFixed(0) || '-'}° γ:${e.gamma?.toFixed(0) || '-'}°`;
+            }
+        }
+
+        function handleMagnetometer(e) {
+            magnetometerEventCount++;
+            if (magnetometerEventCount === 1) {
+                debugLog('[SENSOR] First deviceorientationabsolute event received', {
+                    alpha: e.alpha,
+                    beta: e.beta,
+                    gamma: e.gamma
+                });
+            }
+            if (magnetometerEventCount % 60 === 0) {
+                debugLog('[SENSOR] deviceorientationabsolute events:', magnetometerEventCount);
+            }
+
+            on_magnetometer(e.alpha, e.beta, e.gamma);
+
+            // Update UI
+            const magEl = document.getElementById('magnetometer');
+            if (magEl) {
+                magEl.textContent = `heading:${e.alpha?.toFixed(0) || '-'}° β:${e.beta?.toFixed(0) || '-'}° γ:${e.gamma?.toFixed(0) || '-'}°`;
+            }
+        }
+
+        // Request sensor permissions (must be called from user gesture)
+        // CRITICAL: Event listeners must be added in same task as permission request on iOS
+        window.requestSensorPermissions = async function() {
+            debugLog('[SENSOR] requestSensorPermissions called');
+
+            // Request permissions (iOS requirement)
+            if (typeof DeviceMotionEvent !== 'undefined' &&
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                debugLog('[SENSOR] iOS detected, requesting motion permission');
+                try {
+                    const motionPermission = await DeviceMotionEvent.requestPermission();
+                    debugLog('[SENSOR] Motion permission result:', motionPermission);
+                    if (motionPermission !== 'granted') {
+                        debugLog('[SENSOR] Motion permission denied');
+                        return false;
+                    }
+                } catch (error) {
+                    debugLog('[SENSOR] Error requesting motion permission:', error.message);
+                    return false;
+                }
+            } else {
+                debugLog('[SENSOR] Not iOS or permission API not available');
+            }
+
+            if (typeof DeviceOrientationEvent !== 'undefined' &&
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                debugLog('[SENSOR] Requesting orientation permission');
+                try {
+                    const orientationPermission = await DeviceOrientationEvent.requestPermission();
+                    debugLog('[SENSOR] Orientation permission result:', orientationPermission);
+                    if (orientationPermission !== 'granted') {
+                        debugLog('[SENSOR] Orientation permission denied');
+                        return false;
+                    }
+                } catch (error) {
+                    debugLog('[SENSOR] Error requesting orientation permission:', error.message);
+                    return false;
+                }
+            }
+
+            // CRITICAL: Add event listeners immediately after permission granted (iOS requirement)
+            // Must be in same synchronous task, before any await
+            if (!sensorListenersActive) {
+                debugLog('[SENSOR] Adding event listeners (immediately after permission)');
+                window.addEventListener('devicemotion', handleMotion);
+                window.addEventListener('deviceorientation', handleOrientation);
+                window.addEventListener('deviceorientationabsolute', handleMagnetometer);
+                sensorListenersActive = true;
+            }
+
+            debugLog('[SENSOR] All permissions granted and listeners attached');
+            return true;
+        };
+
+        // Start sensor tracking (permissions and listeners already set up)
+        window.startSensorTracking = async function() {
+            debugLog('[SENSOR] startSensorTracking called');
+
+            // Start GPS tracking
+            if (navigator.geolocation) {
+                debugLog('[SENSOR] Starting GPS watchPosition');
+                gpsWatchId = navigator.geolocation.watchPosition(
+                    (position) => {
+                        debugLog('[SENSOR] GPS position received:', {
+                            lat: position.coords.latitude.toFixed(6),
+                            lon: position.coords.longitude.toFixed(6),
+                            acc: position.coords.accuracy.toFixed(1)
+                        });
+                        on_gps_update(
+                            position.coords.latitude,
+                            position.coords.longitude,
+                            position.coords.altitude,
+                            position.coords.accuracy,
+                            position.coords.altitudeAccuracy,
+                            position.coords.heading,
+                            position.coords.speed
+                        );
+
+                        // Update UI
+                        const gpsEl = document.getElementById('gps');
+                        if (gpsEl) {
+                            gpsEl.textContent = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)} ±${position.coords.accuracy.toFixed(1)}m`;
+                        }
+                    },
+                    (error) => {
+                        debugLog('[SENSOR] GPS error:', {
+                            code: error.code,
+                            message: error.message
+                        });
+                        const gpsEl = document.getElementById('gps');
+                        if (gpsEl) {
+                            gpsEl.textContent = 'error: ' + error.message;
+                        }
+                    },
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                );
+            } else {
+                debugLog('[SENSOR] Geolocation not available');
+            }
+
+            // Event listeners already added in requestSensorPermissions (iOS requirement)
+            debugLog('[SENSOR] GPS started (motion/orientation listeners already active)');
+
+            return true;
+        };
+
+        // Stop sensor tracking
+        window.stopSensorTracking = function() {
+            if (gpsWatchId !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+                gpsWatchId = null;
+            }
+
+            if (sensorListenersActive) {
+                window.removeEventListener('devicemotion', handleMotion);
+                window.removeEventListener('deviceorientation', handleOrientation);
+                window.removeEventListener('deviceorientationabsolute', handleMagnetometer);
+                sensorListenersActive = false;
+            }
+        };
+
+        async function run() {
+            try {
+                debugLog('[WASM] Calling init() to load WASM binary...');
+
+                // Set up timeout detection
+                const timeoutId = setTimeout(() => {
+                    debugLog('[WARNING] WASM loading taking longer than 10 seconds - may be cached. Try: Settings → Safari → Clear History and Website Data');
+                }, 10000);
+
+                await init();
+                clearTimeout(timeoutId);
+                debugLog('[WASM] init() complete, WASM binary loaded successfully');
+                debugLog('[WASM] Calling start() to initialize app...');
+                await start();
+                debugLog('[WASM] start() complete, app initialized');
+
+                // Set up checkbox handler after WASM is initialized
+                const checkbox = document.getElementById('showSensorsOverlay');
+                if (checkbox) {
+                    // Set initial state (checkbox is checked by default)
+                    set_sensor_overlay_enabled(checkbox.checked);
+
+                    checkbox.addEventListener('change', (e) => {
+                        set_sensor_overlay_enabled(e.target.checked);
+                    });
+                }
+
+                // Set up debug log collapse
+                const debugLogHeader = document.getElementById('debugLogHeader');
+                const debugLogContent = document.getElementById('debugLogContent');
+                if (debugLogHeader && debugLogContent) {
+                    debugLogHeader.addEventListener('click', () => {
+                        if (debugLogContent.style.display === 'none') {
+                            debugLogContent.style.display = 'block';
+                            debugLogHeader.textContent = 'Debug Log (click to toggle)';
+                        } else {
+                            debugLogContent.style.display = 'none';
+                            debugLogHeader.textContent = 'Debug Log (click to expand)';
+                        }
+                    });
+                }
+
+                // Note: Screen sharing button visibility is now handled by CSS based on feature detection in <head>
+            } catch (e) {
+                const errorMsg = `Failed to initialize: ${e.message || e}`;
+                console.error(errorMsg, e);
+                debugLog(`[ERROR] ${errorMsg}`);
+                debugLog(`[ERROR] Stack: ${e.stack || 'no stack trace'}`);
+                document.getElementById('status').textContent = 'Error: ' + e;
+            }
+        }
+
+        run();
+    </script>
+</body>
+</html>
