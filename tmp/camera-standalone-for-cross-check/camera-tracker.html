@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera + Screen + Motion Tracking</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, sans-serif;
+            overflow: hidden;
+            background: #000;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        #preview {
+            width: 100%;
+            height: 100vh;
+            object-fit: contain;
+        }
+        #hiddenVideos {
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+        }
+        button {
+            display: block;
+            margin: 10px 0;
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #007AFF;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button:disabled {
+            background: #ccc;
+        }
+        button.danger {
+            background: #FF3B30;
+        }
+        button.secondary {
+            background: #5856D6;
+        }
+        button.combined {
+            background: #FF9500;
+        }
+        .data {
+            font-family: monospace;
+            font-size: 11px;
+            margin: 5px 0;
+        }
+        .recording-item {
+            background: rgba(255,255,255,0.1);
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .recording-item button {
+            margin: 5px 0;
+            font-size: 14px;
+            padding: 8px 16px;
+        }
+        .source-label {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-left: 5px;
+        }
+        .source-camera { background: #34C759; }
+        .source-screen { background: #FF9500; }
+        .source-combined { background: #AF52DE; }
+        
+        .pip-controls {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 5px;
+        }
+        .pip-controls label {
+            display: block;
+            margin: 5px 0;
+            font-size: 12px;
+        }
+        .pip-controls select, .pip-controls input {
+            margin-left: 10px;
+            padding: 4px;
+            border-radius: 4px;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="preview"></canvas>
+    
+    <div id="hiddenVideos">
+        <video id="screenVideo" playsinline autoplay muted></video>
+        <video id="cameraVideo" playsinline autoplay muted></video>
+    </div>
+    
+    <div id="info">
+        <div id="status">Ready to start</div>
+        <button id="startCameraBtn">Start Camera Only</button>
+        <button id="startScreenBtn" class="secondary">Start Screen Only</button>
+        <button id="startCombinedBtn" class="combined">Start Screen + Camera (PiP)</button>
+        <button id="stopBtn" style="display:none;">Stop Recording</button>
+        
+        <div id="pipControls" class="pip-controls" style="display:none;">
+            <label>PiP Position:
+                <select id="pipPosition">
+                    <option value="bottom-right">Bottom Right</option>
+                    <option value="bottom-left">Bottom Left</option>
+                    <option value="top-right">Top Right</option>
+                    <option value="top-left">Top Left</option>
+                </select>
+            </label>
+            <label>PiP Size:
+                <input type="range" id="pipSize" min="10" max="40" value="25">
+                <span id="pipSizeLabel">25%</span>
+            </label>
+        </div>
+        
+        <div id="metrics" style="display:none; margin-top:10px;">
+            <div class="data">Source: <span id="sourceType">-</span></div>
+            <div class="data">Frames: <span id="frames">0</span></div>
+            <div class="data">GPS: <span id="gps">acquiring...</span></div>
+            <div class="data">Magnetometer: <span id="magnetometer">-</span></div>
+            <div class="data">Orientation: <span id="orientation">-</span></div>
+            <div class="data">Acceleration: <span id="acceleration">-</span></div>
+            <div class="data">Recording: <span id="duration">0.0s</span></div>
+            <div class="data">Video size: <span id="videoSize">0 MB</span></div>
+        </div>
+
+        <div id="recordings" style="margin-top: 20px;">
+            <h3 style="margin: 10px 0;">Saved Recordings</h3>
+            <div id="recordingsList"></div>
+        </div>
+    </div>
+
+    <script>
+        const preview = document.getElementById('preview');
+        const ctx = preview.getContext('2d');
+        const screenVideo = document.getElementById('screenVideo');
+        const cameraVideo = document.getElementById('cameraVideo');
+        const statusEl = document.getElementById('status');
+        const startCameraBtn = document.getElementById('startCameraBtn');
+        const startScreenBtn = document.getElementById('startScreenBtn');
+        const startCombinedBtn = document.getElementById('startCombinedBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const metricsDiv = document.getElementById('metrics');
+        const pipControlsDiv = document.getElementById('pipControls');
+        const framesEl = document.getElementById('frames');
+        const gpsEl = document.getElementById('gps');
+        const magnetometerEl = document.getElementById('magnetometer');
+        const orientationEl = document.getElementById('orientation');
+        const accelerationEl = document.getElementById('acceleration');
+        const durationEl = document.getElementById('duration');
+        const videoSizeEl = document.getElementById('videoSize');
+        const recordingsListEl = document.getElementById('recordingsList');
+        const sourceTypeEl = document.getElementById('sourceType');
+        const pipPositionEl = document.getElementById('pipPosition');
+        const pipSizeEl = document.getElementById('pipSize');
+        const pipSizeLabelEl = document.getElementById('pipSizeLabel');
+
+        let screenStream = null;
+        let cameraStream = null;
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let motionData = [];
+        let frameCount = 0;
+        let startTime = 0;
+        let startTimeUTC = null;
+        let trackingInterval = null;
+        let renderInterval = null;
+        let currentRecordingId = null;
+        let gpsWatchId = null;
+        let currentGPS = null;
+        let lastMagnetometer = null;
+        let currentSourceType = null;
+
+        // IndexedDB setup
+        let db = null;
+
+        function openDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open('CameraTrackingDB', 2);
+                request.onerror = () => reject(request.error);
+                request.onsuccess = () => resolve(request.result);
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains('recordings')) {
+                        db.createObjectStore('recordings', { keyPath: 'id' });
+                    }
+                };
+            });
+        }
+
+        async function saveRecording(id, videoBlob, motionData, metadata) {
+            const recording = { id, videoBlob, motionData, metadata, timestamp: Date.now() };
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['recordings'], 'readwrite');
+                const store = transaction.objectStore('recordings');
+                const request = store.put(recording);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function getAllRecordings() {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['recordings'], 'readonly');
+                const store = transaction.objectStore('recordings');
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function deleteRecording(id) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction(['recordings'], 'readwrite');
+                const store = transaction.objectStore('recordings');
+                const request = store.delete(id);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function updateRecordingsList() {
+            const recordings = await getAllRecordings();
+            if (recordings.length === 0) {
+                recordingsListEl.innerHTML = '<p style="color:#888;">No recordings yet</p>';
+                return;
+            }
+            recordingsListEl.innerHTML = recordings.map(rec => {
+                const date = new Date(rec.timestamp);
+                const sizeInMB = (rec.videoBlob.size / (1024 * 1024)).toFixed(2);
+                const sourceType = rec.metadata.sourceType || 'camera';
+                const sourceClass = `source-${sourceType}`;
+                const sourceLabel = sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
+                return `
+                    <div class="recording-item">
+                        <div class="data">ID: ${rec.id} <span class="source-label ${sourceClass}">${sourceLabel}</span></div>
+                        <div class="data">Date: ${date.toLocaleString()}</div>
+                        <div class="data">Duration: ${rec.metadata.duration.toFixed(1)}s</div>
+                        <div class="data">Frames: ${rec.metadata.frameCount}</div>
+                        <div class="data">Size: ${sizeInMB} MB</div>
+                        <button onclick="downloadVideo('${rec.id}')">Download Video</button>
+                        <button onclick="downloadMotionData('${rec.id}')">Download Motion Data</button>
+                        <button class="danger" onclick="deleteRecordingById('${rec.id}')">Delete</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        window.downloadVideo = async function(id) {
+            const transaction = db.transaction(['recordings'], 'readonly');
+            const store = transaction.objectStore('recordings');
+            const request = store.get(id);
+            request.onsuccess = () => {
+                const recording = request.result;
+                const videoUrl = URL.createObjectURL(recording.videoBlob);
+                const videoLink = document.createElement('a');
+                videoLink.href = videoUrl;
+                const extension = recording.metadata.mimeType.includes('mp4') ? 'mp4' : 'webm';
+                videoLink.download = `video_${id}.${extension}`;
+                videoLink.click();
+                setTimeout(() => URL.revokeObjectURL(videoUrl), 1000);
+            };
+        };
+
+        window.downloadMotionData = async function(id) {
+            const transaction = db.transaction(['recordings'], 'readonly');
+            const store = transaction.objectStore('recordings');
+            const request = store.get(id);
+            request.onsuccess = () => {
+                const recording = request.result;
+                const motionJson = JSON.stringify({
+                    id, ...recording.metadata, motionData: recording.motionData
+                }, null, 2);
+                const jsonBlob = new Blob([motionJson], { type: 'application/json' });
+                const jsonUrl = URL.createObjectURL(jsonBlob);
+                const jsonLink = document.createElement('a');
+                jsonLink.href = jsonUrl;
+                jsonLink.download = `motion_${id}.json`;
+                jsonLink.click();
+                setTimeout(() => URL.revokeObjectURL(jsonUrl), 1000);
+            };
+        };
+
+        window.deleteRecordingById = async function(id) {
+            if (confirm('Delete this recording?')) {
+                await deleteRecording(id);
+                await updateRecordingsList();
+            }
+        };
+
+        async function requestMotionPermission() {
+            if (typeof DeviceMotionEvent !== 'undefined' && 
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        statusEl.textContent = 'Motion permission denied';
+                        return false;
+                    }
+                } catch (error) {
+                    statusEl.textContent = 'Error requesting motion permission';
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        async function requestOrientationPermission() {
+            if (typeof DeviceOrientationEvent !== 'undefined' && 
+                typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        statusEl.textContent = 'Orientation permission denied';
+                        return false;
+                    }
+                } catch (error) {
+                    statusEl.textContent = 'Error requesting orientation permission';
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function renderFrame() {
+            if (currentSourceType === 'camera' && cameraVideo.readyState >= 2) {
+                preview.width = cameraVideo.videoWidth || 1920;
+                preview.height = cameraVideo.videoHeight || 1080;
+                ctx.drawImage(cameraVideo, 0, 0);
+            } else if (currentSourceType === 'screen' && screenVideo.readyState >= 2) {
+                preview.width = screenVideo.videoWidth || 1920;
+                preview.height = screenVideo.videoHeight || 1080;
+                ctx.drawImage(screenVideo, 0, 0);
+            } else if (currentSourceType === 'combined') {
+                // Draw screen as background
+                if (screenVideo.readyState >= 2) {
+                    preview.width = screenVideo.videoWidth || 1920;
+                    preview.height = screenVideo.videoHeight || 1080;
+                    ctx.drawImage(screenVideo, 0, 0, preview.width, preview.height);
+                }
+                
+                // Draw camera as PiP overlay
+                if (cameraVideo.readyState >= 2) {
+                    const pipSizePercent = parseInt(pipSizeEl.value) / 100;
+                    const pipWidth = preview.width * pipSizePercent;
+                    const pipHeight = (cameraVideo.videoHeight / cameraVideo.videoWidth) * pipWidth;
+                    const margin = 20;
+                    
+                    let pipX, pipY;
+                    const position = pipPositionEl.value;
+                    
+                    if (position.includes('right')) {
+                        pipX = preview.width - pipWidth - margin;
+                    } else {
+                        pipX = margin;
+                    }
+                    
+                    if (position.includes('bottom')) {
+                        pipY = preview.height - pipHeight - margin;
+                    } else {
+                        pipY = margin;
+                    }
+                    
+                    // Draw border/shadow
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowBlur = 10;
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(pipX - 2, pipY - 2, pipWidth + 4, pipHeight + 4);
+                    ctx.shadowBlur = 0;
+                    
+                    // Draw camera feed
+                    ctx.drawImage(cameraVideo, pipX, pipY, pipWidth, pipHeight);
+                    
+                    // Draw border
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(pipX, pipY, pipWidth, pipHeight);
+                }
+            }
+        }
+
+        async function startTracking(sourceType) {
+            try {
+                const motionOk = await requestMotionPermission();
+                const orientationOk = await requestOrientationPermission();
+                if (!motionOk || !orientationOk) return;
+
+                // Reset state
+                recordedChunks = [];
+                motionData = [];
+                frameCount = 0;
+                currentRecordingId = Date.now().toString();
+                startTime = Date.now();
+                startTimeUTC = new Date().toISOString();
+                currentGPS = null;
+                currentSourceType = sourceType;
+
+                // Start GPS tracking
+                if (navigator.geolocation) {
+                    gpsWatchId = navigator.geolocation.watchPosition(
+                        (position) => {
+                            currentGPS = {
+                                latitude: position.coords.latitude,
+                                longitude: position.coords.longitude,
+                                altitude: position.coords.altitude,
+                                accuracy: position.coords.accuracy,
+                                altitudeAccuracy: position.coords.altitudeAccuracy,
+                                heading: position.coords.heading,
+                                speed: position.coords.speed,
+                                timestamp: new Date(position.timestamp).toISOString()
+                            };
+                        },
+                        (error) => console.error('GPS error:', error),
+                        { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                    );
+                }
+
+                // Get streams based on source type
+                if (sourceType === 'camera' || sourceType === 'combined') {
+                    cameraStream = await navigator.mediaDevices.getUserMedia({
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false
+                    });
+                    cameraVideo.srcObject = cameraStream;
+                }
+
+                if (sourceType === 'screen' || sourceType === 'combined') {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+                        audio: false
+                    });
+                    screenVideo.srcObject = screenStream;
+                    
+                    screenStream.getVideoTracks()[0].addEventListener('ended', () => {
+                        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                            stopTracking();
+                        }
+                    });
+                }
+
+                // Wait for videos to be ready
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Set canvas size
+                if (sourceType === 'combined' || sourceType === 'screen') {
+                    preview.width = screenVideo.videoWidth || 1920;
+                    preview.height = screenVideo.videoHeight || 1080;
+                } else {
+                    preview.width = cameraVideo.videoWidth || 1280;
+                    preview.height = cameraVideo.videoHeight || 720;
+                }
+
+                // Start rendering to canvas
+                renderInterval = setInterval(renderFrame, 1000 / 30); // 30 fps
+
+                // Record from canvas
+                const canvasStream = preview.captureStream(30);
+                const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+                
+                mediaRecorder = new MediaRecorder(canvasStream, {
+                    mimeType: mimeType,
+                    videoBitsPerSecond: 4000000 // 4 Mbps for combined
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.start(1000);
+
+                // Setup motion tracking
+                window.addEventListener('devicemotion', handleMotion);
+                window.addEventListener('deviceorientation', handleOrientation);
+                window.addEventListener('deviceorientationabsolute', handleMagnetometer);
+
+                trackingInterval = setInterval(updateMetrics, 100);
+
+                // Update UI
+                const sourceLabels = { camera: 'Camera', screen: 'Screen', combined: 'Screen + Camera (PiP)' };
+                statusEl.textContent = 'Recording...';
+                sourceTypeEl.textContent = sourceLabels[sourceType];
+                startCameraBtn.style.display = 'none';
+                startScreenBtn.style.display = 'none';
+                startCombinedBtn.style.display = 'none';
+                stopBtn.style.display = 'block';
+                metricsDiv.style.display = 'block';
+                pipControlsDiv.style.display = sourceType === 'combined' ? 'block' : 'none';
+
+            } catch (error) {
+                statusEl.textContent = 'Error: ' + error.message;
+                console.error(error);
+                // Cleanup on error
+                if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+                if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+            }
+        }
+
+        let lastOrientation = null;
+        let lastAcceleration = null;
+
+        function handleOrientation(event) {
+            lastOrientation = {
+                alpha: event.alpha, beta: event.beta, gamma: event.gamma, absolute: event.absolute
+            };
+        }
+
+        function handleMagnetometer(event) {
+            lastMagnetometer = {
+                alpha: event.alpha, beta: event.beta, gamma: event.gamma, absolute: true
+            };
+        }
+
+        function handleMotion(event) {
+            const timestampRelative = Date.now() - startTime;
+            const timestampUTC = new Date().toISOString();
+            
+            lastAcceleration = {
+                x: event.acceleration?.x || 0,
+                y: event.acceleration?.y || 0,
+                z: event.acceleration?.z || 0
+            };
+
+            motionData.push({
+                timestampRelative, timestampUTC,
+                gps: currentGPS ? { ...currentGPS } : null,
+                magnetometer: lastMagnetometer ? { ...lastMagnetometer } : null,
+                acceleration: lastAcceleration,
+                accelerationIncludingGravity: {
+                    x: event.accelerationIncludingGravity?.x || 0,
+                    y: event.accelerationIncludingGravity?.y || 0,
+                    z: event.accelerationIncludingGravity?.z || 0
+                },
+                rotationRate: {
+                    alpha: event.rotationRate?.alpha || 0,
+                    beta: event.rotationRate?.beta || 0,
+                    gamma: event.rotationRate?.gamma || 0
+                },
+                orientation: lastOrientation
+            });
+            frameCount++;
+        }
+
+        function updateMetrics() {
+            const elapsed = (Date.now() - startTime) / 1000;
+            framesEl.textContent = frameCount;
+            durationEl.textContent = elapsed.toFixed(1) + 's';
+
+            const totalSize = recordedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
+            videoSizeEl.textContent = (totalSize / (1024 * 1024)).toFixed(2) + ' MB';
+
+            if (currentGPS) {
+                gpsEl.textContent = 
+                    `${currentGPS.latitude.toFixed(6)}, ${currentGPS.longitude.toFixed(6)} ±${currentGPS.accuracy.toFixed(1)}m`;
+            } else {
+                gpsEl.textContent = 'acquiring...';
+            }
+
+            if (lastMagnetometer) {
+                magnetometerEl.textContent = 
+                    `heading:${lastMagnetometer.alpha?.toFixed(0) || '-'}° β:${lastMagnetometer.beta?.toFixed(0) || '-'}° γ:${lastMagnetometer.gamma?.toFixed(0) || '-'}°`;
+            } else {
+                magnetometerEl.textContent = 'not available';
+            }
+
+            if (lastOrientation) {
+                orientationEl.textContent = 
+                    `α:${lastOrientation.alpha?.toFixed(0) || '-'}° β:${lastOrientation.beta?.toFixed(0) || '-'}° γ:${lastOrientation.gamma?.toFixed(0) || '-'}°`;
+            }
+
+            if (lastAcceleration) {
+                accelerationEl.textContent = 
+                    `x:${lastAcceleration.x.toFixed(2)} y:${lastAcceleration.y.toFixed(2)} z:${lastAcceleration.z.toFixed(2)}`;
+            }
+        }
+
+        async function stopTracking() {
+            if (gpsWatchId !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+                gpsWatchId = null;
+            }
+
+            clearInterval(renderInterval);
+
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(track => track.stop());
+                cameraStream = null;
+            }
+            if (screenStream) {
+                screenStream.getTracks().forEach(track => track.stop());
+                screenStream = null;
+            }
+
+            window.removeEventListener('devicemotion', handleMotion);
+            window.removeEventListener('deviceorientation', handleOrientation);
+            window.removeEventListener('deviceorientationabsolute', handleMagnetometer);
+            clearInterval(trackingInterval);
+
+            statusEl.textContent = 'Saving recording...';
+
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+            const videoBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+
+            const metadata = {
+                frameCount,
+                duration: (Date.now() - startTime) / 1000,
+                mimeType: mediaRecorder.mimeType,
+                startTimeUTC,
+                endTimeUTC: new Date().toISOString(),
+                sourceType: currentSourceType
+            };
+
+            await saveRecording(currentRecordingId, videoBlob, motionData, metadata);
+            
+            statusEl.textContent = 'Recording saved!';
+            stopBtn.style.display = 'none';
+            startCameraBtn.style.display = 'block';
+            startScreenBtn.style.display = 'block';
+            startCombinedBtn.style.display = 'block';
+            metricsDiv.style.display = 'none';
+            pipControlsDiv.style.display = 'none';
+
+            await updateRecordingsList();
+        }
+
+        // Event listeners
+        startCameraBtn.addEventListener('click', () => startTracking('camera'));
+        startScreenBtn.addEventListener('click', () => startTracking('screen'));
+        startCombinedBtn.addEventListener('click', () => startTracking('combined'));
+        stopBtn.addEventListener('click', stopTracking);
+        
+        pipSizeEl.addEventListener('input', () => {
+            pipSizeLabelEl.textContent = pipSizeEl.value + '%';
+        });
+
+        // Initialize
+        (async () => {
+            try {
+                db = await openDatabase();
+                await updateRecordingsList();
+                
+                if (!navigator.mediaDevices.getDisplayMedia) {
+                    startScreenBtn.disabled = true;
+                    startScreenBtn.textContent = 'Screen (not supported)';
+                    startCombinedBtn.disabled = true;
+                    startCombinedBtn.textContent = 'Combined (not supported)';
+                }
+            } catch (error) {
+                statusEl.textContent = 'Database error: ' + error.message;
+                console.error(error);
+            }
+        })();
+    </script>
+</body>
+</html>
