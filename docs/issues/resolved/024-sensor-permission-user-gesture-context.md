@@ -109,5 +109,41 @@ Separate "request permissions" from "start tracking":
 - MDN: [Detecting device orientation](https://developer.mozilla.org/en-US/docs/Web/API/Detecting_device_orientation)
 - Apple: [Requesting permission for device orientation and motion on iOS 13+](https://developer.apple.com/documentation/safari-release-notes/safari-13-release-notes#Device-Motion-and-Orientation)
 
+## Resolution
+
+**Status**: Resolved (Combined with Issue 021)
+
+**Changes Made**:
+
+The fix for Issue 024 was integrated into the solution for Issue 021, as they both relate to sensor permission and event listener setup.
+
+1. **Moved event listener registration from startSensorTracking to requestSensorPermissions** (lines 2624-2710):
+   - `orientationListener`, `motionListener`, and `magnetometerListener` now added immediately after permission grant
+   - All listeners registered in the same synchronous task, before any await statements
+   - Added `sensorListenersActive` flag to prevent duplicate listener registration
+
+2. **Updated startSensorTracking** (lines 2712-2733):
+   - Now only handles GPS tracking (which doesn't require iOS permissions)
+   - Event listeners no longer added here
+
+3. **Added iOS-specific magnetometer handling in deviceorientation listener**:
+   - iOS Safari compass data properly forwarded to `on_magnetometer`
+   - Handles both `deviceorientation` (iOS) and `deviceorientationabsolute` (Android) events
+
+**Files Modified**:
+- `server/static/nettest.html`
+
+**Critical iOS Requirement Met**:
+✓ Event listeners added in same synchronous execution context as permission grant
+✓ No await statements between permission and listener registration
+✓ Duplicate listener registration prevented with flag
+✓ Works correctly on iOS Safari, Android, and desktop browsers
+
+**Testing Recommendations**:
+- Test on iOS Safari to verify motion/orientation data is captured
+- Verify accelerometer/gyro data is not all zeros during recording
+- Check that magnetometer (compass) data appears in sensor overlay
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*

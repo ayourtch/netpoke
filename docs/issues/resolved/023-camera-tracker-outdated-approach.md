@@ -71,5 +71,38 @@ Add comment at top of file:
 ## Recommendation
 **Option A** - Mark as deprecated and point users to nettest.html. This avoids confusion and maintenance burden while preserving the file for reference if needed.
 
+## Resolution
+
+**Status**: Resolved (Option A - Marked as Deprecated)
+
+**Changes Made**:
+
+1. **Added deprecation warning banner CSS** (lines 8-29):
+   - Created `.deprecation-banner` style with prominent red background
+   - Adjusted body padding to accommodate banner
+   - Moved info panel down to avoid overlap with banner
+
+2. **Added deprecation banner to HTML** (lines 89-92):
+   - Inserted warning banner immediately after `<body>` tag
+   - Banner states: "⚠️ DEPRECATED: This is a legacy demo page without WASM integration. Use nettest.html for full features and production use."
+   - Includes link to `/nettest.html`
+
+3. **Updated page title** (line 6):
+   - Changed from "Camera + Motion Tracking" to "Camera + Motion Tracking (DEPRECATED)"
+
+**Files Modified**:
+- `server/static/camera-tracker.html`
+
+**Rationale**:
+- Option A (deprecation) chosen as the minimal change that addresses the issue
+- Avoids significant refactoring effort (4-6 hours) while clearly directing users to the production page
+- File preserved for reference but clearly marked as legacy code
+
+**Impact**:
+- Users accessing this page will immediately see it's deprecated
+- No risk of confusion about which page to use for production
+- Maintains file for historical reference or testing purposes
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
