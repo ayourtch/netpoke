@@ -81,5 +81,20 @@ The recording should capture the network test state including:
    - Or passing test state when starting/stopping recording
    - Or using a callback mechanism
 
+## Resolution
+Fixed in commit 9ab2ea2 (2026-02-04).
+
+**Changes made:**
+1. Added `TEST_START_TIME` thread_local variable to track when testing starts in `client/src/lib.rs`
+2. Created `get_test_metadata()` exported function that:
+   - Checks if testing is active
+   - Returns test metadata with IPv4/IPv6 status, test start/end times
+   - Returns NULL if no test is active
+3. Modified `set_testing_active()` to record start time when testing begins
+4. Updated `stop_recording()` in `client/src/recorder/state.rs` to call `get_test_metadata()` and populate the `test_metadata` field
+
+The recording metadata now includes actual test state information that can be correlated with network measurements.
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*

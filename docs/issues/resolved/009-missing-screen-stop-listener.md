@@ -76,5 +76,17 @@ window.onScreenShareStopped = function() {
 
 And have the Rust closure call this JavaScript function.
 
+## Resolution
+Fixed in commit 9ab2ea2 (2026-02-04).
+
+**Changes made:**
+1. Modified `start_recording()` in `client/src/recorder/state.rs` to call `add_screen_stop_listener()` after getting screen stream
+2. Added listener for both `SourceType::Screen` and `SourceType::Combined` modes
+3. The listener calls a JavaScript callback `onScreenShareStopped()` when the user clicks "Stop sharing" in browser UI
+4. Added the `onScreenShareStopped()` function to `server/static/nettest.html` as a placeholder for stop recording logic
+
+When users click "Stop sharing" in the browser's screen sharing controls, the recording is now notified and can handle the event appropriately.
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
