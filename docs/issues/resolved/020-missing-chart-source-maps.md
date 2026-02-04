@@ -66,3 +66,21 @@ Document that this warning is expected and harmless. No action required unless a
 
 ---
 *Created: 2026-02-04*
+
+*Resolved: 2026-02-04*
+
+## Resolution
+
+**Status**: Resolved by documentation - no code changes needed.
+
+### Decision
+This is a benign warning that does not affect functionality. Source maps are only useful for debugging Chart.js library internals, which is not needed for this project.
+
+### Recommendation
+The warning can be safely ignored. If it becomes a concern in the future, any of the suggested options in the issue can be implemented:
+1. Download and include the source map files
+2. Use a CDN that includes source maps
+3. Remove the source map reference from the Chart.js file
+4. Continue ignoring the warning
+
+For now, documenting this as expected behavior is sufficient.

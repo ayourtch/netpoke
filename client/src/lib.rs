@@ -2032,12 +2032,6 @@ pub fn init_recorder() {
     recorder::ui::init_recorder_panel();
 }
 
-// Export recorder_render_frame from ui module
-#[wasm_bindgen]
-pub fn recorder_render_frame() {
-    recorder::ui::recorder_render_frame();
-}
-
 // Recorder download and management functions (Issue 012)
 #[wasm_bindgen]
 pub async fn download_video(id: String) -> Result<(), JsValue> {

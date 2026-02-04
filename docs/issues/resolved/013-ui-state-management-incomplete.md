@@ -122,3 +122,39 @@ fn start_metrics_loop() -> Result<i32, JsValue> {
 
 ---
 *Created: 2026-02-04*
+
+*Resolved: 2026-02-04*
+
+## Resolution
+
+**Status**: Resolved with implementation of real-time metrics display and status badge updates.
+
+### Changes Made
+
+1. **Added metrics display HTML** in `server/static/nettest.html`:
+   - Created `recording-metrics` div with duration, frames, and size display
+   - Positioned after recording buttons
+   - Hidden by default, shown during recording
+
+2. **Added UI update functions** in `client/src/recorder/ui.rs`:
+   - Extended `update_recording_ui()` to:
+     - Update status badge ("Ready" / "Recording")
+     - Show/hide metrics display
+     - Show/hide start/stop buttons
+     - Disable controls during recording
+   - Added `update_recording_metrics()` function to update duration, frame count, and size
+
+3. **Integrated metrics updates** in `client/src/recorder/state.rs`:
+   - Call `update_recording_metrics()` from `render_frame()` on every frame
+   - Calculate elapsed time and estimate video size
+   - Update display in real-time (~30 FPS)
+
+### Files Modified
+- `server/static/nettest.html` - Added metrics display HTML
+- `client/src/recorder/ui.rs` - Added metrics update function and enhanced UI state management
+- `client/src/recorder/state.rs` - Call metrics update from render loop
+
+### Implementation Approach
+Rather than using a separate interval timer as suggested in the issue, the metrics are updated directly from the render loop. This is simpler and ensures metrics update frequency matches the frame rate (30 FPS).
+
+The UI now provides real-time feedback during recording with accurate status indication.
