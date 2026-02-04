@@ -12,6 +12,10 @@ This prompt directs you to review and fix issues tracked in `docs/issues/open/`.
 
 ## Important Context
 
+### Example code when dealing with camera+sensors+screenshare integration
+- There is already tested and WORKING code before integration - do not be afraid to check!
+- The code is located in tmp/camera-standalone-for-cross-check/* 
+
 ### Build System
 - The client is a Rust WASM module built with `wasm-pack`
 - Install wasm-pack: `cargo install wasm-pack`
