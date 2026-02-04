@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use crate::recorder::types::{Recording, RecordingMetadata, MotionDataPoint};
 
-#[wasm_bindgen(module = "/js/indexed_db.js")]
+#[wasm_bindgen(module = "/static/lib/recorder/indexed_db.js")]
 extern "C" {
     #[wasm_bindgen(catch)]
     pub async fn openDb() -> Result<JsValue, JsValue>;
@@ -37,7 +37,7 @@ impl IndexedDbWrapper {
         id: &str,
         blob: &web_sys::Blob,
         metadata: &RecordingMetadata,
-        motion_data: &[crate::types::MotionDataPoint],
+        motion_data: &[crate::recorder::types::MotionDataPoint],
     ) -> Result<(), JsValue> {
         let metadata_js = serde_wasm_bindgen::to_value(metadata)?;
         let motion_data_js = serde_wasm_bindgen::to_value(motion_data)?;

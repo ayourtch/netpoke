@@ -2091,6 +2091,7 @@ dependencies = [
  "gloo-timers",
  "js-sys",
  "log",
+ "once_cell",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
