@@ -221,9 +221,11 @@ impl RecorderState {
                                 let canvas_width = canvas.width() as f64;
                                 let canvas_height = canvas.height() as f64;
 
-                                // Calculate chart dimensions
-                                let chart_width = 300.0 * self.chart_size;
-                                let chart_height = 200.0 * self.chart_size;
+                                // Calculate chart dimensions (Issue 016)
+                                // chart_size is a percentage (0.0 - 1.0), use it as percentage of canvas width
+                                let chart_width = canvas_width * self.chart_size;
+                                // Maintain 4:3 aspect ratio (common for charts)
+                                let chart_height = chart_width * 0.75;
                                 let margin = 20.0;
 
                                 // Calculate position based on chart position
