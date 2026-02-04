@@ -1931,6 +1931,12 @@ pub fn on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
     }
 }
 
+// Recorder initialization
+#[wasm_bindgen]
+pub fn init_recorder() {
+    recorder::ui::init_recorder_panel();
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
