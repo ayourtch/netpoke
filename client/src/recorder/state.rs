@@ -55,7 +55,7 @@ impl RecorderState {
     }
 
     pub async fn start_recording(&mut self) -> Result<(), JsValue> {
-        use crate::recorder::media_streams::{get_camera_stream, get_screen_stream};
+        use crate::recorder::media_streams::{get_camera_stream, get_screen_stream, add_screen_stop_listener};
         use crate::recorder::types::CameraFacing;
         use crate::recorder::utils::log;
 
@@ -87,8 +87,23 @@ impl RecorderState {
                 video.set_autoplay(true);
                 video.set_muted(true);
                 video.set_src_object(Some(&stream));
-                self.screen_stream = Some(stream);
+                self.screen_stream = Some(stream.clone());
                 self.screen_video = Some(video);
+
+                // Issue 009: Add screen stop listener
+                add_screen_stop_listener(&stream, Box::new(|| {
+                    log("[Recorder] Screen sharing stopped by user");
+                    // Note: We can't directly call stop_recording from here due to ownership
+                    // The JavaScript callback onScreenShareStopped will need to trigger it
+                    if let Some(window) = web_sys::window() {
+                        if let Ok(callback) = js_sys::Reflect::get(&window, &"onScreenShareStopped".into()) {
+                            if callback.is_function() {
+                                let func: js_sys::Function = callback.dyn_into().unwrap();
+                                let _ = func.call0(&window);
+                            }
+                        }
+                    }
+                }))?;
             }
             SourceType::Combined => {
                 let camera_stream = get_camera_stream().await?;
@@ -105,9 +120,22 @@ impl RecorderState {
                 screen_video.set_src_object(Some(&screen_stream));
 
                 self.camera_stream = Some(camera_stream);
-                self.screen_stream = Some(screen_stream);
+                self.screen_stream = Some(screen_stream.clone());
                 self.camera_video = Some(camera_video);
                 self.screen_video = Some(screen_video);
+
+                // Issue 009: Add screen stop listener for combined mode
+                add_screen_stop_listener(&screen_stream, Box::new(|| {
+                    log("[Recorder] Screen sharing stopped by user");
+                    if let Some(window) = web_sys::window() {
+                        if let Ok(callback) = js_sys::Reflect::get(&window, &"onScreenShareStopped".into()) {
+                            if callback.is_function() {
+                                let func: js_sys::Function = callback.dyn_into().unwrap();
+                                let _ = func.call0(&window);
+                            }
+                        }
+                    }
+                }))?;
             }
         }
 
@@ -313,6 +341,15 @@ impl RecorderState {
 
         // Create recording metadata
         let end_time = js_sys::Date::now();
+        
+        // Issue 005: Get test metadata from the main measurement state
+        let test_metadata_js = crate::get_test_metadata();
+        let test_metadata = if !test_metadata_js.is_null() && !test_metadata_js.is_undefined() {
+            serde_wasm_bindgen::from_value(test_metadata_js).ok()
+        } else {
+            None
+        };
+        
         let metadata = RecordingMetadata {
             frame_count: self.frame_count,
             duration,
@@ -327,7 +364,7 @@ impl RecorderState {
             } else {
                 None
             },
-            test_metadata: None,
+            test_metadata,
         };
 
         // Generate unique ID
@@ -336,6 +373,16 @@ impl RecorderState {
         // Save to IndexedDB
         let db = IndexedDbWrapper::open().await?;
         db.save_recording(&id, &blob, &metadata, &motion_data).await?;
+
+        // Issue 011: Refresh recordings list in UI
+        if let Some(window) = web_sys::window() {
+            if let Ok(refresh_fn) = js_sys::Reflect::get(&window, &"refreshRecordingsList".into()) {
+                if refresh_fn.is_function() {
+                    let func: js_sys::Function = refresh_fn.dyn_into()?;
+                    let _ = func.call0(&window);
+                }
+            }
+        }
 
         // Cleanup
         self.camera_stream = None;
