@@ -37,6 +37,12 @@ pub struct RecordingMetadata {
     pub source_type: SourceType,
     #[serde(default)]
     pub camera_facing: CameraFacing,
+    #[serde(default)]
+    pub chart_included: bool,
+    #[serde(default)]
+    pub chart_type: Option<String>,
+    #[serde(default)]
+    pub test_metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
