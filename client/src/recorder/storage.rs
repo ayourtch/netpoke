@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use crate::types::{Recording, RecordingMetadata};
+use crate::recorder::types::{Recording, RecordingMetadata, MotionDataPoint};
 
 #[wasm_bindgen(module = "/js/indexed_db.js")]
 extern "C" {
