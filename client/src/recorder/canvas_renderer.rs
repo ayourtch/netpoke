@@ -406,4 +406,36 @@ impl CanvasRenderer {
 
         Ok(())
     }
+
+    /// Composite Chart.js canvas into recording
+    pub fn render_chart_overlay(
+        &self,
+        chart_element_id: &str,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    ) -> Result<(), JsValue> {
+        let document = web_sys::window()
+            .ok_or("No window")?
+            .document()
+            .ok_or("No document")?;
+
+        let chart_canvas: web_sys::HtmlCanvasElement = document
+            .get_element_by_id(chart_element_id)
+            .ok_or("Chart canvas not found")?
+            .dyn_into()
+            .map_err(|_| "Element is not a canvas")?;
+
+        self.ctx
+            .draw_image_with_html_canvas_element_and_dw_and_dh(
+                &chart_canvas,
+                x,
+                y,
+                width,
+                height,
+            )?;
+
+        Ok(())
+    }
 }
