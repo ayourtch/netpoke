@@ -81,3 +81,39 @@ The JavaScript can be copied from the standalone camera's HTML file.
 
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
+
+## Resolution
+
+**Status**: Mostly already implemented, missing function added.
+
+### What Was Found
+Most sensor callbacks were already exported from the client WASM module:
+- `on_gps_update()` - Already exported at `client/src/lib.rs:1928-1952`
+- `on_orientation()` - Already exported at `client/src/lib.rs:1954-1967`
+- `on_motion()` - Already exported at `client/src/lib.rs:1969-2003`
+- `on_magnetometer()` - Already exported at `client/src/lib.rs:2005-2018`
+- `set_sensor_overlay_enabled()` - **MISSING**
+
+JavaScript sensor tracking code was also already present in `server/static/nettest.html` (lines 2590+).
+
+### Changes Made
+Added the missing `set_sensor_overlay_enabled()` function to `client/src/lib.rs`:
+```rust
+#[wasm_bindgen]
+pub fn set_sensor_overlay_enabled(enabled: bool) {
+    if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
+        if let Some(ref mut mgr) = *manager_guard {
+            mgr.set_overlay_enabled(enabled);
+        }
+    }
+}
+```
+
+### Files Modified
+- `client/src/lib.rs` - Added `set_sensor_overlay_enabled()` function
+
+### Verification
+Built the client WASM module and verified the function is exported in the generated JS wrapper (`server/static/pkg/netpoke_client.js`).
+
+The sensor subsystem is now fully functional with all required callbacks exported.

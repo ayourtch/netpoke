@@ -298,6 +298,12 @@ impl RecorderState {
             }
 
             self.frame_count += 1;
+
+            // Update metrics display (Issue 013)
+            let elapsed = (js_sys::Date::now() - self.start_time) / 1000.0;
+            // Estimate size based on frame count (rough estimate)
+            let estimated_size = (self.frame_count as u64) * 50000; // ~50KB per frame estimate
+            crate::recorder::ui::update_recording_metrics(elapsed, self.frame_count, estimated_size);
         }
 
         Ok(())
