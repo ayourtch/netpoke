@@ -20,3 +20,8 @@ pub fn current_timestamp_utc() -> String {
 pub fn log(msg: &str) {
     web_sys::console::log_1(&msg.into());
 }
+
+pub fn format_timestamp(timestamp_ms: f64) -> String {
+    let date = Date::new(&timestamp_ms.into());
+    date.to_iso_string().as_string().unwrap_or_else(|| String::from(""))
+}

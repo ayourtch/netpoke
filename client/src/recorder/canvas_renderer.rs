@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, HtmlVideoElement};
-use crate::types::SourceType;
+use crate::recorder::types::SourceType;
 
 pub struct CanvasRenderer {
     canvas: HtmlCanvasElement,
@@ -217,10 +217,10 @@ impl CanvasRenderer {
     pub fn render_sensor_overlay(
         &self,
         timestamp_utc: &str,
-        gps: &Option<crate::types::GpsData>,
-        magnetometer: &Option<crate::types::OrientationData>,
-        orientation: &Option<crate::types::OrientationData>,
-        acceleration: &Option<crate::types::AccelerationData>,
+        gps: &Option<crate::recorder::types::GpsData>,
+        magnetometer: &Option<crate::recorder::types::OrientationData>,
+        orientation: &Option<crate::recorder::types::OrientationData>,
+        acceleration: &Option<crate::recorder::types::AccelerationData>,
         camera_direction: &Option<f64>,
     ) -> Result<(), JsValue> {
         let ctx = &self.ctx;
@@ -312,7 +312,7 @@ impl CanvasRenderer {
         &self,
         camera_direction: Option<f64>,
     ) -> Result<(), JsValue> {
-        crate::utils::log(&format!("[COMPASS] render_compass called with direction: {:?}", camera_direction));
+        crate::recorder::utils::log(&format!("[COMPASS] render_compass called with direction: {:?}", camera_direction));
 
         let ctx = &self.ctx;
 
@@ -324,7 +324,7 @@ impl CanvasRenderer {
 
         // Only draw if we have a direction
         if let Some(direction) = camera_direction {
-            crate::utils::log(&format!("[COMPASS] Drawing compass at ({}, {}) with direction {:.0}°", cx, cy, direction));
+            crate::recorder::utils::log(&format!("[COMPASS] Drawing compass at ({}, {}) with direction {:.0}°", cx, cy, direction));
             // Save context
             ctx.save();
 
@@ -401,7 +401,7 @@ impl CanvasRenderer {
             ctx.set_text_align("center");
             ctx.fill_text(&format!("{:.0}°", direction), cx, cy + radius + 15.0)?;
         } else {
-            crate::utils::log("[COMPASS] No camera_direction, not drawing compass");
+            crate::recorder::utils::log("[COMPASS] No camera_direction, not drawing compass");
         }
 
         Ok(())

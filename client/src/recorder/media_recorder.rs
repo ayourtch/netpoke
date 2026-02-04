@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use web_sys::MediaStream;
 
-#[wasm_bindgen(module = "/js/media_recorder.js")]
+#[wasm_bindgen(module = "/static/lib/recorder/media_recorder.js")]
 extern "C" {
     #[wasm_bindgen(catch)]
     fn createMediaRecorder(stream: &MediaStream) -> Result<JsValue, JsValue>;
@@ -39,7 +39,7 @@ impl Recorder {
             recorder_id: id,
             mime_type,
             start_time: js_sys::Date::now(),
-            start_time_utc: crate::utils::current_timestamp_utc(),
+            start_time_utc: crate::recorder::utils::current_timestamp_utc(),
         })
     }
 

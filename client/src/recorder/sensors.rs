@@ -1,4 +1,4 @@
-use crate::types::{AccelerationData, CameraFacing, GpsData, MotionDataPoint, OrientationData, RotationData};
+use crate::recorder::types::{AccelerationData, CameraFacing, GpsData, MotionDataPoint, OrientationData, RotationData};
 
 #[derive(Clone)]
 pub struct SensorManager {
@@ -51,7 +51,7 @@ impl SensorManager {
     }
 
     pub fn update_orientation(&mut self, orientation: OrientationData) {
-        crate::utils::log(&format!(
+        crate::recorder::utils::log(&format!(
             "[COMPASS] update_orientation: alpha={:?}, absolute={}",
             orientation.alpha,
             orientation.absolute
@@ -90,24 +90,24 @@ impl SensorManager {
     }
 
     fn calculate_camera_direction(&self) -> Option<f64> {
-        crate::utils::log("[COMPASS] calculate_camera_direction called");
+        crate::recorder::utils::log("[COMPASS] calculate_camera_direction called");
 
         // Get compass heading from orientation (when absolute=true, alpha is compass heading)
         if self.current_orientation.is_none() {
-            crate::utils::log("[COMPASS] No current_orientation available");
+            crate::recorder::utils::log("[COMPASS] No current_orientation available");
             return None;
         }
 
         let orientation = self.current_orientation.as_ref()?;
 
-        crate::utils::log(&format!(
+        crate::recorder::utils::log(&format!(
             "[COMPASS] Orientation: alpha={:?}, absolute={}",
             orientation.alpha,
             orientation.absolute
         ));
 
         if !orientation.absolute {
-            crate::utils::log("[COMPASS] Orientation not absolute, no compass direction");
+            crate::recorder::utils::log("[COMPASS] Orientation not absolute, no compass direction");
             return None;  // Need absolute orientation for compass
         }
 
@@ -129,7 +129,7 @@ impl SensorManager {
             }
         };
 
-        crate::utils::log(&format!(
+        crate::recorder::utils::log(&format!(
             "[COMPASS] Camera direction calculated: {:.0}° (camera_facing={:?})",
             camera_direction,
             self.camera_facing
@@ -159,9 +159,9 @@ impl SensorManager {
     }
 
     pub fn get_current_camera_direction(&self) -> Option<f64> {
-        crate::utils::log("[COMPASS] get_current_camera_direction called");
+        crate::recorder::utils::log("[COMPASS] get_current_camera_direction called");
         let result = self.calculate_camera_direction();
-        crate::utils::log(&format!("[COMPASS] get_current_camera_direction returning: {:?}", result));
+        crate::recorder::utils::log(&format!("[COMPASS] get_current_camera_direction returning: {:?}", result));
         result
     }
 

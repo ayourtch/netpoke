@@ -1891,15 +1891,16 @@ pub fn on_gps_update(
 ) {
     if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
         if let Some(ref mut mgr) = *manager_guard {
-            mgr.record_gps(
+            let gps_data = recorder::types::GpsData {
                 latitude,
                 longitude,
-                accuracy,
                 altitude,
+                accuracy,
                 altitude_accuracy,
                 heading,
                 speed,
-            );
+            };
+            mgr.update_gps(gps_data);
         }
     }
 }
@@ -1908,16 +1909,49 @@ pub fn on_gps_update(
 pub fn on_orientation(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
     if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
         if let Some(ref mut mgr) = *manager_guard {
-            mgr.record_orientation(alpha, beta, gamma, absolute);
+            let orientation_data = recorder::types::OrientationData {
+                alpha: Some(alpha),
+                beta: Some(beta),
+                gamma: Some(gamma),
+                absolute,
+            };
+            mgr.update_orientation(orientation_data);
         }
     }
 }
 
 #[wasm_bindgen]
-pub fn on_motion(x: f64, y: f64, z: f64) {
+pub fn on_motion(
+    timestamp_utc: String,
+    current_time: f64,
+    acc_x: f64,
+    acc_y: f64,
+    acc_z: f64,
+    acc_g_x: f64,
+    acc_g_y: f64,
+    acc_g_z: f64,
+    rot_alpha: f64,
+    rot_beta: f64,
+    rot_gamma: f64,
+) {
     if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
         if let Some(ref mut mgr) = *manager_guard {
-            mgr.record_motion(x, y, z);
+            let acceleration = recorder::types::AccelerationData {
+                x: acc_x,
+                y: acc_y,
+                z: acc_z,
+            };
+            let acceleration_g = recorder::types::AccelerationData {
+                x: acc_g_x,
+                y: acc_g_y,
+                z: acc_g_z,
+            };
+            let rotation = recorder::types::RotationData {
+                alpha: rot_alpha,
+                beta: rot_beta,
+                gamma: rot_gamma,
+            };
+            mgr.add_motion_event(timestamp_utc, current_time, acceleration, acceleration_g, rotation);
         }
     }
 }
@@ -1926,7 +1960,13 @@ pub fn on_motion(x: f64, y: f64, z: f64) {
 pub fn on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
     if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
         if let Some(ref mut mgr) = *manager_guard {
-            mgr.record_magnetometer(alpha, beta, gamma, absolute);
+            let mag_data = recorder::types::OrientationData {
+                alpha: Some(alpha),
+                beta: Some(beta),
+                gamma: Some(gamma),
+                absolute,
+            };
+            mgr.update_magnetometer(mag_data);
         }
     }
 }

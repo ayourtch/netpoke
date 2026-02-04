@@ -58,13 +58,13 @@ impl RecorderState {
         // Get media streams based on source type
         match self.source_type {
             SourceType::Camera => {
-                self.camera_stream = Some(get_camera_stream(false).await?);
+                self.camera_stream = Some(get_camera_stream().await?);
             }
             SourceType::Screen => {
                 self.screen_stream = Some(get_screen_stream().await?);
             }
             SourceType::Combined => {
-                self.camera_stream = Some(get_camera_stream(true).await?);
+                self.camera_stream = Some(get_camera_stream().await?);
                 self.screen_stream = Some(get_screen_stream().await?);
             }
         }
@@ -87,7 +87,7 @@ impl RecorderState {
             .capture_stream()
             .map_err(|_| "Failed to capture canvas stream")?;
 
-        self.recorder = Some(Recorder::new(canvas_stream)?);
+        self.recorder = Some(Recorder::new(&canvas_stream)?);
         if let Some(recorder) = &self.recorder {
             recorder.start()?;
         }

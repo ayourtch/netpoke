@@ -25,6 +25,14 @@ impl SourceType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PipPosition {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingMetadata {
     #[serde(default)]
@@ -114,12 +122,4 @@ pub struct RotationData {
     pub alpha: f64,
     pub beta: f64,
     pub gamma: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct Recording {
-    pub id: String,
-    pub timestamp: f64,
-    pub blob_size: usize,
-    pub metadata: RecordingMetadata,
 }
