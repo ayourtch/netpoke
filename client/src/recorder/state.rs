@@ -110,7 +110,75 @@ impl RecorderState {
     }
 
     pub async fn stop_recording(&mut self) -> Result<(), JsValue> {
-        // Implementation in next task
-        todo!()
+        use crate::recorder::storage::IndexedDbWrapper;
+        use crate::recorder::types::{RecordingMetadata, CameraFacing};
+        use crate::recorder::utils::log;
+
+        log("[Recorder] Stopping recording");
+
+        // Stop render loop
+        if let Some(id) = self.animation_frame_id {
+            web_sys::window()
+                .ok_or("No window")?
+                .cancel_animation_frame(id)?;
+            self.animation_frame_id = None;
+        }
+
+        // Stop MediaRecorder and get blob
+        let blob = if let Some(recorder) = &self.recorder {
+            recorder.stop().await?
+        } else {
+            return Err("No recorder".into());
+        };
+
+        // Get motion data from global SENSOR_MANAGER
+        let motion_data = if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
+            if let Some(ref mgr) = *manager_guard {
+                mgr.get_motion_data().clone()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Calculate duration
+        let duration = (js_sys::Date::now() - self.start_time) / 1000.0;
+
+        // Create recording metadata
+        let end_time = js_sys::Date::now();
+        let metadata = RecordingMetadata {
+            frame_count: self.frame_count,
+            duration,
+            mime_type: "video/webm".to_string(),
+            start_time_utc: crate::recorder::utils::format_timestamp(self.start_time),
+            end_time_utc: crate::recorder::utils::format_timestamp(end_time),
+            source_type: self.source_type,
+            camera_facing: CameraFacing::Unknown,
+            chart_included: self.chart_enabled,
+            chart_type: if self.chart_enabled {
+                Some(self.chart_type.clone())
+            } else {
+                None
+            },
+            test_metadata: None,
+        };
+
+        // Generate unique ID
+        let id = format!("rec_{}", end_time as u64);
+
+        // Save to IndexedDB
+        let db = IndexedDbWrapper::open().await?;
+        db.save_recording(&id, &blob, &metadata, &motion_data).await?;
+
+        // Cleanup
+        self.camera_stream = None;
+        self.screen_stream = None;
+        self.recorder = None;
+        self.renderer = None;
+        self.recording = false;
+
+        log("[Recorder] Recording saved");
+        Ok(())
     }
 }

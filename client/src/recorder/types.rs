@@ -55,6 +55,14 @@ pub enum CameraFacing {
     Unknown,      // Screen recording or unknown
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recording {
+    pub id: String,
+    pub timestamp: f64,
+    pub blob_size: usize,
+    pub metadata: RecordingMetadata,
+}
+
 impl Default for CameraFacing {
     fn default() -> Self {
         CameraFacing::Unknown
