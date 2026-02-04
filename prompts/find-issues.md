@@ -1,105 +1,71 @@
-# Camera Integration Issue Discovery
+# Find Issues Prompt
 
-## Task Overview
-Compare the camera code in `tmp/camera-standalone-for-cross-check/` (working reference) with the integrated version in `client/src/recorder/` and `server/static/`. Find and document discrepancies following the process in `docs/issues/README.md`.
+## Overview
+Compare reference implementations against integrated code to find and document discrepancies. Follow the workflow in `docs/issues/README.md`.
 
-## Key Files to Compare
+## Core Task
+Compare `tmp/camera-standalone-for-cross-check/` (working reference) with `client/src/recorder/` and `server/static/` (integrated). Document issues found.
 
-### Working Reference (Standalone)
-**Location**: `tmp/camera-standalone-for-cross-check/`
+## Comparison Points
 
-Core files:
-- `index.html` - Complete working HTML with sensor setup
-- `src/lib.rs` - WASM exports and global state management  
-- `src/app.rs` - Application state and initialization
-- `src/ui.rs` - UI event handlers and initialization
-- `src/sensors.rs` - SensorManager implementation
-- `src/types.rs` - Data structures
-- `src/canvas_renderer.rs` - Video rendering with overlays
-- `src/storage.rs` - IndexedDB wrapper
-- `src/media_streams.rs` - Camera/screen capture
+**Reference**: `tmp/camera-standalone-for-cross-check/` (working code)
+**Integrated**: `client/src/recorder/` + `server/static/` (target code)
 
-### Integrated Version
-**Location**: `client/src/` and `server/static/`
+Key files: `lib.rs` (WASM exports), HTML files (imports/setup), sensor/UI modules
 
-Key comparison points:
-- `client/src/lib.rs` - WASM exports (search for `#[wasm_bindgen]` sensor callbacks)
-- `client/src/recorder/` - Recorder subsystem (equivalent to standalone src/)
-- `server/static/nettest.html` - Integrated HTML (compare with standalone index.html)
+Context: `docs/plans/` and `docs/issues/session-summary-*.md`
 
-### Design Documents
-- `docs/plans/` - Implementation and system design documents
-- `docs/issues/session-summary-*.md` - Session summaries with analysis context
+## Universal Patterns to Check
 
-## What to Look For
+1. **Function Signatures**: WASM exports must match JavaScript calls exactly (parameter count, types, order)
 
-### 1. Function Signature Mismatches
-Compare WASM function exports between standalone and integrated:
-- Check parameter counts, types, and order
-- Verify JavaScript callers pass the correct arguments
-- Pay special attention to optional parameters
+2. **Missing Integrations**: Functions exported but not imported, or event listeners not registered
 
-Key sensor functions to verify: `on_gps_update()`, `on_orientation()`, `on_motion()`, `on_magnetometer()`
+3. **Module Paths**: Integrated uses `crate::recorder::*` namespace vs standalone `crate::*`
 
-### 2. Missing Exports/Integrations
-Check if functions exist in WASM but aren't imported in HTML:
-- Look at `const { ... } = module;` import statements in HTML files
-- Compare with `#[wasm_bindgen]` exports in Rust code
-- Verify event listeners are registered for all sensors
+4. **Platform Requirements**: iOS Safari needs event listeners added synchronously with permission grants (no `await` between)
 
-### 3. Module Path Differences
-The integrated version uses module prefixes:
-- Standalone: `crate::utils::log()`
-- Integrated: `crate::recorder::utils::log()`
+5. **State Management**: Compare initialization patterns (eager vs lazy) and check for race conditions
 
-All integrated types/functions are under `crate::recorder::*` namespace.
+6. **Feature Completeness**: New features in integrated code may exist but not be wired up
 
-### 4. iOS-Specific Requirements
-iOS Safari has strict requirements for sensor permissions:
-- Event listeners MUST be added in same synchronous task as permission grant
-- Cannot use `await` between permission request and adding listeners
-- Check the `requestSensorPermissions()` pattern in standalone for the correct approach
+## Issue Documentation
 
-### 5. State Management
-Compare initialization and state patterns:
-- Standalone: `Rc<RefCell<AppState>>` passed to closures
-- Integrated: `thread_local! { RECORDER_STATE }` with lazy init
+Follow `docs/issues/README.md` for complete process. Key principles:
 
-Check for initialization order issues or race conditions.
+- **Specific**: Include file paths, line numbers, code snippets
+- **Explain Why**: Not just what's wrong, but why it matters
+- **Actionable**: Provide clear implementation steps
+- **Context**: Show both incorrect and correct versions
 
-### 6. UI Initialization Timing
-- Standalone: Eager initialization
-- Integrated: Lazy initialization
+## Quick Commands
 
-Verify DOM elements exist before access.
+```bash
+# Find next issue number
+ls docs/issues/open/ docs/issues/resolved/ | grep -oE '^[0-9]+' | sort -n | tail -1
 
-### 7. Feature Completeness
-Check if new features in integrated version are fully wired up:
-- Chart overlay rendering functions
-- PiP positioning options
-- Test metadata capture
+# Create new issue
+# Use format: NNN-short-description.md in docs/issues/open/
 
-## How to Document Issues
-
-**See `docs/issues/README.md` for the complete issue tracking process**, including:
-- How to find the next issue number
-- Issue file naming convention
-- Complete issue template
-- Workflow for creating and resolving issues
-- Priority guidelines
-
-**Key points**:
-- Be specific with file paths and context
-- Include code snippets showing both wrong and correct versions
-- Explain WHY it's wrong, not just WHAT
-- Provide actionable implementation steps
-- Consider iOS compatibility for sensor-related issues
+# Verify WASM exports match HTML imports
+grep "export function" server/static/pkg/netpoke_client.js
+grep "const {" server/static/nettest.html
+```
 
 ## Testing Strategy
 
-After documenting issues:
-1. Build and test on desktop browser first
-2. Test on iOS Safari (sensor permission handling is iOS-specific)
+1. Build and verify compilation first
+2. Test on iOS Safari for platform-specific issues (sensor permissions)
 3. Check browser console for JavaScript errors
 4. Verify sensor data in recordings (download motion data JSON)
-5. Test all source types: camera, screen, combined
+
+## Self-Improvement
+
+After each session, review this prompt. Instead of adding more content:
+
+1. **Generalize**: Replace specific examples with broader patterns
+2. **Consolidate**: Merge similar lessons into single principles
+3. **Delete**: Remove outdated or overly specific advice
+4. **Simplify**: Make instructions clearer and more concise
+
+**Goal**: Keep this file short and maximally useful. Wisdom comes from finding universal truths, not accumulating details.
