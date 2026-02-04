@@ -971,6 +971,13 @@
                     <div id="recordings-container"></div>
                 </div>
 
+                <!-- Hidden canvases for Chart.js rendering (used for overlay in recordings) -->
+                <div style="display:none" id="hidden-charts">
+                    <canvas id="metrics-chart" width="400" height="300"></canvas>
+                    <canvas id="latency-chart" width="400" height="300"></canvas>
+                    <canvas id="throughput-chart" width="400" height="300"></canvas>
+                </div>
+
             </div>
         </div>
 
@@ -1106,9 +1113,7 @@
     <script src="/static/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
     <script src="/static/lib/chartjs-plugin-zoom.min.js"></script>
 
-    <!-- Recorder JavaScript -->
-    <script src="/static/lib/recorder/indexed_db.js"></script>
-    <script src="/static/lib/recorder/media_recorder.js"></script>
+    <!-- Recorder JavaScript modules are loaded via WASM bindgen, not as scripts -->
 
     <script>
         // Collapsible info section with localStorage persistence
@@ -1188,7 +1193,12 @@
         };
 
         function initChart() {
-            const ctx = document.getElementById('metrics-chart').getContext('2d');
+            const canvas = document.getElementById('metrics-chart');
+            if (!canvas) {
+                console.warn('[Chart] metrics-chart canvas not found, skipping chart initialization');
+                return;
+            }
+            const ctx = canvas.getContext('2d');
             
             metricsChart = new Chart(ctx, {
                 type: 'line',
