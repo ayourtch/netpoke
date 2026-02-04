@@ -101,5 +101,16 @@ async function initRecorderWithRetry(maxRetries = 5) {
 
 The best approach is Option 1 - ensuring DOM is ready before initialization.
 
+## Resolution
+Fixed in commit 9ab2ea2 (2026-02-04).
+
+**Changes made:**
+1. Wrapped WASM initialization in `server/static/nettest.html` with `DOMContentLoaded` event listener
+2. The initialization code now only runs after the DOM is fully loaded
+3. This ensures all HTML elements exist before `init_recorder()` tries to set up event listeners
+
+The race condition is resolved - recorder initialization now always happens after DOM elements are available, preventing silent failures when attaching event listeners.
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*

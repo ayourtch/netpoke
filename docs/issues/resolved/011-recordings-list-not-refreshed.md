@@ -79,5 +79,17 @@ window.refreshRecordingsList = refreshRecordingsList;
 
 Alternatively, the recordings list UI could be re-rendered from Rust using DOM manipulation, similar to how the standalone camera's `UiController::render_recordings_list()` works.
 
+## Resolution
+Fixed in commit 9ab2ea2 (2026-02-04).
+
+**Changes made:**
+1. Added `refreshRecordingsList()` JavaScript function to `server/static/nettest.html`
+2. Exposed function globally via `window.refreshRecordingsList`
+3. Modified `stop_recording()` in `client/src/recorder/state.rs` to call the JavaScript refresh function after saving to IndexedDB
+4. Uses `js_sys::Reflect` to check for and call the function if it exists
+
+The recordings list UI can now be refreshed after a new recording is saved, though the full IndexedDB query implementation in the JavaScript function still needs to be completed.
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*

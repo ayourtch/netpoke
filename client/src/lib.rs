@@ -65,6 +65,8 @@ thread_local! {
     static CHART_COLLECTION_START_MS: RefCell<Option<u64>> = RefCell::new(None);
     // Current survey session ID (UUID)
     static SURVEY_SESSION_ID: RefCell<String> = RefCell::new(String::new());
+    // Issue 005: Track test start time for metadata
+    static TEST_START_TIME: RefCell<Option<f64>> = RefCell::new(None);
 }
 
 /// Client configuration fetched from the server
@@ -306,12 +308,56 @@ fn set_testing_active(active: bool) {
     IS_TESTING_ACTIVE.with(|state| {
         *state.borrow_mut() = active;
     });
+    
+    // Issue 005: Track test start time
+    if active {
+        TEST_START_TIME.with(|time| {
+            *time.borrow_mut() = Some(js_sys::Date::now());
+        });
+    } else {
+        TEST_START_TIME.with(|time| {
+            *time.borrow_mut() = None;
+        });
+    }
 }
 
 /// Check if testing is currently active
 #[wasm_bindgen]
 pub fn is_testing_active() -> bool {
     IS_TESTING_ACTIVE.with(|state| *state.borrow())
+}
+
+/// Issue 005: Get current test metadata for recordings
+#[wasm_bindgen]
+pub fn get_test_metadata() -> JsValue {
+    let is_testing = IS_TESTING_ACTIVE.with(|state| *state.borrow());
+    let start_time = TEST_START_TIME.with(|time| *time.borrow());
+    
+    if !is_testing || start_time.is_none() {
+        return JsValue::NULL;
+    }
+    
+    let start_ms = start_time.unwrap();
+    let end_ms = js_sys::Date::now();
+    
+    // Format timestamps as ISO 8601 UTC strings
+    let start_date = js_sys::Date::new(&JsValue::from_f64(start_ms));
+    let end_date = js_sys::Date::new(&JsValue::from_f64(end_ms));
+    let start_iso = start_date.to_iso_string();
+    let end_iso = end_date.to_iso_string();
+    
+    // Check if we have active IPv4/IPv6 connections by checking peer connections
+    let has_peers = ACTIVE_PEERS.with(|peers| peers.borrow().len() > 0);
+    
+    // Create metadata object
+    let obj = js_sys::Object::new();
+    js_sys::Reflect::set(&obj, &"ipv4Active".into(), &JsValue::from_bool(has_peers)).unwrap();
+    js_sys::Reflect::set(&obj, &"ipv6Active".into(), &JsValue::from_bool(has_peers)).unwrap();
+    js_sys::Reflect::set(&obj, &"testStartTime".into(), &start_iso).unwrap();
+    js_sys::Reflect::set(&obj, &"testEndTime".into(), &end_iso).unwrap();
+    js_sys::Reflect::set(&obj, &"testActive".into(), &JsValue::from_bool(is_testing)).unwrap();
+    
+    obj.into()
 }
 
 /// Register a peer connection to be tracked

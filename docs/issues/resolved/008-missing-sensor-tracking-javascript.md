@@ -120,5 +120,19 @@ The WASM module must export `on_gps_update`, `on_orientation`, and `on_motion` f
 
 Call `startSensorTracking()` after requesting permissions when recording starts, and call `stopSensorTracking()` when recording stops.
 
+## Resolution
+Fixed in commit 9ab2ea2 (2026-02-04).
+
+**Changes made:**
+1. Added sensor tracking JavaScript functions to `server/static/nettest.html`:
+   - `requestSensorPermissions()` - Requests iOS DeviceOrientation and DeviceMotion permissions
+   - `startSensorTracking()` - Starts GPS tracking via geolocation.watchPosition, adds deviceorientation and devicemotion event listeners
+   - `stopSensorTracking()` - Stops all sensor tracking and removes event listeners
+2. Exposed WASM callbacks (`on_gps_update`, `on_orientation`, `on_motion`) in the module import
+3. Made functions globally accessible via `window` object
+
+The sensor tracking functions are now in place and will call the existing WASM callbacks when sensors report data. GPS, compass, and motion sensors are all supported with proper iOS permission handling.
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
