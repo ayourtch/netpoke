@@ -1,14 +1,14 @@
-# Camera Integration Issue Discovery Process
+# Camera Integration Issue Discovery
 
 ## Task Overview
-Look at recent commits that attempted to fuse the camera code (in `tmp/camera-standalone-for-cross-check/`) with NetPoke's client network tester. Find and document discrepancies between the working standalone implementation and the integrated version.
+Compare the camera code in `tmp/camera-standalone-for-cross-check/` (working reference) with the integrated version in `client/src/recorder/` and `server/static/`. Find and document discrepancies following the process in `docs/issues/README.md`.
 
 ## Key Files to Compare
 
 ### Working Reference (Standalone)
 **Location**: `tmp/camera-standalone-for-cross-check/`
 
-Core files to review:
+Core files:
 - `index.html` - Complete working HTML with sensor setup
 - `src/lib.rs` - WASM exports and global state management  
 - `src/app.rs` - Application state and initialization
@@ -23,163 +23,83 @@ Core files to review:
 **Location**: `client/src/` and `server/static/`
 
 Key comparison points:
-- `client/src/lib.rs` - WASM exports (lines 1928-2141 for sensor callbacks)
+- `client/src/lib.rs` - WASM exports (search for `#[wasm_bindgen]` sensor callbacks)
 - `client/src/recorder/` - Recorder subsystem (equivalent to standalone src/)
 - `server/static/nettest.html` - Integrated HTML (compare with standalone index.html)
-- `server/static/camera-tracker.html` - Legacy approach, may be outdated
 
 ### Design Documents
-- `docs/plans/2025-12-05-network-measurement-implementation.md` - Implementation plan
-- `docs/plans/2025-12-05-network-measurement-system-design.md` - System design
-- `docs/issues/session-summary-2026-02-04.md` - Recent work summary
+- `docs/plans/` - Implementation and system design documents
+- `docs/issues/session-summary-*.md` - Session summaries with analysis context
 
 ## What to Look For
 
 ### 1. Function Signature Mismatches
 Compare WASM function exports between standalone and integrated:
 - Check parameter counts, types, and order
-- Verify JavaScript callers pass the right number of arguments
+- Verify JavaScript callers pass the correct arguments
 - Pay special attention to optional parameters
 
-**Critical Functions**:
-- `on_gps_update()` - 7 parameters (check order: latitude, longitude, altitude, accuracy...)
-- `on_orientation()` - 4 parameters (alpha, beta, gamma, absolute)
-- `on_motion()` - 11 parameters in integrated vs 9 in standalone! (timestamp added)
-- `on_magnetometer()` - 4 parameters (alpha, beta, gamma, absolute)
+Key sensor functions to verify: `on_gps_update()`, `on_orientation()`, `on_motion()`, `on_magnetometer()`
 
 ### 2. Missing Exports/Integrations
 Check if functions exist in WASM but aren't imported in HTML:
-- Look at `const { ... } = module;` import statements in HTML
-- Compare with `#[wasm_bindgen]` exports in lib.rs
-- Check if event listeners are registered for sensors
+- Look at `const { ... } = module;` import statements in HTML files
+- Compare with `#[wasm_bindgen]` exports in Rust code
+- Verify event listeners are registered for all sensors
 
-### 3. Path Discrepancies
+### 3. Module Path Differences
 The integrated version uses module prefixes:
 - Standalone: `crate::utils::log()`
 - Integrated: `crate::recorder::utils::log()`
 
 All integrated types/functions are under `crate::recorder::*` namespace.
 
-### 4. iOS-Specific Issues
+### 4. iOS-Specific Requirements
 iOS Safari has strict requirements for sensor permissions:
 - Event listeners MUST be added in same synchronous task as permission grant
-- Cannot use `await` between permission and adding listeners
-- Check `requestSensorPermissions()` pattern in standalone (lines 349-401)
+- Cannot use `await` between permission request and adding listeners
+- Check the `requestSensorPermissions()` pattern in standalone for the correct approach
 
-### 5. State Management Differences
+### 5. State Management
+Compare initialization and state patterns:
 - Standalone: `Rc<RefCell<AppState>>` passed to closures
 - Integrated: `thread_local! { RECORDER_STATE }` with lazy init
 
 Check for initialization order issues or race conditions.
 
-### 6. UI Initialization
-- Standalone: Eager initialization in `AppState::new()`
-- Integrated: Lazy initialization via `init_recorder_panel()`
+### 6. UI Initialization Timing
+- Standalone: Eager initialization
+- Integrated: Lazy initialization
 
 Verify DOM elements exist before access.
 
-### 7. Module Path Differences
-All paths in integrated code have `recorder::` prefix:
-```rust
-// Standalone
-use crate::types::*;
-use crate::utils::log;
-
-// Integrated  
-use crate::recorder::types::*;
-use crate::recorder::utils::log;
-```
-
-### 8. Additional Features in Integrated
-The integrated version has extra features not in standalone:
-- `PipPosition` enum for chart positioning
-- `chart_included`, `chart_type`, `test_metadata` fields in RecordingMetadata
-- `render_chart_overlay()` function for Chart.js compositing
-
-Check if these features are fully wired up.
+### 7. Feature Completeness
+Check if new features in integrated version are fully wired up:
+- Chart overlay rendering functions
+- PiP positioning options
+- Test metadata capture
 
 ## How to Document Issues
 
-Follow the process in `docs/issues/README.md`:
+**See `docs/issues/README.md` for the complete issue tracking process**, including:
+- How to find the next issue number
+- Issue file naming convention
+- Complete issue template
+- Workflow for creating and resolving issues
+- Priority guidelines
 
-1. **Find next issue number**: 
-   ```bash
-   ls docs/issues/open/ docs/issues/resolved/ | grep -oE '^[0-9]+' | sort -n | tail -1
-   ```
-
-2. **Create issue file**: `docs/issues/open/NNN-short-description.md`
-
-3. **Use this template**:
-   ```markdown
-   # Issue NNN: Short Title
-   
-   ## Summary
-   Brief description of the issue.
-   
-   ## Location
-   - File: `path/to/file.rs`
-   - Function/Line: specific location
-   - Reference: working code location
-   
-   ## Current Behavior
-   What currently happens (the bug or missing feature).
-   
-   ## Expected Behavior
-   What should happen instead.
-   
-   ## Impact
-   Priority: Critical/High/Medium/Low
-   How this affects users or the system.
-   
-   ## Suggested Implementation
-   Step-by-step fix with code examples.
-   
-   ## Related Issues
-   References to related issues if any.
-   
-   ---
-   *Created: YYYY-MM-DD*
-   ```
-
-4. **Be specific and actionable**:
-   - Include exact line numbers
-   - Show code snippets for both wrong and correct versions
-   - Explain WHY it's wrong, not just WHAT is wrong
-   - Provide complete implementation steps
-   - Consider edge cases and iOS compatibility
-
-5. **Issue Priority Guidelines**:
-   - **Critical**: Breaks core functionality, blocks deployment
-   - **High**: Significant bug, data loss, security issue, iOS-specific crash
-   - **Medium**: Feature incomplete, degraded UX, workaround exists
-   - **Low**: Polish, documentation, cleanup, very minor bugs
-
-## Common Discrepancies Found
-
-Based on previous analysis, watch for:
-
-1. ✅ **Missing `on_magnetometer` import** - Function exists but not used in nettest.html
-2. ✅ **Signature mismatch** - Standalone calls `on_magnetometer(alpha, beta, gamma)` but Rust expects 4 params
-3. ✅ **Sensor permission timing** - iOS requires listeners added immediately after permission grant
-4. ⚠️ **Chart compositing** - `render_chart_overlay()` exists but never called
-5. ⚠️ **camera-tracker.html** - Outdated file with plain JS approach (no WASM)
+**Key points**:
+- Be specific with file paths and context
+- Include code snippets showing both wrong and correct versions
+- Explain WHY it's wrong, not just WHAT
+- Provide actionable implementation steps
+- Consider iOS compatibility for sensor-related issues
 
 ## Testing Strategy
 
 After documenting issues:
-1. Build and run on desktop browser first
-2. Test on iOS Safari (permission handling is iOS-specific)
+1. Build and test on desktop browser first
+2. Test on iOS Safari (sensor permission handling is iOS-specific)
 3. Check browser console for JavaScript errors
-4. Verify sensor data appears in recordings (download motion data JSON)
-5. Test all three source types: camera, screen, combined
-
-## Recent Work Context
-
-Check `docs/issues/session-summary-2026-02-04.md` - it shows:
-- 20 issues were previously worked on
-- Issues 001-020 cover various integration problems
-- Many issues already resolved (in docs/issues/resolved/)
-- Issue numbering continues from 021+
-
-Start your issue numbering from 021 or whatever is next available.
-
+4. Verify sensor data in recordings (download motion data JSON)
+5. Test all source types: camera, screen, combined
