@@ -2,7 +2,7 @@ let db = null;
 
 export async function openDb() {
     return new Promise((resolve, reject) => {
-        const request = indexedDB.open('CameraTrackingDB', 2);
+        const request = indexedDB.open('NetpokeRecordingsDB', 1);
 
         request.onerror = () => reject(request.error);
         request.onsuccess = () => {
