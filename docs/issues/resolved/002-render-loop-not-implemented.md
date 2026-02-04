@@ -80,3 +80,28 @@ self.render_interval_handle = Some(handle);
 
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
+
+## Resolution
+
+**Status**: Already resolved in current codebase, confirmed with code review and build verification.
+
+### What Was Found
+The render loop was already properly implemented:
+1. The `recorder_render_frame()` function exists in `client/src/recorder/ui.rs` with `#[wasm_bindgen]` export (lines 33-38)
+2. The HTML (`server/static/nettest.html`) already has a render loop using `requestAnimationFrame` (lines 2580-2588)
+3. The function is correctly imported from the WASM module (line 2566)
+
+### Actions Taken
+No code changes were needed for the core render loop functionality. However, during investigation:
+1. Verified that `recorder_render_frame()` is exported from the WASM module
+2. Built the client WASM module to confirm the export is present in the generated JS wrapper
+3. The render loop calls `render_frame()` on the RecorderState, which composites video, PiP, charts, and sensors
+
+### Related Changes
+As part of Issue 013 (UI state management), added metrics display updates to the render loop:
+- Call `update_recording_metrics()` from `render_frame()` to show duration, frames, and estimated size
+- Added metrics display HTML elements
+- Added status badge updates
+
+The render loop is functional and properly integrated.

@@ -79,3 +79,28 @@ Create dual versions - one for WASM import and one for HTML, but this adds maint
 
 ---
 *Created: 2026-02-04*
+
+*Resolved: 2026-02-04*
+
+## Resolution
+
+**Status**: Already resolved in current codebase.
+
+### What Was Found
+The ES6 module script tags for `indexed_db.js` and `media_recorder.js` mentioned in the issue are not present in the current version of `server/static/nettest.html`.
+
+A search for these script tags yielded no results:
+```bash
+grep -n "indexed_db.js\|media_recorder.js" server/static/nettest.html
+# No results
+```
+
+### Analysis
+These script tags were likely removed in a previous update. The ES6 modules are correctly imported only by the WASM module using `#[wasm_bindgen(module = "...")]` declarations, which is the proper approach.
+
+### Files Checked
+- `server/static/nettest.html` - Confirmed script tags are not present
+- `client/src/recorder/storage.rs` - Confirmed WASM module imports work correctly
+
+### Conclusion
+No action needed. The issue was already resolved by removing the redundant script tags.

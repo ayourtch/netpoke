@@ -121,3 +121,34 @@ async function checkCaptureStatus() {
 
 ---
 *Created: 2026-02-04*
+
+*Resolved: 2026-02-04*
+
+## Resolution
+
+**Status**: Resolved by adding credentials to fetch requests and graceful authentication error handling.
+
+### Changes Made
+
+Added proper CORS credentials and error handling to both capture and tracing status check functions in `server/static/nettest.html`:
+
+1. **Updated `checkCaptureStatus()`** (line ~2453):
+   - Added `credentials: 'include'` to fetch request
+   - Added `mode: 'same-origin'` for same-origin requests
+   - Added specific handling for 401/403 responses showing "Authentication required" message
+   - Distinguished between auth errors (orange warning) and network errors (red error)
+
+2. **Updated `checkTracingStatus()`** (line ~2487):
+   - Added `credentials: 'include'` to fetch request
+   - Added `mode: 'same-origin'` for same-origin requests
+   - Added specific handling for 401/403 responses showing "Authentication required" message
+   - Distinguished between auth errors (orange warning) and network errors (red error)
+
+### Files Modified
+- `server/static/nettest.html` - Updated fetch calls with credentials and auth error handling
+
+### Result
+- CORS errors are eliminated when user is authenticated
+- When not authenticated, users see clear "Authentication required" message instead of generic errors
+- Error handling differentiates between authentication issues, server issues, and network failures
+- No changes needed to server-side code - the endpoints already support hybrid authentication
