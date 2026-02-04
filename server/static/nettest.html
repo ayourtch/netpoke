@@ -2590,7 +2590,7 @@
 
                     // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                     const module = await import('/public/pkg/netpoke_client.js');
-                    const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder, recorder_render_frame, on_gps_update, on_orientation, on_motion } = module;
+                    const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder, recorder_render_frame, on_gps_update, on_orientation, on_motion, on_magnetometer } = module;
 
                     // Initialize WASM with explicit path and cache-busting
                     // Pass the .wasm file path to init() for Safari compatibility
@@ -2618,6 +2618,8 @@
                 let watchId = null;
                 let orientationListener = null;
                 let motionListener = null;
+                let magnetometerListener = null;
+                let sensorListenersActive = false;
 
                 async function requestSensorPermissions() {
                     // iOS requires explicit permission request
@@ -2647,13 +2649,70 @@
                             return false;
                         }
                     }
+                    
+                    // CRITICAL: Add event listeners immediately after permission granted (iOS requirement)
+                    // Must be in same synchronous task, before any await
+                    if (!sensorListenersActive) {
+                        // Orientation listener
+                        orientationListener = (event) => {
+                            on_orientation(
+                                event.alpha || 0, 
+                                event.beta || 0, 
+                                event.gamma || 0, 
+                                event.absolute || false
+                            );
+                            // iOS Safari provides compass in alpha even without absolute flag
+                            if (event.alpha !== null && on_magnetometer) {
+                                on_magnetometer(
+                                    event.alpha,
+                                    event.beta || 0,
+                                    event.gamma || 0,
+                                    event.absolute || false
+                                );
+                            }
+                        };
+                        window.addEventListener('deviceorientation', orientationListener);
+                        
+                        // Motion listener
+                        motionListener = (event) => {
+                            const timestamp = new Date().toISOString();
+                            const currentTime = Date.now();
+                            const accel = event.acceleration || { x: 0, y: 0, z: 0 };
+                            const accelG = event.accelerationIncludingGravity || { x: 0, y: 0, z: 0 };
+                            const rot = event.rotationRate || { alpha: 0, beta: 0, gamma: 0 };
+                            on_motion(
+                                timestamp,
+                                currentTime,
+                                accel.x || 0, accel.y || 0, accel.z || 0,
+                                accelG.x || 0, accelG.y || 0, accelG.z || 0,
+                                rot.alpha || 0, rot.beta || 0, rot.gamma || 0
+                            );
+                        };
+                        window.addEventListener('devicemotion', motionListener);
+                        
+                        // Magnetometer (absolute orientation) listener
+                        magnetometerListener = (event) => {
+                            if (on_magnetometer && event.alpha !== null) {
+                                on_magnetometer(
+                                    event.alpha || 0,
+                                    event.beta || 0,
+                                    event.gamma || 0,
+                                    true  // absolute = true for deviceorientationabsolute
+                                );
+                            }
+                        };
+                        window.addEventListener('deviceorientationabsolute', magnetometerListener);
+                        
+                        sensorListenersActive = true;
+                    }
+                    
                     return true;
                 }
 
                 function startSensorTracking() {
                     console.log('[Sensors] Starting sensor tracking');
                     
-                    // Start GPS
+                    // Start GPS (event listeners already added by requestSensorPermissions)
                     if (navigator.geolocation) {
                         watchId = navigator.geolocation.watchPosition(
                             (position) => {
@@ -2671,34 +2730,6 @@
                             { enableHighAccuracy: true, maximumAge: 1000 }
                         );
                     }
-
-                    // Start orientation tracking
-                    orientationListener = (event) => {
-                        on_orientation(
-                            event.alpha || 0, 
-                            event.beta || 0, 
-                            event.gamma || 0, 
-                            event.absolute || false
-                        );
-                    };
-                    window.addEventListener('deviceorientation', orientationListener);
-
-                    // Start motion tracking
-                    motionListener = (event) => {
-                        const timestamp = new Date().toISOString();
-                        const currentTime = Date.now();
-                        const accel = event.acceleration || { x: 0, y: 0, z: 0 };
-                        const accelG = event.accelerationIncludingGravity || { x: 0, y: 0, z: 0 };
-                        const rot = event.rotationRate || { alpha: 0, beta: 0, gamma: 0 };
-                        on_motion(
-                            timestamp,
-                            currentTime,
-                            accel.x || 0, accel.y || 0, accel.z || 0,
-                            accelG.x || 0, accelG.y || 0, accelG.z || 0,
-                            rot.alpha || 0, rot.beta || 0, rot.gamma || 0
-                        );
-                    };
-                    window.addEventListener('devicemotion', motionListener);
                 }
 
                 function stopSensorTracking() {
@@ -2715,6 +2746,11 @@
                         window.removeEventListener('devicemotion', motionListener);
                         motionListener = null;
                     }
+                    if (magnetometerListener) {
+                        window.removeEventListener('deviceorientationabsolute', magnetometerListener);
+                        magnetometerListener = null;
+                    }
+                    sensorListenersActive = false;
                 }
 
                 // Expose sensor functions globally

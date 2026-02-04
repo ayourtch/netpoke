@@ -79,5 +79,38 @@ Make sure nettest.html uses the correct 4-parameter signature from the start.
 - Must be fixed before or during implementation of Issue 021
 - If Issue 021 is implemented without fixing this, runtime errors will occur
 
+## Resolution
+
+**Status**: Resolved
+
+**Changes Made**:
+
+1. **Fixed line 317 in standalone HTML** (`tmp/camera-standalone-for-cross-check/index.html`):
+   - Changed from: `on_magnetometer(e.alpha, e.beta, e.gamma);`
+   - Changed to: 
+     ```javascript
+     const effectiveAbsolute = e.absolute || hasCompass;
+     on_magnetometer(e.alpha, e.beta, e.gamma, effectiveAbsolute);
+     ```
+   - Added logic to determine effective absolute value for iOS Safari
+
+2. **Fixed line 340 in standalone HTML**:
+   - Changed from: `on_magnetometer(e.alpha, e.beta, e.gamma);`
+   - Changed to: `on_magnetometer(e.alpha, e.beta, e.gamma, true);`
+   - Correctly passes `absolute=true` for deviceorientationabsolute events
+
+**Files Modified**:
+- `tmp/camera-standalone-for-cross-check/index.html`
+
+**Verification**:
+- WASM module compiled successfully with correct signature: `on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool)`
+- JavaScript calls now match Rust function signature (4 parameters)
+
+**Impact**:
+- Prevents runtime type conversion errors
+- Camera direction calculations now receive correct absolute flag value
+- iOS Safari compass detection properly distinguished from relative orientation
+
 ---
 *Created: 2026-02-04*
+*Resolved: 2026-02-04*
