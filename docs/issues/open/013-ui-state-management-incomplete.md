@@ -37,7 +37,27 @@ The UI should:
 - Users don't know if recording is working
 - Confusing user experience
 
-## Suggested Implementation
+## Partial Resolution (2026-02-04)
+Partially fixed in commit 9ab2ea2.
+
+**Changes made:**
+1. Fixed element IDs in `server/static/nettest.html` to match expectations in `client/src/recorder/ui.rs`:
+   - Added `id="mode-camera"`, `id="mode-screen"`, `id="mode-combined"` to mode radio buttons
+   - Changed `id="chart-enabled"` to `id="chart-enable"` for chart checkbox
+   - Changed `id="showSensorsOverlay"` to `id="show-sensors-overlay"` for sensor overlay checkbox
+2. These changes ensure the Rust code can properly attach event listeners to the controls
+
+**Still needed:**
+- Status badge update function
+- Real-time metrics update function (duration, frames, size)
+- Metrics display section in HTML
+- Metrics update interval that runs during recording
+
+The basic UI control wiring is now correct, but the real-time metrics display functionality still needs to be implemented.
+
+---
+*Created: 2026-02-04*
+*Partially Resolved: 2026-02-04*
 Enhance `client/src/recorder/ui.rs` with more UI management:
 
 1. **Add status badge update:**
