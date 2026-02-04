@@ -73,10 +73,11 @@ Description of how the issue was fixed, including:
 1. Fix the issue in the codebase
 2. Move the file from `open/` to `resolved/`:
    ```bash
-   mv docs/issues/open/NNN-description.md docs/issues/resolved/
+   git mv docs/issues/open/NNN-description.md docs/issues/resolved/
    ```
 3. Edit the file to add the "Resolution" section describing what was done
 4. Update the "Resolved" date at the bottom
+5. IMPORTANT: Commit the change - possibly with the rest of the code addressing the issue.
 
 ### Issue Priority
 
