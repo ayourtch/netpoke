@@ -912,9 +912,9 @@
                 <!-- Mode Selection -->
                 <div class="recording-mode-group">
                     <h3>Recording Mode</h3>
-                    <label><input type="radio" name="recordMode" value="camera"> Camera Only</label>
-                    <label><input type="radio" name="recordMode" value="screen"> Screen Only</label>
-                    <label><input type="radio" name="recordMode" value="combined" checked> Combined (PiP)</label>
+                    <label><input type="radio" name="recordMode" id="mode-camera" value="camera"> Camera Only</label>
+                    <label><input type="radio" name="recordMode" id="mode-screen" value="screen"> Screen Only</label>
+                    <label><input type="radio" name="recordMode" id="mode-combined" value="combined" checked> Combined (PiP)</label>
                 </div>
 
                 <!-- PiP Controls -->
@@ -935,7 +935,7 @@
                 <!-- Chart Controls -->
                 <div id="chart-controls" class="control-group">
                     <h3>Chart Overlay</h3>
-                    <label><input type="checkbox" id="chart-enabled" checked> Include Charts</label>
+                    <label><input type="checkbox" id="chart-enable" checked> Include Charts</label>
                     <label>
                         Chart:
                         <select id="chart-type">
@@ -958,7 +958,7 @@
 
                 <!-- Sensor Toggle -->
                 <div class="control-group">
-                    <label><input type="checkbox" id="showSensorsOverlay" checked> Show Sensors</label>
+                    <label><input type="checkbox" id="show-sensors-overlay" checked> Show Sensors</label>
                 </div>
 
                 <!-- Recording Buttons -->
@@ -2553,24 +2553,26 @@
         // Check auth type on page load
         checkAuthTypeAndShowButtons();
 
-        // Wrap in async IIFE for better Safari compatibility
-        (async () => {
-            try {
-                // Cache-busting timestamp
-                const cacheBuster = Date.now();
+        // Issue 014: Wrap in DOMContentLoaded to ensure DOM is ready before initializing
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Wrap in async IIFE for better Safari compatibility
+            (async () => {
+                try {
+                    // Cache-busting timestamp
+                    const cacheBuster = Date.now();
 
-                // Import the JS wrapper (without cache-busting query param for Safari compatibility)
-                const module = await import('/public/pkg/netpoke_client.js');
-                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder, recorder_render_frame } = module;
+                    // Import the JS wrapper (without cache-busting query param for Safari compatibility)
+                    const module = await import('/public/pkg/netpoke_client.js');
+                    const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder, recorder_render_frame, on_gps_update, on_orientation, on_motion } = module;
 
-                // Initialize WASM with explicit path and cache-busting
-                // Pass the .wasm file path to init() for Safari compatibility
-                await init(`/public/pkg/netpoke_client_bg.wasm?v=${cacheBuster}`);
-                console.log('WASM module loaded successfully');
+                    // Initialize WASM with explicit path and cache-busting
+                    // Pass the .wasm file path to init() for Safari compatibility
+                    await init(`/public/pkg/netpoke_client_bg.wasm?v=${cacheBuster}`);
+                    console.log('WASM module loaded successfully');
 
-                // Initialize recorder
-                init_recorder();
-                console.log('Recorder initialized');
+                    // Initialize recorder
+                    init_recorder();
+                    console.log('Recorder initialized');
 
                 // Expose recorder_render_frame to global scope for render loop
                 window.recorder_render_frame = recorder_render_frame;
@@ -2584,6 +2586,136 @@
                     renderLoopId = requestAnimationFrame(renderLoop);
                 };
                 renderLoop();
+
+                // Issue 008: Sensor tracking functions
+                let watchId = null;
+                let orientationListener = null;
+                let motionListener = null;
+
+                async function requestSensorPermissions() {
+                    // iOS requires explicit permission request
+                    if (typeof DeviceOrientationEvent !== 'undefined' &&
+                        typeof DeviceOrientationEvent.requestPermission === 'function') {
+                        try {
+                            const response = await DeviceOrientationEvent.requestPermission();
+                            if (response !== 'granted') {
+                                console.warn('DeviceOrientation permission denied');
+                                return false;
+                            }
+                        } catch (e) {
+                            console.error('Error requesting DeviceOrientation permission:', e);
+                            return false;
+                        }
+                    }
+                    if (typeof DeviceMotionEvent !== 'undefined' &&
+                        typeof DeviceMotionEvent.requestPermission === 'function') {
+                        try {
+                            const response = await DeviceMotionEvent.requestPermission();
+                            if (response !== 'granted') {
+                                console.warn('DeviceMotion permission denied');
+                                return false;
+                            }
+                        } catch (e) {
+                            console.error('Error requesting DeviceMotion permission:', e);
+                            return false;
+                        }
+                    }
+                    return true;
+                }
+
+                function startSensorTracking() {
+                    console.log('[Sensors] Starting sensor tracking');
+                    
+                    // Start GPS
+                    if (navigator.geolocation) {
+                        watchId = navigator.geolocation.watchPosition(
+                            (position) => {
+                                on_gps_update(
+                                    position.coords.latitude,
+                                    position.coords.longitude,
+                                    position.coords.accuracy,
+                                    position.coords.altitude,
+                                    position.coords.altitudeAccuracy,
+                                    position.coords.heading,
+                                    position.coords.speed
+                                );
+                            },
+                            (error) => console.warn('GPS error:', error),
+                            { enableHighAccuracy: true, maximumAge: 1000 }
+                        );
+                    }
+
+                    // Start orientation tracking
+                    orientationListener = (event) => {
+                        on_orientation(
+                            event.alpha || 0, 
+                            event.beta || 0, 
+                            event.gamma || 0, 
+                            event.absolute || false
+                        );
+                    };
+                    window.addEventListener('deviceorientation', orientationListener);
+
+                    // Start motion tracking
+                    motionListener = (event) => {
+                        const timestamp = new Date().toISOString();
+                        const currentTime = Date.now();
+                        const accel = event.acceleration || { x: 0, y: 0, z: 0 };
+                        const accelG = event.accelerationIncludingGravity || { x: 0, y: 0, z: 0 };
+                        const rot = event.rotationRate || { alpha: 0, beta: 0, gamma: 0 };
+                        on_motion(
+                            timestamp,
+                            currentTime,
+                            accel.x || 0, accel.y || 0, accel.z || 0,
+                            accelG.x || 0, accelG.y || 0, accelG.z || 0,
+                            rot.alpha || 0, rot.beta || 0, rot.gamma || 0
+                        );
+                    };
+                    window.addEventListener('devicemotion', motionListener);
+                }
+
+                function stopSensorTracking() {
+                    console.log('[Sensors] Stopping sensor tracking');
+                    if (watchId !== null) {
+                        navigator.geolocation.clearWatch(watchId);
+                        watchId = null;
+                    }
+                    if (orientationListener) {
+                        window.removeEventListener('deviceorientation', orientationListener);
+                        orientationListener = null;
+                    }
+                    if (motionListener) {
+                        window.removeEventListener('devicemotion', motionListener);
+                        motionListener = null;
+                    }
+                }
+
+                // Expose sensor functions globally
+                window.requestSensorPermissions = requestSensorPermissions;
+                window.startSensorTracking = startSensorTracking;
+                window.stopSensorTracking = stopSensorTracking;
+
+                // Issue 011: Function to refresh recordings list
+                async function refreshRecordingsList() {
+                    console.log('[Recorder] Refreshing recordings list');
+                    // This is a placeholder - the actual implementation would query IndexedDB
+                    // and update the #recordings-container element with the list
+                    // For now, just log that it was called
+                    const container = document.getElementById('recordings-container');
+                    if (container) {
+                        // The actual implementation would be more complex, fetching from IndexedDB
+                        // For now, just indicate it needs implementation
+                        console.log('[Recorder] Recordings list refresh requested');
+                    }
+                }
+                window.refreshRecordingsList = refreshRecordingsList;
+
+                // Issue 009: Function to handle screen share stop
+                window.onScreenShareStopped = function() {
+                    console.log('[Recorder] Screen sharing stopped by user');
+                    // The stop_recording function would be called from the Rust side
+                    // This is just a placeholder for the JavaScript callback
+                };
 
                 statusEl.textContent = 'Ready';
                 statusEl.className = '';
@@ -2702,6 +2834,8 @@
                 };
             }
         })();
+        // End DOMContentLoaded wrapper
+        });
     </script>
 
     <!-- Hidden elements for recording -->
