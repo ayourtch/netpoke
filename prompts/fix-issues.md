@@ -1,0 +1,1 @@
+Could you look at the docs/issues/README.md to familiarize yourself with the process, and then fix as many of the issues in docs/issues/open/ as possible. If you spot additional discrepancies when you are working, which are not mentioned in the existing issues - open the new ones according to the process.
