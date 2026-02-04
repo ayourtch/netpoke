@@ -73,3 +73,17 @@ Note: May need to add `web_sys::MediaStreamTrack` to the imports if not already 
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit 6854bb8**
+
+Added audio track integration in `client/src/recorder/state.rs` in the `start_recording()` function. After creating the canvas stream for recording, the code now:
+1. Determines the source stream based on recording mode (camera/screen/combined)
+2. Extracts audio tracks from the source stream
+3. Adds the first audio track to the canvas stream
+
+Files modified:
+- `client/src/recorder/state.rs`
+
+---
+*Resolved: 2026-02-04*

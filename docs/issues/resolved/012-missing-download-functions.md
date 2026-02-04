@@ -106,3 +106,23 @@ Adapt imports to use `crate::recorder::*` paths.
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit cab6b7d**
+
+Added three WASM-exported functions in `client/src/lib.rs`:
+1. `download_video()` - Downloads the video blob from IndexedDB as a file
+2. `download_motion_data()` - Exports metadata and motion data as JSON
+3. `delete_recording_by_id()` - Deletes a recording with confirmation
+
+Also added required web-sys features to `client/Cargo.toml`:
+- `HtmlAnchorElement`
+- `Url`
+- `BlobPropertyBag`
+
+Files modified:
+- `client/src/lib.rs`
+- `client/Cargo.toml`
+
+---
+*Resolved: 2026-02-04*

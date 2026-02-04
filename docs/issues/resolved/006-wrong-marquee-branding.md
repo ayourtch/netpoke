@@ -54,3 +54,14 @@ Pass marquee text as a parameter or make it configurable through RecorderState.
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit b10cf2c**
+
+Updated the marquee text in `client/src/recorder/canvas_renderer.rs` from "https://stdio.be/cast - record your own screencast" to "NetPoke - Network Measurement Tool" to reflect proper NetPoke branding.
+
+Files modified:
+- `client/src/recorder/canvas_renderer.rs`
+
+---
+*Resolved: 2026-02-04*

@@ -84,3 +84,17 @@ For mobile devices with multiple cameras, could potentially detect actual camera
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit 6854bb8**
+
+Updated `client/src/recorder/state.rs`:
+1. In `start_recording()`: Set camera_facing based on source_type when creating SensorManager
+2. In `stop_recording()`: Retrieved actual camera_facing from SENSOR_MANAGER instead of hardcoding Unknown
+3. Recording metadata now contains correct camera facing information
+
+Files modified:
+- `client/src/recorder/state.rs`
+
+---
+*Resolved: 2026-02-04*

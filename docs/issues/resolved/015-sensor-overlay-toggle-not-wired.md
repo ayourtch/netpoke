@@ -102,3 +102,19 @@ fn setup_sensor_overlay_toggle(document: &web_sys::Document) {
 
 ---
 *Created: 2026-02-04*
+
+## Resolution
+**Fixed in commit a2ebc9d**
+
+Added `setup_sensor_overlay_toggle()` function in `client/src/recorder/ui.rs` that:
+1. Attaches a change event listener to the "show-sensors-overlay" checkbox
+2. Updates the global SENSOR_MANAGER overlay enabled state when toggled
+3. Logs the state change for debugging
+
+Called from `init_recorder_panel()` during initialization.
+
+Files modified:
+- `client/src/recorder/ui.rs`
+
+---
+*Resolved: 2026-02-04*
