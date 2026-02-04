@@ -2551,7 +2551,7 @@
 
                 // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                 const module = await import('/public/pkg/netpoke_client.js');
-                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder } = module;
+                const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder, recorder_render_frame } = module;
 
                 // Initialize WASM with explicit path and cache-busting
                 // Pass the .wasm file path to init() for Safari compatibility
@@ -2561,6 +2561,19 @@
                 // Initialize recorder
                 init_recorder();
                 console.log('Recorder initialized');
+
+                // Expose recorder_render_frame to global scope for render loop
+                window.recorder_render_frame = recorder_render_frame;
+
+                // Set up render loop for recorder (30 FPS)
+                let renderLoopId = null;
+                const renderLoop = () => {
+                    if (window.recorder_render_frame) {
+                        window.recorder_render_frame();
+                    }
+                    renderLoopId = requestAnimationFrame(renderLoop);
+                };
+                renderLoop();
 
                 statusEl.textContent = 'Ready';
                 statusEl.className = '';

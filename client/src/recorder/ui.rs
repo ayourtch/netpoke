@@ -29,6 +29,13 @@ pub fn init_recorder_panel() {
     crate::recorder::utils::log("[Recorder] Panel initialized");
 }
 
+#[wasm_bindgen]
+pub fn recorder_render_frame() {
+    RECORDER_STATE.with(|state| {
+        let _ = state.borrow_mut().render_frame();
+    });
+}
+
 fn setup_mode_selection(document: &web_sys::Document) {
     // Camera mode radio
     if let Some(radio) = document.get_element_by_id("mode-camera") {
