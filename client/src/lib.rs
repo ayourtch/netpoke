@@ -5,12 +5,18 @@ mod webrtc;
 use crate::measurements::current_time_ms;
 
 use gloo_timers::callback::Interval;
+use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Mutex;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{window, Document, RtcPeerConnection};
+
+// Global SENSOR_MANAGER for recorder subsystem
+static SENSOR_MANAGER: Lazy<Mutex<Option<recorder::sensors::SensorManager>>> =
+    Lazy::new(|| Mutex::new(None));
 
 // Path analysis timeout in milliseconds (30 seconds) - deprecated, now using phased approach
 const PATH_ANALYSIS_TIMEOUT_MS: u32 = 30000;
@@ -1869,6 +1875,59 @@ fn update_ui(metrics: &common::ClientMetrics) {
 fn set_element_text(document: &Document, id: &str, text: &str) {
     if let Some(element) = document.get_element_by_id(id) {
         element.set_text_content(Some(text));
+    }
+}
+
+// Recorder sensor callbacks
+#[wasm_bindgen]
+pub fn on_gps_update(
+    latitude: f64,
+    longitude: f64,
+    accuracy: f64,
+    altitude: Option<f64>,
+    altitude_accuracy: Option<f64>,
+    heading: Option<f64>,
+    speed: Option<f64>,
+) {
+    if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
+        if let Some(ref mut mgr) = *manager_guard {
+            mgr.record_gps(
+                latitude,
+                longitude,
+                accuracy,
+                altitude,
+                altitude_accuracy,
+                heading,
+                speed,
+            );
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub fn on_orientation(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
+    if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
+        if let Some(ref mut mgr) = *manager_guard {
+            mgr.record_orientation(alpha, beta, gamma, absolute);
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub fn on_motion(x: f64, y: f64, z: f64) {
+    if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
+        if let Some(ref mut mgr) = *manager_guard {
+            mgr.record_motion(x, y, z);
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub fn on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
+    if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
+        if let Some(ref mut mgr) = *manager_guard {
+            mgr.record_magnetometer(alpha, beta, gamma, absolute);
+        }
     }
 }
 
