@@ -58,9 +58,12 @@ web-sys = { version = "0.3", features = [
     "HtmlCanvasElement",
     "HtmlVideoElement",
     "HtmlInputElement",
+    "HtmlButtonElement",
+    "HtmlSelectElement",
     "VideoTrack",
     "AudioTrack",
     "TextMetrics",
+    "CssStyleDeclaration",
 
     # IndexedDB
     "IdbFactory",
