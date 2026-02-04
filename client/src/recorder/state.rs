@@ -7,7 +7,8 @@ use crate::recorder::{
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-use web_sys::MediaStream;
+use wasm_bindgen::JsCast;
+use web_sys::{MediaStream, HtmlVideoElement};
 
 pub struct RecorderState {
     pub source_type: SourceType,
@@ -23,6 +24,8 @@ pub struct RecorderState {
 
     camera_stream: Option<MediaStream>,
     screen_stream: Option<MediaStream>,
+    camera_video: Option<HtmlVideoElement>,
+    screen_video: Option<HtmlVideoElement>,
     renderer: Option<CanvasRenderer>,
     recorder: Option<Recorder>,
     animation_frame_id: Option<i32>,
@@ -43,6 +46,8 @@ impl RecorderState {
             frame_count: 0,
             camera_stream: None,
             screen_stream: None,
+            camera_video: None,
+            screen_video: None,
             renderer: None,
             recorder: None,
             animation_frame_id: None,
@@ -55,26 +60,53 @@ impl RecorderState {
 
         log("[Recorder] Starting recording");
 
-        // Get media streams based on source type
-        match self.source_type {
-            SourceType::Camera => {
-                self.camera_stream = Some(get_camera_stream().await?);
-            }
-            SourceType::Screen => {
-                self.screen_stream = Some(get_screen_stream().await?);
-            }
-            SourceType::Combined => {
-                self.camera_stream = Some(get_camera_stream().await?);
-                self.screen_stream = Some(get_screen_stream().await?);
-            }
-        }
-
-        // Initialize canvas renderer
         let document = web_sys::window()
             .ok_or("No window")?
             .document()
             .ok_or("No document")?;
 
+        // Get media streams and create video elements based on source type
+        match self.source_type {
+            SourceType::Camera => {
+                let stream = get_camera_stream().await?;
+                let video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
+                video.set_autoplay(true);
+                video.set_muted(true);
+                video.set_src_object(Some(&stream));
+                self.camera_stream = Some(stream);
+                self.camera_video = Some(video);
+            }
+            SourceType::Screen => {
+                let stream = get_screen_stream().await?;
+                let video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
+                video.set_autoplay(true);
+                video.set_muted(true);
+                video.set_src_object(Some(&stream));
+                self.screen_stream = Some(stream);
+                self.screen_video = Some(video);
+            }
+            SourceType::Combined => {
+                let camera_stream = get_camera_stream().await?;
+                let screen_stream = get_screen_stream().await?;
+
+                let camera_video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
+                camera_video.set_autoplay(true);
+                camera_video.set_muted(true);
+                camera_video.set_src_object(Some(&camera_stream));
+
+                let screen_video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
+                screen_video.set_autoplay(true);
+                screen_video.set_muted(true);
+                screen_video.set_src_object(Some(&screen_stream));
+
+                self.camera_stream = Some(camera_stream);
+                self.screen_stream = Some(screen_stream);
+                self.camera_video = Some(camera_video);
+                self.screen_video = Some(screen_video);
+            }
+        }
+
+        // Initialize canvas renderer
         let canvas: web_sys::HtmlCanvasElement = document
             .get_element_by_id("recordingCanvas")
             .ok_or("recordingCanvas not found")?
@@ -104,8 +136,99 @@ impl RecorderState {
     }
 
     fn start_render_loop(&mut self) -> Result<(), JsValue> {
-        // This will be implemented with render_frame callback
-        // For now, placeholder
+        use crate::recorder::utils::log;
+
+        log("[Recorder] Starting render loop");
+
+        // We'll use a simple approach: export a render function and call it from JavaScript
+        // For now, return Ok - the actual rendering will be driven by a JavaScript setInterval
+        // This is simpler than managing Rust closures with requestAnimationFrame
+
+        Ok(())
+    }
+
+    pub fn render_frame(&mut self) -> Result<(), JsValue> {
+        if !self.recording {
+            return Ok(());
+        }
+
+        if let Some(renderer) = &self.renderer {
+            // Convert PipPosition to string
+            let pip_pos_str = match self.pip_position {
+                PipPosition::TopLeft => "top-left",
+                PipPosition::TopRight => "top-right",
+                PipPosition::BottomLeft => "bottom-left",
+                PipPosition::BottomRight => "bottom-right",
+            };
+
+            // Render main video frame
+            renderer.render_frame(
+                self.source_type,
+                self.screen_video.as_ref(),
+                self.camera_video.as_ref(),
+                pip_pos_str,
+                self.pip_size * 100.0,
+            )?;
+
+            // Render chart overlay if enabled
+            if self.chart_enabled {
+                // Get canvas element to determine dimensions
+                if let Some(window) = web_sys::window() {
+                    if let Some(document) = window.document() {
+                        if let Some(canvas_element) = document.get_element_by_id("recordingCanvas") {
+                            if let Ok(canvas) = canvas_element.dyn_into::<web_sys::HtmlCanvasElement>() {
+                                let canvas_width = canvas.width() as f64;
+                                let canvas_height = canvas.height() as f64;
+
+                                // Calculate chart dimensions
+                                let chart_width = 300.0 * self.chart_size;
+                                let chart_height = 200.0 * self.chart_size;
+                                let margin = 20.0;
+
+                                // Calculate position based on chart position
+                                let (chart_x, chart_y) = match self.chart_position {
+                                    PipPosition::TopLeft => (margin, margin),
+                                    PipPosition::TopRight => (canvas_width - chart_width - margin, margin),
+                                    PipPosition::BottomLeft => (margin, canvas_height - chart_height - margin),
+                                    PipPosition::BottomRight => (canvas_width - chart_width - margin, canvas_height - chart_height - margin),
+                                };
+
+                                let _ = renderer.render_chart_overlay(
+                                    &self.chart_type,
+                                    chart_x,
+                                    chart_y,
+                                    chart_width,
+                                    chart_height,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Render sensor overlay if we have sensor data
+            if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
+                if let Some(ref mgr) = *manager_guard {
+                    let motion_data = mgr.get_motion_data();
+                    if let Some(latest) = motion_data.last() {
+                        let _ = renderer.render_sensor_overlay(
+                            &latest.timestamp_utc,
+                            &latest.gps,
+                            &latest.magnetometer,
+                            &latest.orientation,
+                            &Some(latest.acceleration.clone()),
+                            &latest.camera_direction,
+                        );
+
+                        // Render compass if we have camera direction
+                        let _ = renderer.render_compass(latest.camera_direction);
+                    }
+                }
+            }
+
+            self.frame_count += 1;
+        }
+
         Ok(())
     }
 
@@ -174,6 +297,8 @@ impl RecorderState {
         // Cleanup
         self.camera_stream = None;
         self.screen_stream = None;
+        self.camera_video = None;
+        self.screen_video = None;
         self.recorder = None;
         self.renderer = None;
         self.recording = false;
