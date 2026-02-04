@@ -671,7 +671,84 @@
                 </p>
             </div>
         </div>
-        
+
+        <!-- Recording Section -->
+        <div class="recording-section">
+            <div class="recording-header" onclick="toggleRecordingPanel()">
+                <h2>
+                    <span class="recording-icon">📹</span>
+                    Recording
+                    <span id="recording-status" class="status-badge ready">Ready</span>
+                </h2>
+                <button class="recording-toggle" id="recording-toggle">▼</button>
+            </div>
+            <div class="recording-content" id="recording-content" style="display:none">
+
+                <!-- Mode Selection -->
+                <div class="recording-mode-group">
+                    <h3>Recording Mode</h3>
+                    <label><input type="radio" name="recordMode" value="camera"> Camera Only</label>
+                    <label><input type="radio" name="recordMode" value="screen"> Screen Only</label>
+                    <label><input type="radio" name="recordMode" value="combined" checked> Combined (PiP)</label>
+                </div>
+
+                <!-- PiP Controls -->
+                <div id="pip-controls" class="control-group">
+                    <h3>Camera Position</h3>
+                    <label>
+                        Size: <input type="range" id="pip-size" min="10" max="40" value="25">
+                        <span id="pip-size-value">25%</span>
+                    </label>
+                    <div class="position-selector">
+                        <button data-position="topleft">TL</button>
+                        <button data-position="topright">TR</button>
+                        <button data-position="bottomleft">BL</button>
+                        <button data-position="bottomright" class="selected">BR</button>
+                    </div>
+                </div>
+
+                <!-- Chart Controls -->
+                <div id="chart-controls" class="control-group">
+                    <h3>Chart Overlay</h3>
+                    <label><input type="checkbox" id="chart-enabled" checked> Include Charts</label>
+                    <label>
+                        Chart:
+                        <select id="chart-type">
+                            <option value="metrics-chart">Metrics Chart</option>
+                            <option value="probe-stats-chart">Probe Stats</option>
+                            <option value="both">Both Charts</option>
+                        </select>
+                    </label>
+                    <label>
+                        Size: <input type="range" id="chart-size" min="10" max="30" value="20">
+                        <span id="chart-size-value">20%</span>
+                    </label>
+                    <div class="position-selector">
+                        <button data-position="topleft">TL</button>
+                        <button data-position="topright">TR</button>
+                        <button data-position="bottomleft">BL</button>
+                        <button data-position="bottomright" class="selected">BR</button>
+                    </div>
+                </div>
+
+                <!-- Sensor Toggle -->
+                <div class="control-group">
+                    <label><input type="checkbox" id="showSensorsOverlay" checked> Show Sensors</label>
+                </div>
+
+                <!-- Recording Buttons -->
+                <button id="start-recording" class="btn-primary">Start Recording</button>
+                <button id="stop-recording" class="btn-danger" style="display:none">Stop Recording</button>
+
+                <!-- Saved Recordings List -->
+                <div id="recordings-list" class="recordings-list">
+                    <h3>Saved Recordings</h3>
+                    <div id="recordings-container"></div>
+                </div>
+
+            </div>
+        </div>
+
         <!-- Controls Card -->
         <div class="card">
             <div class="controls-section">
@@ -2354,5 +2431,12 @@
             }
         })();
     </script>
+
+    <!-- Hidden elements for recording -->
+    <div id="hiddenVideos" style="position:absolute;opacity:0;pointer-events:none;width:1px;height:1px;">
+        <video id="cameraVideo" autoplay muted playsinline></video>
+        <video id="screenVideo" autoplay muted playsinline></video>
+        <canvas id="recordingCanvas"></canvas>
+    </div>
 </body>
 </html>
