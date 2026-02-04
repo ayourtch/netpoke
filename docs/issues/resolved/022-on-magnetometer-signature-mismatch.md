@@ -81,36 +81,34 @@ Make sure nettest.html uses the correct 4-parameter signature from the start.
 
 ## Resolution
 
-**Status**: Resolved
+**Status**: Incorrectly Modified - Reverted
 
-**Changes Made**:
+**Important Note**: The file `tmp/camera-standalone-for-cross-check/index.html` is a **reference implementation** that should NOT be modified. It exists to serve as a cross-reference for the integrated version, potentially containing known issues for comparison purposes.
 
-1. **Fixed line 317 in standalone HTML** (`tmp/camera-standalone-for-cross-check/index.html`):
-   - Changed from: `on_magnetometer(e.alpha, e.beta, e.gamma);`
-   - Changed to: 
-     ```javascript
-     const effectiveAbsolute = e.absolute || hasCompass;
-     on_magnetometer(e.alpha, e.beta, e.gamma, effectiveAbsolute);
-     ```
-   - Added logic to determine effective absolute value for iOS Safari
+**Original Action (Incorrect)**:
+- Modified `tmp/camera-standalone-for-cross-check/index.html` to add 4th parameter to `on_magnetometer` calls
+- This was a mistake - reference files should remain unchanged
 
-2. **Fixed line 340 in standalone HTML**:
-   - Changed from: `on_magnetometer(e.alpha, e.beta, e.gamma);`
-   - Changed to: `on_magnetometer(e.alpha, e.beta, e.gamma, true);`
-   - Correctly passes `absolute=true` for deviceorientationabsolute events
+**Corrective Action**:
+- Reverted changes to `tmp/camera-standalone-for-cross-check/index.html`
+- Restored original 3-parameter signature: `on_magnetometer(e.alpha, e.beta, e.gamma)`
+- Updated `prompts/fix-issues.md` to explicitly prohibit modifying files in `tmp/camera-standalone-for-cross-check/`
 
-**Files Modified**:
-- `tmp/camera-standalone-for-cross-check/index.html`
+**Actual Fix Applied**:
+- Issue 021 was fixed by updating `server/static/nettest.html` with correct 4-parameter signature
+- The integrated version now has the correct implementation
+- The standalone reference remains unchanged as it should
 
-**Verification**:
-- WASM module compiled successfully with correct signature: `on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool)`
-- JavaScript calls now match Rust function signature (4 parameters)
+**Files Modified** (Correctly):
+- `server/static/nettest.html` - Added proper `on_magnetometer` integration with 4 parameters
+- `prompts/fix-issues.md` - Added rule to never modify reference code
 
-**Impact**:
-- Prevents runtime type conversion errors
-- Camera direction calculations now receive correct absolute flag value
-- iOS Safari compass detection properly distinguished from relative orientation
+**Files Reverted**:
+- `tmp/camera-standalone-for-cross-check/index.html` - Restored to original state
+
+**Lesson Learned**: Reference implementations exist for cross-checking and should never be modified, even if they contain bugs or outdated patterns.
 
 ---
 *Created: 2026-02-04*
 *Resolved: 2026-02-04*
+*Corrected: 2026-02-04*

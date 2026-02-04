@@ -314,10 +314,7 @@
             // On iOS Safari, alpha is compass heading even when absolute flag is false
             // Always pass to magnetometer if we have alpha value
             if (hasCompass) {
-                // iOS Safari provides compass heading in alpha but doesn't set absolute=true
-                // Always treat alpha as compass heading on iOS if we have a value
-                const effectiveAbsolute = e.absolute || hasCompass;
-                on_magnetometer(e.alpha, e.beta, e.gamma, effectiveAbsolute);
+                on_magnetometer(e.alpha, e.beta, e.gamma);
             }
 
             // Update UI
@@ -340,7 +337,7 @@
                 debugLog('[SENSOR] deviceorientationabsolute events:', magnetometerEventCount);
             }
 
-            on_magnetometer(e.alpha, e.beta, e.gamma, true);  // absolute is always true for deviceorientationabsolute
+            on_magnetometer(e.alpha, e.beta, e.gamma);
 
             // Update UI
             const magEl = document.getElementById('magnetometer');
