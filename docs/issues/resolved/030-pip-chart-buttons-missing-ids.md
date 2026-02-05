@@ -130,32 +130,48 @@ None - this is a new discovery from comparing reference vs integrated implementa
 
 **Resolved: 2026-02-05**
 
+Fixed two issues that prevented the position buttons from working properly:
+
+### Issue 1: Missing ID attributes (previously resolved)
 Added ID attributes to PiP and chart position buttons to match the IDs expected by the WASM event handler setup code.
+
+### Issue 2: Missing visual feedback (resolved in this update)
+Added `update_position_button_selection()` function to update the visual "selected" class when position buttons are clicked. Previously, clicking a button would update the internal state but provide no visual feedback to the user.
 
 ### Changes Made:
 
 **In `server/static/nettest.html`**:
 
-1. **PiP position buttons** (lines ~928-932):
+1. **PiP position buttons** (lines ~949-953):
    - Added `id="pip-pos-tl"` to top-left button
    - Added `id="pip-pos-tr"` to top-right button
    - Added `id="pip-pos-bl"` to bottom-left button
    - Added `id="pip-pos-br"` to bottom-right button
    - Preserved existing `data-position` attributes
 
-2. **Chart position buttons** (lines ~952-956):
+2. **Chart position buttons** (lines ~973-977):
    - Added `id="chart-pos-tl"` to top-left button
    - Added `id="chart-pos-tr"` to top-right button
    - Added `id="chart-pos-bl"` to bottom-left button
    - Added `id="chart-pos-br"` to bottom-right button
    - Preserved existing `data-position` attributes
 
+**In `client/src/recorder/ui.rs`**:
+
+3. **Added visual feedback for position button clicks**:
+   - Modified `setup_pip_position_button()` to call `update_position_button_selection("pip-pos", id)`
+   - Modified `setup_chart_position_button()` to call `update_position_button_selection("chart-pos", id)`
+   - Added new `update_position_button_selection()` helper function that:
+     - Removes "selected" class from all buttons in the group
+     - Adds "selected" class to the clicked button
+
 ### Verification:
 - IDs now match what WASM code expects in `client/src/recorder/ui.rs`
-- `setup_pip_controls()` calls `get_element_by_id()` with these IDs (lines 109-112)
-- `setup_chart_controls()` calls `get_element_by_id()` with these IDs (lines 201-204)
-- Event listeners will now properly attach to buttons
-- Users can now control camera and chart overlay positions in recordings
+- `setup_pip_controls()` calls `get_element_by_id()` with these IDs (lines 116-119)
+- `setup_chart_controls()` calls `get_element_by_id()` with these IDs (lines 199-202)
+- Event listeners properly attach to buttons and update both state and visual feedback
+- Users can now control camera and chart overlay positions in recordings with visible feedback
 
 ---
 *Created: 2026-02-04*
+*Updated: 2026-02-05*
