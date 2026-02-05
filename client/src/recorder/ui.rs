@@ -11,6 +11,61 @@ thread_local! {
         Rc::new(RefCell::new(RecorderState::new()));
 }
 
+/// Request sensor permissions from JavaScript (must be called from user gesture context)
+async fn request_sensor_permissions() -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or("Failed to get window object for sensor permissions")?;
+
+    let request_fn = js_sys::Reflect::get(&window, &"requestSensorPermissions".into())?;
+
+    if !request_fn.is_function() {
+        crate::recorder::utils::log("[Recorder] requestSensorPermissions not found in window, skipping sensor permission request");
+        return Ok(());  // Not a fatal error - sensors may not be available
+    }
+
+    let request_fn: js_sys::Function = request_fn.dyn_into()?;
+    let promise: js_sys::Promise = request_fn.call0(&window)?.dyn_into()?;
+    let result = wasm_bindgen_futures::JsFuture::from(promise).await?;
+
+    if result.is_truthy() {
+        crate::recorder::utils::log("[Recorder] Sensor permissions granted");
+        Ok(())
+    } else {
+        crate::recorder::utils::log("[Recorder] Sensor permissions denied, continuing without sensors");
+        Ok(())  // Not a fatal error - recording can continue without sensors
+    }
+}
+
+/// Start sensor tracking from JavaScript
+async fn start_sensor_tracking() -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or("Failed to get window object for sensor tracking")?;
+
+    let start_fn = js_sys::Reflect::get(&window, &"startSensorTracking".into())?;
+
+    if !start_fn.is_function() {
+        crate::recorder::utils::log("[Recorder] startSensorTracking not found in window, skipping sensor tracking");
+        return Ok(());
+    }
+
+    let start_fn: js_sys::Function = start_fn.dyn_into()?;
+    start_fn.call0(&window)?;
+    crate::recorder::utils::log("[Recorder] Sensor tracking started");
+    Ok(())
+}
+
+/// Stop sensor tracking from JavaScript
+fn stop_sensor_tracking() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(stop_fn) = js_sys::Reflect::get(&window, &"stopSensorTracking".into()) {
+            if stop_fn.is_function() {
+                if let Ok(func) = stop_fn.dyn_into::<js_sys::Function>() {
+                    let _ = func.call0(&window);
+                    crate::recorder::utils::log("[Recorder] Sensor tracking stopped");
+                }
+            }
+        }
+    }
+}
+
 #[wasm_bindgen]
 pub fn init_recorder_panel() {
     let document = match web_sys::window()
@@ -94,31 +149,41 @@ fn setup_mode_selection(document: &web_sys::Document) {
 fn setup_pip_controls(document: &web_sys::Document) {
     // PiP size slider
     if let Some(slider) = document.get_element_by_id("pip-size") {
-        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-            if let Some(target) = event.target() {
-                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                    let value_str = input.value();
-                    if let Ok(value) = value_str.parse::<f64>() {
-                        RECORDER_STATE.with(|state| {
-                            state.borrow_mut().pip_size = value / 100.0;
-                        });
-                        // Update the label text next to the slider
-                        if let Some(window) = web_sys::window() {
-                            if let Some(document) = window.document() {
-                                if let Some(label) = document.get_element_by_id("pip-size-value") {
-                                    label.set_text_content(Some(&format!("{}%", value_str)));
+        // Cast to HtmlInputElement once (it inherits from HtmlElement so can do both read value and add listener)
+        if let Ok(input_element) = slider.dyn_into::<web_sys::HtmlInputElement>() {
+            // Read initial value from slider to sync state with DOM
+            // This handles browser form restoration and ensures state matches the displayed value
+            if let Ok(value) = input_element.value().parse::<f64>() {
+                RECORDER_STATE.with(|state| {
+                    state.borrow_mut().pip_size = value / 100.0;
+                });
+                crate::recorder::utils::log(&format!("[Recorder] Initial PiP size: {}%", value));
+            }
+
+            let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                if let Some(target) = event.target() {
+                    if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                        let value_str = input.value();
+                        if let Ok(value) = value_str.parse::<f64>() {
+                            RECORDER_STATE.with(|state| {
+                                state.borrow_mut().pip_size = value / 100.0;
+                            });
+                            // Update the label text next to the slider
+                            if let Some(window) = web_sys::window() {
+                                if let Some(document) = window.document() {
+                                    if let Some(label) = document.get_element_by_id("pip-size-value") {
+                                        label.set_text_content(Some(&format!("{}%", value_str)));
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-        }) as Box<dyn FnMut(_)>);
+            }) as Box<dyn FnMut(_)>);
 
-        if let Ok(element) = slider.dyn_into::<web_sys::HtmlElement>() {
-            let _ = element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            let _ = input_element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            closure.forget();
         }
-        closure.forget();
     }
 
     // PiP position buttons
@@ -186,31 +251,41 @@ fn setup_chart_controls(document: &web_sys::Document) {
 
     // Chart size slider
     if let Some(slider) = document.get_element_by_id("chart-size") {
-        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-            if let Some(target) = event.target() {
-                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                    let value_str = input.value();
-                    if let Ok(value) = value_str.parse::<f64>() {
-                        RECORDER_STATE.with(|state| {
-                            state.borrow_mut().chart_size = value / 100.0;
-                        });
-                        // Update the label text next to the slider
-                        if let Some(window) = web_sys::window() {
-                            if let Some(document) = window.document() {
-                                if let Some(label) = document.get_element_by_id("chart-size-value") {
-                                    label.set_text_content(Some(&format!("{}%", value_str)));
+        // Cast to HtmlInputElement once (it inherits from HtmlElement so can do both read value and add listener)
+        if let Ok(input_element) = slider.dyn_into::<web_sys::HtmlInputElement>() {
+            // Read initial value from slider to sync state with DOM
+            // This handles browser form restoration and ensures state matches the displayed value
+            if let Ok(value) = input_element.value().parse::<f64>() {
+                RECORDER_STATE.with(|state| {
+                    state.borrow_mut().chart_size = value / 100.0;
+                });
+                crate::recorder::utils::log(&format!("[Recorder] Initial chart size: {}%", value));
+            }
+
+            let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                if let Some(target) = event.target() {
+                    if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                        let value_str = input.value();
+                        if let Ok(value) = value_str.parse::<f64>() {
+                            RECORDER_STATE.with(|state| {
+                                state.borrow_mut().chart_size = value / 100.0;
+                            });
+                            // Update the label text next to the slider
+                            if let Some(window) = web_sys::window() {
+                                if let Some(document) = window.document() {
+                                    if let Some(label) = document.get_element_by_id("chart-size-value") {
+                                        label.set_text_content(Some(&format!("{}%", value_str)));
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-        }) as Box<dyn FnMut(_)>);
+            }) as Box<dyn FnMut(_)>);
 
-        if let Ok(element) = slider.dyn_into::<web_sys::HtmlElement>() {
-            let _ = element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            let _ = input_element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            closure.forget();
         }
-        closure.forget();
     }
 
     // Chart position buttons
@@ -306,6 +381,18 @@ fn setup_recording_buttons(document: &web_sys::Document) {
     if let Some(button) = document.get_element_by_id("start-recording") {
         let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             wasm_bindgen_futures::spawn_local(async {
+                // Request sensor permissions first (must be in user gesture context)
+                if let Err(e) = request_sensor_permissions().await {
+                    crate::recorder::utils::log(&format!("[Recorder] Sensor permission error: {:?}", e));
+                    // Continue anyway - sensors are optional
+                }
+
+                // Start sensor tracking
+                if let Err(e) = start_sensor_tracking().await {
+                    crate::recorder::utils::log(&format!("[Recorder] Sensor tracking start error: {:?}", e));
+                    // Continue anyway - sensors are optional
+                }
+
                 let result = RECORDER_STATE.with(|state| {
                     let state_clone = state.clone();
                     async move {
@@ -320,6 +407,8 @@ fn setup_recording_buttons(document: &web_sys::Document) {
                     }
                     Err(e) => {
                         crate::recorder::utils::log(&format!("[Recorder] Start failed: {:?}", e));
+                        // Stop sensor tracking if recording failed to start
+                        stop_sensor_tracking();
                     }
                 }
             });
@@ -346,9 +435,13 @@ fn setup_recording_buttons(document: &web_sys::Document) {
                     Ok(_) => {
                         crate::recorder::utils::log("[Recorder] Stopped successfully");
                         update_recording_ui(false);
+                        // Stop sensor tracking when recording stops
+                        stop_sensor_tracking();
                     }
                     Err(e) => {
                         crate::recorder::utils::log(&format!("[Recorder] Stop failed: {:?}", e));
+                        // Still try to stop sensor tracking
+                        stop_sensor_tracking();
                     }
                 }
             });
