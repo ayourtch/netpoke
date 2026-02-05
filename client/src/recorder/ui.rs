@@ -121,10 +121,13 @@ fn setup_pip_controls(document: &web_sys::Document) {
 
 fn setup_pip_position_button(document: &web_sys::Document, id: &str, position: PipPosition) {
     if let Some(button) = document.get_element_by_id(id) {
+        let id_owned = id.to_string();
         let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             RECORDER_STATE.with(|state| {
                 state.borrow_mut().pip_position = position;
             });
+            // Update visual "selected" state on buttons
+            update_position_button_selection("pip-pos", &id_owned);
         }) as Box<dyn FnMut(_)>);
 
         if let Ok(element) = button.dyn_into::<web_sys::HtmlElement>() {
@@ -201,16 +204,54 @@ fn setup_chart_controls(document: &web_sys::Document) {
 
 fn setup_chart_position_button(document: &web_sys::Document, id: &str, position: PipPosition) {
     if let Some(button) = document.get_element_by_id(id) {
+        let id_owned = id.to_string();
         let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
             RECORDER_STATE.with(|state| {
                 state.borrow_mut().chart_position = position;
             });
+            // Update visual "selected" state on buttons
+            update_position_button_selection("chart-pos", &id_owned);
         }) as Box<dyn FnMut(_)>);
 
         if let Ok(element) = button.dyn_into::<web_sys::HtmlElement>() {
             let _ = element.add_event_listener_with_callback("click", closure.as_ref().unchecked_ref());
         }
         closure.forget();
+    }
+}
+
+/// Updates the visual "selected" class on position buttons.
+/// prefix is the button ID prefix (e.g., "pip-pos" or "chart-pos")
+/// selected_id is the full ID of the button that should be selected
+fn update_position_button_selection(prefix: &str, selected_id: &str) {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            // List of all position suffixes
+            let suffixes = ["tl", "tr", "bl", "br"];
+            
+            for suffix in &suffixes {
+                let button_id = format!("{}-{}", prefix, suffix);
+                if let Some(element) = document.get_element_by_id(&button_id) {
+                    // Get current class list
+                    let class_name = element.class_name();
+                    
+                    if button_id == selected_id {
+                        // Add "selected" class if not already present
+                        if !class_name.contains("selected") {
+                            element.set_class_name(&format!("{} selected", class_name.trim()));
+                        }
+                    } else {
+                        // Remove "selected" class
+                        let new_class = class_name
+                            .split_whitespace()
+                            .filter(|c| *c != "selected")
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        element.set_class_name(&new_class);
+                    }
+                }
+            }
+        }
     }
 }
 
