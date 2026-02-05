@@ -869,6 +869,89 @@
         .source-combined {
             background: #AF52DE;
         }
+
+        /* Upload progress styles */
+        .upload-progress {
+            margin-top: 8px;
+            width: 100%;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2196F3, #4CAF50);
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+            display: block;
+        }
+
+        .btn-upload {
+            background: #4CAF50 !important;
+            color: white !important;
+            border-color: #4CAF50 !important;
+        }
+
+        .btn-upload:hover {
+            background: #45a049 !important;
+        }
+
+        .btn-upload.uploading {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-upload.success {
+            background: #2e7d32 !important;
+        }
+
+        .btn-upload.error {
+            background: #f44336 !important;
+            border-color: #f44336 !important;
+        }
+
+        .recording-notes {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+            font-style: italic;
+        }
+
+        .recording-notes:empty::before {
+            content: "";
+        }
+
+        .btn-notes {
+            background: #2196F3 !important;
+            color: white !important;
+            border-color: #2196F3 !important;
+        }
+
+        .btn-notes:hover {
+            background: #1976D2 !important;
+        }
+
+        .recording-item {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .recording-item .recording-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
     </style>
 </head>
 <body>
@@ -2387,6 +2470,8 @@
         
         // Survey session tracking for survey-specific PCAP downloads
         let currentSurveySessionId = null;
+        // Expose to window for upload functionality
+        window.currentSurveySessionId = null;
         
         // Length of session ID prefix shown in UI (matches server-side truncation)
         const SESSION_ID_DISPLAY_LENGTH = 8;
@@ -2394,6 +2479,7 @@
         // Set the current survey session ID (called from WASM when session starts)
         function setSurveySessionId(sessionId) {
             currentSurveySessionId = sessionId;
+            window.currentSurveySessionId = sessionId; // Expose for upload functionality
             const pcapBtn = document.getElementById('download-survey-pcap-btn');
             const pcapStatusEl = document.getElementById('survey-pcap-status');
             const keylogBtn = document.getElementById('download-survey-keylog-btn');
@@ -2964,23 +3050,42 @@
                             .map(rec => {
                                 const date = new Date(rec.timestamp);
                                 const sizeInMB = (rec.videoBlob.size / (1024 * 1024)).toFixed(2);
+                                const sensorSizeKB = rec.sensorData ? (JSON.stringify(rec.sensorData).length / 1024).toFixed(1) : '0';
                                 const sourceType = rec.metadata.source_type || 'camera';
                                 const sourceClass = `source-${sourceType}`;
                                 const sourceLabel = sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
+                                const notes = rec.notes || '';
+                                const uploadStatus = rec.uploadStatus || '';
                                 
                                 return `
-                                    <div class="recording-item">
-                                        <div class="recording-info">
-                                            <div class="data"><strong>ID:</strong> ${rec.id} <span class="source-label ${sourceClass}">${sourceLabel}</span></div>
-                                            <div class="data"><strong>Date:</strong> ${date.toLocaleString()}</div>
-                                            <div class="data"><strong>Duration:</strong> ${rec.metadata.duration.toFixed(1)}s</div>
-                                            <div class="data"><strong>Frames:</strong> ${rec.metadata.frameCount}</div>
-                                            <div class="data"><strong>Size:</strong> ${sizeInMB} MB</div>
+                                    <div class="recording-item" data-recording-id="${rec.id}">
+                                        <div class="recording-row">
+                                            <div class="recording-info">
+                                                <div class="data"><strong>ID:</strong> ${rec.id} <span class="source-label ${sourceClass}">${sourceLabel}</span></div>
+                                                <div class="data"><strong>Date:</strong> ${date.toLocaleString()}</div>
+                                                <div class="data"><strong>Duration:</strong> ${rec.metadata.duration.toFixed(1)}s</div>
+                                                <div class="data"><strong>Frames:</strong> ${rec.metadata.frameCount}</div>
+                                                <div class="data"><strong>Size:</strong> ${sizeInMB} MB (video) + ${sensorSizeKB} KB (sensors)</div>
+                                                ${notes ? `<div class="recording-notes">"${notes}"</div>` : ''}
+                                            </div>
+                                            <div class="recording-actions">
+                                                <button onclick="window.editNotesWrapper('${rec.id}')" class="btn-notes">✏️ Notes</button>
+                                                <button onclick="window.startUploadWrapper('${rec.id}')" 
+                                                        id="upload-btn-${rec.id}" 
+                                                        class="btn-upload ${uploadStatus === 'complete' ? 'success' : ''}"
+                                                        ${uploadStatus === 'complete' ? 'disabled' : ''}>
+                                                    ${uploadStatus === 'complete' ? '✓ Uploaded' : '📤 Upload'}
+                                                </button>
+                                                <button onclick="window.downloadVideoWrapper('${rec.id}')" class="btn-download">Download Video</button>
+                                                <button onclick="window.downloadMotionDataWrapper('${rec.id}')" class="btn-download">Download Motion</button>
+                                                <button onclick="window.deleteRecordingWrapper('${rec.id}')" class="btn-delete danger">Delete</button>
+                                            </div>
                                         </div>
-                                        <div class="recording-actions">
-                                            <button onclick="window.downloadVideoWrapper('${rec.id}')" class="btn-download">Download Video</button>
-                                            <button onclick="window.downloadMotionDataWrapper('${rec.id}')" class="btn-download">Download Motion</button>
-                                            <button onclick="window.deleteRecordingWrapper('${rec.id}')" class="btn-delete danger">Delete</button>
+                                        <div class="upload-progress" id="progress-${rec.id}" style="display:none;">
+                                            <div class="progress-bar">
+                                                <div class="progress-fill" style="width: 0%"></div>
+                                            </div>
+                                            <span class="progress-text">Preparing upload...</span>
                                         </div>
                                     </div>
                                 `;
@@ -3025,6 +3130,286 @@
                     } catch (error) {
                         console.error('[Recorder] Error deleting recording:', error);
                         alert('Error deleting recording: ' + error.message);
+                    }
+                };
+
+                // Upload constants
+                const CHUNK_SIZE = 1048576; // 1 MB
+
+                // SHA-256 helper using Web Crypto API
+                async function calculateSHA256(data) {
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                }
+
+                // Get recording from IndexedDB by ID
+                async function getRecordingFromDB(recordingId) {
+                    return new Promise((resolve, reject) => {
+                        const request = indexedDB.open('video_recordings', 1);
+                        request.onerror = () => reject(request.error);
+                        request.onsuccess = () => {
+                            const db = request.result;
+                            const transaction = db.transaction(['recordings'], 'readonly');
+                            const store = transaction.objectStore('recordings');
+                            const getRequest = store.get(recordingId);
+                            getRequest.onerror = () => reject(getRequest.error);
+                            getRequest.onsuccess = () => {
+                                db.close();
+                                resolve(getRequest.result);
+                            };
+                        };
+                    });
+                }
+
+                // Update recording in IndexedDB
+                async function updateRecordingInDB(recording) {
+                    return new Promise((resolve, reject) => {
+                        const request = indexedDB.open('video_recordings', 1);
+                        request.onerror = () => reject(request.error);
+                        request.onsuccess = () => {
+                            const db = request.result;
+                            const transaction = db.transaction(['recordings'], 'readwrite');
+                            const store = transaction.objectStore('recordings');
+                            const putRequest = store.put(recording);
+                            putRequest.onerror = () => reject(putRequest.error);
+                            putRequest.onsuccess = () => {
+                                db.close();
+                                resolve();
+                            };
+                        };
+                    });
+                }
+
+                // Edit notes for a recording
+                window.editNotesWrapper = async function(recordingId) {
+                    try {
+                        const recording = await getRecordingFromDB(recordingId);
+                        if (!recording) {
+                            alert('Recording not found');
+                            return;
+                        }
+
+                        const currentNotes = recording.notes || '';
+                        const newNotes = prompt('Enter notes for this recording:', currentNotes);
+                        
+                        if (newNotes !== null) {
+                            recording.notes = newNotes;
+                            await updateRecordingInDB(recording);
+                            await refreshRecordingsList();
+                        }
+                    } catch (error) {
+                        console.error('[Upload] Error editing notes:', error);
+                        alert('Error editing notes: ' + error.message);
+                    }
+                };
+
+                // Calculate checksums for all chunks in a blob
+                async function calculateAllChunkChecksums(blob) {
+                    const checksums = [];
+                    const totalChunks = Math.ceil(blob.size / CHUNK_SIZE);
+
+                    for (let i = 0; i < totalChunks; i++) {
+                        const start = i * CHUNK_SIZE;
+                        const end = Math.min(start + CHUNK_SIZE, blob.size);
+                        const chunk = blob.slice(start, end);
+                        const chunkData = await chunk.arrayBuffer();
+                        const checksum = await calculateSHA256(chunkData);
+                        checksums.push(checksum);
+                    }
+
+                    return checksums;
+                }
+
+                // Upload a single file with chunked transfer and resume
+                async function uploadFile(blob, recordingId, fileType, existingChunks, onProgress) {
+                    const totalChunks = Math.ceil(blob.size / CHUNK_SIZE);
+
+                    for (let i = 0; i < totalChunks; i++) {
+                        const start = i * CHUNK_SIZE;
+                        const end = Math.min(start + CHUNK_SIZE, blob.size);
+                        const chunk = blob.slice(start, end);
+                        const chunkData = await chunk.arrayBuffer();
+                        const checksum = await calculateSHA256(chunkData);
+
+                        // Skip if server already has this chunk with matching checksum
+                        if (existingChunks && existingChunks[i] && 
+                            existingChunks[i].checksum === checksum) {
+                            onProgress(Math.round(((i + 1) / totalChunks) * 100));
+                            continue;
+                        }
+
+                        // Upload chunk with retry
+                        let retries = 3;
+                        while (retries > 0) {
+                            try {
+                                const response = await fetch('/api/upload/chunk', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/octet-stream',
+                                        'X-Recording-Id': recordingId,
+                                        'X-File-Type': fileType,
+                                        'X-Chunk-Index': i.toString(),
+                                        'X-Chunk-Checksum': checksum
+                                    },
+                                    body: chunkData
+                                });
+
+                                if (!response.ok) {
+                                    throw new Error(`HTTP ${response.status}`);
+                                }
+                                break; // Success, exit retry loop
+                            } catch (err) {
+                                retries--;
+                                if (retries === 0) throw err;
+                                await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
+                            }
+                        }
+
+                        onProgress(Math.round(((i + 1) / totalChunks) * 100));
+                    }
+                }
+
+                // Start upload for a recording
+                window.startUploadWrapper = async function(recordingId) {
+                    const recording = await getRecordingFromDB(recordingId);
+                    if (!recording) {
+                        alert('Recording not found');
+                        return;
+                    }
+
+                    // Check if we have a survey session ID
+                    const surveySessionId = window.currentSurveySessionId;
+                    if (!surveySessionId) {
+                        alert('No active survey session. Please start a survey before uploading.');
+                        return;
+                    }
+
+                    const button = document.getElementById(`upload-btn-${recordingId}`);
+                    const progressDiv = document.getElementById(`progress-${recordingId}`);
+                    const progressFill = progressDiv.querySelector('.progress-fill');
+                    const progressText = progressDiv.querySelector('.progress-text');
+
+                    // Disable button and show progress
+                    button.disabled = true;
+                    button.classList.add('uploading');
+                    progressDiv.style.display = 'block';
+                    progressText.textContent = 'Preparing upload...';
+
+                    try {
+                        // Create sensor data blob
+                        const sensorBlob = new Blob(
+                            [JSON.stringify(recording.sensorData || [])], 
+                            { type: 'application/json' }
+                        );
+                        
+                        const deviceInfo = {
+                            browser: navigator.userAgent,
+                            os: navigator.platform,
+                            screen_width: window.screen.width,
+                            screen_height: window.screen.height,
+                            source_type: recording.metadata.source_type || 'camera',
+                            duration: recording.metadata.duration,
+                            frameCount: recording.metadata.frameCount
+                        };
+
+                        // Step 1: Prepare upload
+                        const prepareReq = {
+                            session_id: surveySessionId,
+                            recording_id: recordingId,
+                            video_size_bytes: recording.videoBlob.size,
+                            sensor_size_bytes: sensorBlob.size,
+                            device_info: deviceInfo,
+                            user_notes: recording.notes || null
+                        };
+
+                        const prepareResp = await fetch('/api/upload/prepare', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(prepareReq)
+                        });
+
+                        if (!prepareResp.ok) {
+                            throw new Error(`Prepare failed: ${prepareResp.status}`);
+                        }
+                        const prepareData = await prepareResp.json();
+
+                        // Step 2: Upload video chunks
+                        progressText.textContent = 'Uploading video...';
+                        await uploadFile(
+                            recording.videoBlob,
+                            recordingId,
+                            'video',
+                            prepareData.video_chunks,
+                            (progress) => {
+                                progressFill.style.width = `${progress}%`;
+                                progressText.textContent = `Uploading video: ${progress}%`;
+                            }
+                        );
+
+                        // Step 3: Upload sensor data
+                        progressText.textContent = 'Uploading sensors...';
+                        await uploadFile(
+                            sensorBlob,
+                            recordingId,
+                            'sensor',
+                            prepareData.sensor_chunks,
+                            (progress) => {
+                                progressFill.style.width = `${progress}%`;
+                                progressText.textContent = `Uploading sensors: ${progress}%`;
+                            }
+                        );
+
+                        // Step 4: Finalize
+                        progressText.textContent = 'Verifying upload...';
+                        const videoChecksums = await calculateAllChunkChecksums(recording.videoBlob);
+                        const sensorChecksums = await calculateAllChunkChecksums(sensorBlob);
+
+                        const videoFinalChecksum = await calculateSHA256(
+                            new TextEncoder().encode(videoChecksums.join(''))
+                        );
+                        const sensorFinalChecksum = await calculateSHA256(
+                            new TextEncoder().encode(sensorChecksums.join(''))
+                        );
+
+                        const finalizeResp = await fetch('/api/upload/finalize', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                recording_id: recordingId,
+                                video_final_checksum: videoFinalChecksum,
+                                sensor_final_checksum: sensorFinalChecksum
+                            })
+                        });
+
+                        if (!finalizeResp.ok) {
+                            throw new Error(`Finalize failed: ${finalizeResp.status}`);
+                        }
+
+                        const finalizeData = await finalizeResp.json();
+                        if (finalizeData.status !== 'complete') {
+                            throw new Error('Verification failed');
+                        }
+
+                        // Success - update recording status
+                        recording.uploadStatus = 'complete';
+                        await updateRecordingInDB(recording);
+
+                        progressFill.style.width = '100%';
+                        progressText.textContent = '✓ Upload complete';
+                        button.textContent = '✓ Uploaded';
+                        button.classList.remove('uploading');
+                        button.classList.add('success');
+
+                        console.log(`[Upload] Recording ${recordingId} uploaded successfully`);
+
+                    } catch (error) {
+                        console.error('[Upload] Upload failed:', error);
+                        progressText.textContent = `⚠️ Upload failed: ${error.message}`;
+                        button.disabled = false;
+                        button.classList.remove('uploading');
+                        button.classList.add('error');
+                        button.textContent = '⚠️ Retry Upload';
                     }
                 };
 

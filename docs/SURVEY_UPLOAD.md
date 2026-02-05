@@ -1,32 +1,3 @@
-# Issue 050: Update Documentation
-
-## Summary
-Create user documentation for the survey upload feature covering both surveyors and analysts.
-
-## Location
-- File: `docs/SURVEY_UPLOAD.md` (new file)
-- File: `README.md` (optional update)
-
-## Current Behavior
-No documentation exists for the survey upload feature.
-
-## Expected Behavior
-Documentation that explains:
-1. How surveyors use the upload feature
-2. How analysts access survey data
-3. Server configuration options
-4. Troubleshooting common issues
-
-## Impact
-Enables users to effectively use the survey upload feature.
-
-## Suggested Implementation
-
-### Step 1: Create survey upload documentation
-
-Create `docs/SURVEY_UPLOAD.md`:
-
-```markdown
 # Survey Upload Feature
 
 This document describes how to use the survey video + sensor upload feature in NetPoke.
@@ -79,6 +50,10 @@ If an upload is interrupted (browser closed, network issue):
 - Check the browser console for errors.
 - Try refreshing the page and uploading again.
 
+**"No active survey session" error**
+- You must start a survey ("Analyze Network") before uploading
+- The survey session ID is required for organizing uploads
+
 ## For Analysts
 
 ### Accessing Survey Data
@@ -86,6 +61,9 @@ If an upload is interrupted (browser closed, network issue):
 Survey data is available through the analyst API:
 
 ```bash
+# List all magic keys with session counts
+curl "http://server:8080/admin/api/magic-keys"
+
 # List sessions for a magic key
 curl "http://server:8080/admin/api/sessions?magic_key=SURVEY-001"
 
@@ -94,6 +72,18 @@ curl "http://server:8080/admin/api/sessions/{session_id}"
 ```
 
 ### API Response Format
+
+**List Magic Keys Response:**
+```json
+[
+  {
+    "magic_key": "SURVEY-001",
+    "session_count": 5,
+    "total_recordings": 12,
+    "latest_session_time": 1707146732000
+  }
+]
+```
 
 **List Sessions Response:**
 ```json
@@ -140,9 +130,7 @@ Uploaded files are stored in:
 ```
 {storage.base_path}/{magic_key}/{YYYY}/{MM}/{DD}/{session_id}/
   ├── {recording_id}.webm   # Video recording
-  ├── {recording_id}.json   # Sensor data
-  ├── session.pcap          # Packet capture (if explicitly stopped)
-  └── session.keylog        # DTLS keys (if explicitly stopped)
+  └── {recording_id}.json   # Sensor data
 ```
 
 ## Server Configuration
@@ -186,6 +174,55 @@ The feature uses SQLite with three tables:
 
 See `server/migrations/001_survey_upload_schema.sql` for full schema.
 
+## Upload Protocol
+
+The upload uses a three-phase protocol for reliability:
+
+### Phase 1: Prepare
+```
+POST /api/upload/prepare
+Content-Type: application/json
+
+{
+  "session_id": "uuid",
+  "recording_id": "uuid",
+  "video_size_bytes": 52428800,
+  "sensor_size_bytes": 1048576,
+  "device_info": {...},
+  "user_notes": "optional notes"
+}
+```
+
+Returns existing chunk checksums for resume capability.
+
+### Phase 2: Upload Chunks
+```
+POST /api/upload/chunk
+X-Recording-Id: uuid
+X-File-Type: video|sensor
+X-Chunk-Index: 0
+X-Chunk-Checksum: sha256
+Content-Type: application/octet-stream
+
+[binary chunk data, up to 1MB]
+```
+
+Chunks can be uploaded in any order. Server verifies checksums.
+
+### Phase 3: Finalize
+```
+POST /api/upload/finalize
+Content-Type: application/json
+
+{
+  "recording_id": "uuid",
+  "video_final_checksum": "sha256",
+  "sensor_final_checksum": "sha256"
+}
+```
+
+Server verifies complete file integrity before marking as complete.
+
 ## Future Enhancements
 
 - Web-based analyst UI for browsing surveys
@@ -193,30 +230,3 @@ See `server/migrations/001_survey_upload_schema.sql` for full schema.
 - Access control for analyst API
 - Automatic cleanup of old surveys
 - Video + sensor synchronized playback
-```
-
-### Step 2: Update README.md (optional)
-
-Add a brief mention in the main README:
-
-```markdown
-## Survey Upload Feature
-
-NetPoke supports uploading survey recordings (video + sensor data) to the server.
-See [docs/SURVEY_UPLOAD.md](docs/SURVEY_UPLOAD.md) for details.
-```
-
-## Testing
-- Documentation is clear and accurate
-- All paths and commands are correct
-- Examples work as documented
-
-## Dependencies
-- Issue 049: Manual integration test (to verify documentation accuracy)
-
-## Reference
-See `docs/plans/2026-02-05-survey-upload-implementation.md` - Task 18 for full details.
-See `docs/plans/2026-02-05-survey-upload-feature-design.md` for feature overview.
-
----
-*Created: 2026-02-05*
