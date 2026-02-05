@@ -919,99 +919,6 @@
             </div>
         </div>
 
-        <!-- Recording Section -->
-        <div class="recording-section">
-            <div class="recording-header" onclick="toggleRecordingPanel()">
-                <h2>
-                    <span class="recording-icon">📹</span>
-                    Recording
-                    <span id="recording-status" class="status-badge ready">Ready</span>
-                </h2>
-                <button class="recording-toggle" id="recording-toggle">▼</button>
-            </div>
-            <div class="recording-content" id="recording-content" style="display:none">
-
-                <!-- Mode Selection -->
-                <div class="recording-mode-group">
-                    <h3>Recording Mode</h3>
-                    <label><input type="radio" name="recordMode" id="mode-camera" value="camera"> Camera Only</label>
-                    <label><input type="radio" name="recordMode" id="mode-screen" value="screen"> Screen Only</label>
-                    <label><input type="radio" name="recordMode" id="mode-combined" value="combined" checked> Combined (PiP)</label>
-                </div>
-
-                <!-- PiP Controls -->
-                <div id="pip-controls" class="control-group">
-                    <h3>Camera Position</h3>
-                    <label>
-                        Size: <input type="range" id="pip-size" min="10" max="40" value="25">
-                        <span id="pip-size-value">25%</span>
-                    </label>
-                    <div class="position-selector">
-                        <button id="pip-pos-tl" data-position="topleft">TL</button>
-                        <button id="pip-pos-tr" data-position="topright">TR</button>
-                        <button id="pip-pos-bl" data-position="bottomleft">BL</button>
-                        <button id="pip-pos-br" data-position="bottomright" class="selected">BR</button>
-                    </div>
-                </div>
-
-                <!-- Chart Controls -->
-                <div id="chart-controls" class="control-group">
-                    <h3>Chart Overlay</h3>
-                    <label><input type="checkbox" id="chart-enable" checked> Include Charts</label>
-                    <label>
-                        Chart:
-                        <select id="chart-type">
-                            <option value="metrics-chart">Latency</option>
-                            <option value="probe-stats-chart" selected>Probe Stats</option>
-                            <option value="both">Both Charts</option>
-                        </select>
-                    </label>
-                    <label>
-                        Chart Height: <input type="range" id="chart-size" min="10" max="40" value="20">
-                        <span id="chart-size-value">20%</span>
-                    </label>
-                    <div class="position-selector">
-                        <button id="chart-pos-top" data-position="top">Top</button>
-                        <button id="chart-pos-bottom" data-position="bottom" class="selected">Bottom</button>
-                    </div>
-                </div>
-
-                <!-- Sensor Toggle -->
-                <div class="control-group">
-                    <label><input type="checkbox" id="show-sensors-overlay" checked> Show Sensors</label>
-                </div>
-
-                <!-- Recording Buttons -->
-                <button id="start-recording" class="btn-primary">Start Recording</button>
-                <button id="stop-recording" class="btn-danger" style="display:none">Stop Recording</button>
-
-                <!-- Recording Metrics Display -->
-                <div id="recording-metrics" style="display:none; margin-top: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px;">
-                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
-                        <span><strong>Duration:</strong> <span id="recording-duration">0.0s</span></span>
-                        <span><strong>Frames:</strong> <span id="recording-frames">0</span></span>
-                        <span><strong>Size:</strong> <span id="recording-size">0.00 MB</span></span>
-                    </div>
-                </div>
-
-                <!-- Saved Recordings List -->
-                <div id="recordings-list" class="recordings-list">
-                    <h3>Saved Recordings</h3>
-                    <div id="recordings-container"></div>
-                </div>
-
-                <!-- Hidden canvases for Chart.js rendering (used for overlay in recordings) -->
-                <!-- Note: Using position:absolute and left:-9999px instead of display:none -->
-                <!-- because display:none prevents the canvas from being rendered/composited -->
-                <div style="position:absolute; left:-9999px; width:400px; height:300px;" id="hidden-charts">
-                    <canvas id="metrics-chart" width="400" height="300"></canvas>
-                    <canvas id="latency-chart" width="400" height="300"></canvas>
-                    <canvas id="throughput-chart" width="400" height="300"></canvas>
-                </div>
-
-            </div>
-        </div>
-
         <!-- Controls Card -->
         <div class="card">
             <div class="controls-section">
@@ -1104,6 +1011,99 @@
                     </a>
                     <span id="tracing-status" class="capture-status">Checking tracing status...</span>
                 </div>
+            </div>
+        </div>
+
+        <!-- Recording Section -->
+        <div class="recording-section">
+            <div class="recording-header" onclick="toggleRecordingPanel()">
+                <h2>
+                    <span class="recording-icon">📹</span>
+                    Recording
+                    <span id="recording-status" class="status-badge ready">Ready</span>
+                </h2>
+                <button class="recording-toggle" id="recording-toggle">▼</button>
+            </div>
+            <div class="recording-content" id="recording-content" style="display:none">
+
+                <!-- Mode Selection -->
+                <div class="recording-mode-group">
+                    <h3>Recording Mode</h3>
+                    <label><input type="radio" name="recordMode" id="mode-camera" value="camera"> Camera Only</label>
+                    <label><input type="radio" name="recordMode" id="mode-screen" value="screen"> Screen Only</label>
+                    <label><input type="radio" name="recordMode" id="mode-combined" value="combined" checked> Combined (PiP)</label>
+                </div>
+
+                <!-- PiP Controls -->
+                <div id="pip-controls" class="control-group">
+                    <h3>Camera Position</h3>
+                    <label>
+                        Size: <input type="range" id="pip-size" min="10" max="40" value="25">
+                        <span id="pip-size-value">25%</span>
+                    </label>
+                    <div class="position-selector">
+                        <button id="pip-pos-tl" data-position="topleft">TL</button>
+                        <button id="pip-pos-tr" data-position="topright">TR</button>
+                        <button id="pip-pos-bl" data-position="bottomleft">BL</button>
+                        <button id="pip-pos-br" data-position="bottomright" class="selected">BR</button>
+                    </div>
+                </div>
+
+                <!-- Chart Controls -->
+                <div id="chart-controls" class="control-group">
+                    <h3>Chart Overlay</h3>
+                    <label><input type="checkbox" id="chart-enable" checked> Include Charts</label>
+                    <label>
+                        Chart:
+                        <select id="chart-type">
+                            <option value="metrics-chart">Latency</option>
+                            <option value="probe-stats-chart" selected>Probe Stats</option>
+                            <option value="both">Both Charts</option>
+                        </select>
+                    </label>
+                    <label>
+                        Chart Height: <input type="range" id="chart-size" min="10" max="40" value="20">
+                        <span id="chart-size-value">20%</span>
+                    </label>
+                    <div class="position-selector">
+                        <button id="chart-pos-top" data-position="top">Top</button>
+                        <button id="chart-pos-bottom" data-position="bottom" class="selected">Bottom</button>
+                    </div>
+                </div>
+
+                <!-- Sensor Toggle -->
+                <div class="control-group">
+                    <label><input type="checkbox" id="show-sensors-overlay" checked> Show Sensors</label>
+                </div>
+
+                <!-- Recording Buttons -->
+                <button id="start-recording" class="btn-primary">Start Recording</button>
+                <button id="stop-recording" class="btn-danger" style="display:none">Stop Recording</button>
+
+                <!-- Recording Metrics Display -->
+                <div id="recording-metrics" style="display:none; margin-top: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px;">
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <span><strong>Duration:</strong> <span id="recording-duration">0.0s</span></span>
+                        <span><strong>Frames:</strong> <span id="recording-frames">0</span></span>
+                        <span><strong>Size:</strong> <span id="recording-size">0.00 MB</span></span>
+                    </div>
+                </div>
+
+                <!-- Saved Recordings List -->
+                <div id="recordings-list" class="recordings-list">
+                    <h3>Saved Recordings</h3>
+                    <div id="recordings-container"></div>
+                </div>
+
+                <!-- Hidden canvases for Chart.js rendering (used for overlay in recordings) -->
+                <!-- Note: Using position:absolute and left:-9999px instead of display:none -->
+                <!-- because display:none prevents the canvas from being rendered/composited -->
+                <div style="position:absolute; left:-9999px; width:400px; height:300px;" id="hidden-charts">
+                    <canvas id="metrics-chart" width="400" height="300"></canvas>
+                    <canvas id="latency-chart" width="400" height="300"></canvas>
+                    <canvas id="throughput-chart" width="400" height="300"></canvas>
+                </div>
+
             </div>
         </div>
 
