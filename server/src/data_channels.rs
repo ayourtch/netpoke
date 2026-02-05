@@ -210,12 +210,25 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
 
             // Create database session record if session manager is available
             if let Some(session_manager) = &session.session_manager {
-                let magic_key = start_survey_msg.magic_key.as_deref().unwrap_or("unknown");
+                // Magic key is required for proper database tracking
+                // If not provided, log a warning but still create the session with a placeholder
+                let magic_key = match start_survey_msg.magic_key.as_deref() {
+                    Some(key) => key,
+                    None => {
+                        tracing::warn!(
+                            "StartSurveySession message missing magic_key for session {}, using 'unknown'",
+                            start_survey_msg.survey_session_id
+                        );
+                        "unknown"
+                    }
+                };
+                // TODO: Extract user_login from authentication context when available
+                // This is deferred to a future issue as it requires passing auth state through the data channel flow
                 if let Err(e) = session_manager
                     .create_session(
                         &start_survey_msg.survey_session_id,
                         magic_key,
-                        None, // user_login - could be extracted from auth context if available
+                        None, // user_login - deferred to future issue
                     )
                     .await
                 {
