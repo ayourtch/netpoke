@@ -55,7 +55,7 @@ impl RecorderState {
     }
 
     pub async fn start_recording(&mut self) -> Result<(), JsValue> {
-        use crate::recorder::media_streams::{get_camera_stream, get_screen_stream, add_screen_stop_listener};
+        use crate::recorder::media_streams::{get_camera_stream, get_screen_stream, get_combined_streams, add_screen_stop_listener};
         use crate::recorder::types::CameraFacing;
         use crate::recorder::utils::log;
 
@@ -110,7 +110,6 @@ impl RecorderState {
                 // This is necessary because getDisplayMedia must be called from a user gesture
                 // handler. By starting both promises synchronously (before any await), we ensure
                 // both media requests happen within the user gesture context.
-                use crate::recorder::media_streams::get_combined_streams;
                 let (camera_stream, screen_stream) = get_combined_streams().await?;
 
                 let camera_video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
