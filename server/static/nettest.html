@@ -2636,12 +2636,6 @@
                 };
                 renderLoop();
 
-                // Load existing recordings from IndexedDB
-                if (window.refreshRecordingsList) {
-                    await refreshRecordingsList();
-                    console.log('Recordings list loaded');
-                }
-
                 // Issue 008: Sensor tracking functions
                 let watchId = null;
                 let orientationListener = null;
@@ -2868,6 +2862,10 @@
                     }
                 }
                 window.refreshRecordingsList = refreshRecordingsList;
+
+                // Load existing recordings from IndexedDB
+                await refreshRecordingsList();
+                console.log('Recordings list loaded');
 
                 // Wrapper functions to bridge HTML onclick handlers to WASM functions
                 window.downloadVideoWrapper = async function(id) {
