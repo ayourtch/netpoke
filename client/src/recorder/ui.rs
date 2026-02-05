@@ -13,7 +13,7 @@ thread_local! {
 
 /// Request sensor permissions from JavaScript (must be called from user gesture context)
 async fn request_sensor_permissions() -> Result<(), JsValue> {
-    let window = web_sys::window().ok_or("No window")?;
+    let window = web_sys::window().ok_or("Failed to get window object for sensor permissions")?;
 
     let request_fn = js_sys::Reflect::get(&window, &"requestSensorPermissions".into())?;
 
@@ -37,7 +37,7 @@ async fn request_sensor_permissions() -> Result<(), JsValue> {
 
 /// Start sensor tracking from JavaScript
 async fn start_sensor_tracking() -> Result<(), JsValue> {
-    let window = web_sys::window().ok_or("No window")?;
+    let window = web_sys::window().ok_or("Failed to get window object for sensor tracking")?;
 
     let start_fn = js_sys::Reflect::get(&window, &"startSensorTracking".into())?;
 
