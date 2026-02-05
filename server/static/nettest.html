@@ -2838,7 +2838,7 @@
                             .map(rec => {
                                 const date = new Date(rec.timestamp);
                                 const sizeInMB = (rec.videoBlob.size / (1024 * 1024)).toFixed(2);
-                                const sourceType = rec.metadata.sourceType || 'camera';
+                                const sourceType = rec.metadata.source_type || 'camera';
                                 const sourceClass = `source-${sourceType}`;
                                 const sourceLabel = sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
                                 
