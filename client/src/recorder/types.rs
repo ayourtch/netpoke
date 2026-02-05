@@ -34,6 +34,13 @@ pub enum PipPosition {
     BottomRight,
 }
 
+/// Position for full-width chart overlay (top or bottom of video)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChartPosition {
+    Top,
+    Bottom,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingMetadata {
     #[serde(default)]

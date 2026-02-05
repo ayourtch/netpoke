@@ -2,7 +2,7 @@ use crate::recorder::{
     canvas_renderer::CanvasRenderer,
     media_recorder::Recorder,
     sensors::SensorManager,
-    types::{SourceType, PipPosition},
+    types::{ChartPosition, PipPosition, SourceType},
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ pub struct RecorderState {
     pub pip_size: f64,
     pub chart_enabled: bool,
     pub chart_type: String,
-    pub chart_position: PipPosition,
+    pub chart_position: ChartPosition,
     pub chart_size: f64,
     pub recording: bool,
     pub start_time: f64,
@@ -39,7 +39,7 @@ impl RecorderState {
             pip_size: 0.25,
             chart_enabled: true,
             chart_type: "metrics-chart".to_string(),
-            chart_position: PipPosition::BottomRight,
+            chart_position: ChartPosition::Bottom,
             chart_size: 0.20,
             recording: false,
             start_time: 0.0,
@@ -295,19 +295,16 @@ impl RecorderState {
                                 let canvas_width = canvas.width() as f64;
                                 let canvas_height = canvas.height() as f64;
 
-                                // Calculate chart dimensions (Issue 016)
-                                // chart_size is a percentage (0.0 - 1.0), use it as percentage of canvas width
-                                let chart_width = canvas_width * self.chart_size;
-                                // Maintain 4:3 aspect ratio (common for charts)
-                                let chart_height = chart_width * 0.75;
-                                let margin = 20.0;
+                                // Chart takes full width of video
+                                let chart_width = canvas_width;
+                                // Height is a percentage of video height (chart_size controls this)
+                                let chart_height = canvas_height * self.chart_size;
 
-                                // Calculate position based on chart position
-                                let (chart_x, chart_y) = match self.chart_position {
-                                    PipPosition::TopLeft => (margin, margin),
-                                    PipPosition::TopRight => (canvas_width - chart_width - margin, margin),
-                                    PipPosition::BottomLeft => (margin, canvas_height - chart_height - margin),
-                                    PipPosition::BottomRight => (canvas_width - chart_width - margin, canvas_height - chart_height - margin),
+                                // Calculate position based on chart position (top or bottom)
+                                let chart_x = 0.0;
+                                let chart_y = match self.chart_position {
+                                    ChartPosition::Top => 0.0,
+                                    ChartPosition::Bottom => canvas_height - chart_height,
                                 };
 
                                 let _ = renderer.render_chart_overlay(

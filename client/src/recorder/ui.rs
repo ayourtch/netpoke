@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::recorder::state::RecorderState;
-use crate::recorder::types::{SourceType, PipPosition};
+use crate::recorder::types::{ChartPosition, PipPosition, SourceType};
 
 thread_local! {
     static RECORDER_STATE: Rc<RefCell<RecorderState>> =
@@ -288,14 +288,12 @@ fn setup_chart_controls(document: &web_sys::Document) {
         }
     }
 
-    // Chart position buttons
-    setup_chart_position_button(document, "chart-pos-tl", PipPosition::TopLeft);
-    setup_chart_position_button(document, "chart-pos-tr", PipPosition::TopRight);
-    setup_chart_position_button(document, "chart-pos-bl", PipPosition::BottomLeft);
-    setup_chart_position_button(document, "chart-pos-br", PipPosition::BottomRight);
+    // Chart position buttons (top and bottom only)
+    setup_chart_position_button(document, "chart-pos-top", ChartPosition::Top);
+    setup_chart_position_button(document, "chart-pos-bottom", ChartPosition::Bottom);
 }
 
-fn setup_chart_position_button(document: &web_sys::Document, id: &str, position: PipPosition) {
+fn setup_chart_position_button(document: &web_sys::Document, id: &str, position: ChartPosition) {
     if let Some(button) = document.get_element_by_id(id) {
         let id_owned = id.to_string();
         let closure = Closure::wrap(Box::new(move |_event: web_sys::Event| {
@@ -303,7 +301,7 @@ fn setup_chart_position_button(document: &web_sys::Document, id: &str, position:
                 state.borrow_mut().chart_position = position;
             });
             // Update visual "selected" state on buttons
-            update_position_button_selection("chart-pos", &id_owned);
+            update_chart_position_button_selection(&id_owned);
         }) as Box<dyn FnMut(_)>);
 
         if let Ok(element) = button.dyn_into::<web_sys::HtmlElement>() {
@@ -313,21 +311,53 @@ fn setup_chart_position_button(document: &web_sys::Document, id: &str, position:
     }
 }
 
-/// Updates the visual "selected" class on position buttons.
-/// prefix is the button ID prefix (e.g., "pip-pos" or "chart-pos")
+/// Updates the visual "selected" class on chart position buttons.
+fn update_chart_position_button_selection(selected_id: &str) {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            // List of all chart position button IDs
+            let button_ids = ["chart-pos-top", "chart-pos-bottom"];
+
+            for button_id in &button_ids {
+                if let Some(element) = document.get_element_by_id(button_id) {
+                    // Get current class list
+                    let class_name = element.class_name();
+
+                    if *button_id == selected_id {
+                        // Add "selected" class if not already present
+                        if !class_name.contains("selected") {
+                            element.set_class_name(&format!("{} selected", class_name.trim()));
+                        }
+                    } else {
+                        // Remove "selected" class
+                        let new_class = class_name
+                            .split_whitespace()
+                            .filter(|c| *c != "selected")
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        element.set_class_name(&new_class);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Updates the visual "selected" class on PiP position buttons.
+/// prefix is the button ID prefix (e.g., "pip-pos")
 /// selected_id is the full ID of the button that should be selected
 fn update_position_button_selection(prefix: &str, selected_id: &str) {
     if let Some(window) = web_sys::window() {
         if let Some(document) = window.document() {
             // List of all position suffixes
             let suffixes = ["tl", "tr", "bl", "br"];
-            
+
             for suffix in &suffixes {
                 let button_id = format!("{}-{}", prefix, suffix);
                 if let Some(element) = document.get_element_by_id(&button_id) {
                     // Get current class list
                     let class_name = element.class_name();
-                    
+
                     if button_id == selected_id {
                         // Add "selected" class if not already present
                         if !class_name.contains("selected") {
