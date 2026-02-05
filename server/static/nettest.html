@@ -2685,11 +2685,52 @@
                 // Expose recorder_render_frame to global scope for render loop
                 window.recorder_render_frame = recorder_render_frame;
 
+                // Helper function to check if recording is active
+                const isRecordingActive = () => {
+                    const statusBadge = document.getElementById('recording-status');
+                    return statusBadge && statusBadge.classList.contains('recording');
+                };
+
+                // Helper functions to hide/show chart legends for video capture
+                // When capturing charts for video, we hide the legend so only the graph is shown
+                const hideChartsLegendForCapture = () => {
+                    if (typeof metricsChart !== 'undefined' && metricsChart) {
+                        metricsChart.options.plugins.legend.display = false;
+                        metricsChart.update('none');
+                    }
+                    if (typeof probeStatsChart !== 'undefined' && probeStatsChart) {
+                        probeStatsChart.options.plugins.legend.display = false;
+                        probeStatsChart.update('none');
+                    }
+                };
+
+                const restoreChartsLegend = () => {
+                    if (typeof metricsChart !== 'undefined' && metricsChart) {
+                        metricsChart.options.plugins.legend.display = true;
+                        metricsChart.update('none');
+                    }
+                    if (typeof probeStatsChart !== 'undefined' && probeStatsChart) {
+                        probeStatsChart.options.plugins.legend.display = true;
+                        probeStatsChart.update('none');
+                    }
+                };
+
                 // Set up render loop for recorder (30 FPS)
                 let renderLoopId = null;
                 const renderLoop = () => {
                     if (window.recorder_render_frame) {
+                        // If recording, hide legend before capturing frame
+                        const recording = isRecordingActive();
+                        if (recording) {
+                            hideChartsLegendForCapture();
+                        }
+                        
                         window.recorder_render_frame();
+                        
+                        // Restore legend after capturing so user still sees it
+                        if (recording) {
+                            restoreChartsLegend();
+                        }
                     }
                     renderLoopId = requestAnimationFrame(renderLoop);
                 };
