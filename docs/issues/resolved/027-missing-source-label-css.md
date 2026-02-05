@@ -65,5 +65,30 @@ Add the following CSS to the `<style>` block in `server/static/nettest.html` (ar
 ## Related Issues
 - Issue 026: Missing recordings list implementation - will use these CSS classes
 
+## Resolution
+
+**Resolved: 2026-02-05**
+
+Added CSS styles for recording source type labels to visually distinguish between camera, screen, and combined recordings.
+
+### Changes Made:
+
+**In `server/static/nettest.html` (lines ~852-869)**:
+- Added `.source-label` base styles:
+  - Inline-block display with padding and border radius
+  - Small font size (10px) with medium weight (500)
+  - White text color on colored background
+  - 5px left margin for spacing from recording ID
+
+- Added source type color styles:
+  - `.source-camera`: Green background (#34C759) for camera-only recordings
+  - `.source-screen`: Orange background (#FF9500) for screen-only recordings
+  - `.source-combined`: Purple background (#AF52DE) for combined (screen + PiP) recordings
+
+### Verification:
+- Styles match the reference implementation from `tmp/camera-standalone-for-cross-check/camera-tracker.html`
+- Color scheme follows iOS system colors for consistency
+- Styles are used by the recordings list implementation (Issue 026)
+
 ---
 *Created: 2026-02-04*
