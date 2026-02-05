@@ -149,22 +149,32 @@ fn setup_mode_selection(document: &web_sys::Document) {
 fn setup_pip_controls(document: &web_sys::Document) {
     // PiP size slider
     if let Some(slider) = document.get_element_by_id("pip-size") {
-        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-            if let Some(target) = event.target() {
-                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                    if let Ok(value) = input.value().parse::<f64>() {
-                        RECORDER_STATE.with(|state| {
-                            state.borrow_mut().pip_size = value / 100.0;
-                        });
+        // Cast to HtmlInputElement once (it inherits from HtmlElement so can do both read value and add listener)
+        if let Ok(input_element) = slider.dyn_into::<web_sys::HtmlInputElement>() {
+            // Read initial value from slider to sync state with DOM
+            // This handles browser form restoration and ensures state matches the displayed value
+            if let Ok(value) = input_element.value().parse::<f64>() {
+                RECORDER_STATE.with(|state| {
+                    state.borrow_mut().pip_size = value / 100.0;
+                });
+                crate::recorder::utils::log(&format!("[Recorder] Initial PiP size: {}%", value));
+            }
+
+            let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                if let Some(target) = event.target() {
+                    if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                        if let Ok(value) = input.value().parse::<f64>() {
+                            RECORDER_STATE.with(|state| {
+                                state.borrow_mut().pip_size = value / 100.0;
+                            });
+                        }
                     }
                 }
-            }
-        }) as Box<dyn FnMut(_)>);
+            }) as Box<dyn FnMut(_)>);
 
-        if let Ok(element) = slider.dyn_into::<web_sys::HtmlElement>() {
-            let _ = element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            let _ = input_element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            closure.forget();
         }
-        closure.forget();
     }
 
     // PiP position buttons
@@ -232,22 +242,32 @@ fn setup_chart_controls(document: &web_sys::Document) {
 
     // Chart size slider
     if let Some(slider) = document.get_element_by_id("chart-size") {
-        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
-            if let Some(target) = event.target() {
-                if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                    if let Ok(value) = input.value().parse::<f64>() {
-                        RECORDER_STATE.with(|state| {
-                            state.borrow_mut().chart_size = value / 100.0;
-                        });
+        // Cast to HtmlInputElement once (it inherits from HtmlElement so can do both read value and add listener)
+        if let Ok(input_element) = slider.dyn_into::<web_sys::HtmlInputElement>() {
+            // Read initial value from slider to sync state with DOM
+            // This handles browser form restoration and ensures state matches the displayed value
+            if let Ok(value) = input_element.value().parse::<f64>() {
+                RECORDER_STATE.with(|state| {
+                    state.borrow_mut().chart_size = value / 100.0;
+                });
+                crate::recorder::utils::log(&format!("[Recorder] Initial chart size: {}%", value));
+            }
+
+            let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+                if let Some(target) = event.target() {
+                    if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
+                        if let Ok(value) = input.value().parse::<f64>() {
+                            RECORDER_STATE.with(|state| {
+                                state.borrow_mut().chart_size = value / 100.0;
+                            });
+                        }
                     }
                 }
-            }
-        }) as Box<dyn FnMut(_)>);
+            }) as Box<dyn FnMut(_)>);
 
-        if let Ok(element) = slider.dyn_into::<web_sys::HtmlElement>() {
-            let _ = element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            let _ = input_element.add_event_listener_with_callback("input", closure.as_ref().unchecked_ref());
+            closure.forget();
         }
-        closure.forget();
     }
 
     // Chart position buttons
