@@ -33,7 +33,14 @@ pub fn init_recorder_panel() {
 #[wasm_bindgen]
 pub fn recorder_render_frame() {
     RECORDER_STATE.with(|state| {
-        let _ = state.borrow_mut().render_frame();
+        // Use try_borrow_mut to avoid panic if the state is already borrowed
+        // (e.g., during start_recording or stop_recording async operations)
+        if let Ok(mut state_guard) = state.try_borrow_mut() {
+            if let Err(e) = state_guard.render_frame() {
+                crate::recorder::utils::log(&format!("[Recorder] render_frame error: {:?}", e));
+            }
+        }
+        // If borrow fails, silently skip this frame - the next frame will render
     });
 }
 
