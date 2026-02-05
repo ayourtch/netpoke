@@ -988,9 +988,17 @@
                 <!-- Recording Metrics Display -->
                 <div id="recording-metrics" style="display:none; margin-top: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px;">
                     <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                        <span><strong>Source:</strong> <span id="sourceType">-</span></span>
                         <span><strong>Duration:</strong> <span id="recording-duration">0.0s</span></span>
                         <span><strong>Frames:</strong> <span id="recording-frames">0</span></span>
                         <span><strong>Size:</strong> <span id="recording-size">0.00 MB</span></span>
+                    </div>
+                    <!-- Sensor status displays (matching old code) -->
+                    <div style="margin-top: 8px; font-family: monospace; font-size: 11px;">
+                        <div>GPS: <span id="gps">acquiring...</span></div>
+                        <div>Magnetometer: <span id="magnetometer">-</span></div>
+                        <div>Orientation: <span id="orientation">-</span></div>
+                        <div>Acceleration: <span id="acceleration">-</span></div>
                     </div>
                 </div>
 
@@ -2692,6 +2700,11 @@
                                     event.absolute || false
                                 );
                             }
+                            // Update UI display (matching old code)
+                            const orientEl = document.getElementById('orientation');
+                            if (orientEl) {
+                                orientEl.textContent = `α:${event.alpha?.toFixed(0) || '-'}° β:${event.beta?.toFixed(0) || '-'}° γ:${event.gamma?.toFixed(0) || '-'}°`;
+                            }
                         };
                         window.addEventListener('deviceorientation', orientationListener);
                         
@@ -2709,6 +2722,11 @@
                                 accelG.x || 0, accelG.y || 0, accelG.z || 0,
                                 rot.alpha || 0, rot.beta || 0, rot.gamma || 0
                             );
+                            // Update UI display (matching old code)
+                            const accelEl = document.getElementById('acceleration');
+                            if (accelEl && accel) {
+                                accelEl.textContent = `x:${(accel.x || 0).toFixed(2)} y:${(accel.y || 0).toFixed(2)} z:${(accel.z || 0).toFixed(2)}`;
+                            }
                         };
                         window.addEventListener('devicemotion', motionListener);
                         
@@ -2721,6 +2739,11 @@
                                     event.gamma,
                                     true  // absolute = true for deviceorientationabsolute
                                 );
+                            }
+                            // Update UI display (matching old code)
+                            const magEl = document.getElementById('magnetometer');
+                            if (magEl) {
+                                magEl.textContent = `heading:${event.alpha?.toFixed(0) || '-'}° β:${event.beta?.toFixed(0) || '-'}° γ:${event.gamma?.toFixed(0) || '-'}°`;
                             }
                         };
                         window.addEventListener('deviceorientationabsolute', magnetometerListener);
@@ -2747,8 +2770,20 @@
                                     position.coords.heading,
                                     position.coords.speed
                                 );
+                                // Update UI display (matching old code)
+                                const gpsEl = document.getElementById('gps');
+                                if (gpsEl) {
+                                    gpsEl.textContent = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)} ±${position.coords.accuracy.toFixed(1)}m`;
+                                }
                             },
-                            (error) => console.warn('GPS error:', error),
+                            (error) => {
+                                console.warn('GPS error:', error);
+                                // Update UI display on error (matching old code)
+                                const gpsEl = document.getElementById('gps');
+                                if (gpsEl) {
+                                    gpsEl.textContent = 'error: ' + error.message;
+                                }
+                            },
                             { enableHighAccuracy: true, maximumAge: 1000 }
                         );
                     }
