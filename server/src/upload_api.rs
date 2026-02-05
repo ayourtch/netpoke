@@ -29,8 +29,13 @@ pub struct UploadState {
 }
 
 /// Error response for upload API
+///
+/// This struct is serialized to JSON and sent to clients, so the `error` field
+/// must be public for serde serialization. The helper methods provide standard
+/// error messages for common error conditions.
 #[derive(Debug, Serialize)]
 pub struct UploadError {
+    /// Human-readable error message describing what went wrong
     pub error: String,
 }
 
