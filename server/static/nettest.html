@@ -1014,6 +1014,32 @@
             </div>
         </div>
 
+        <!-- Probe Stats Card -->
+        <div class="card" id="probe-stats-container">
+            <h2>Probe Stream Statistics (Baseline Measurement)</h2>
+            <p class="card-description">Real-time statistics from 100pps probe streams. Delay deviation shows deviation from incrementally calculated baseline. Bands show 50th/99th percentile and full range.</p>
+            <div class="dual-stack-container">
+                <div class="stack-column">
+                    <h3 style="color: #2196F3;">IPv4 Statistics</h3>
+                    <div id="probe-stats-ipv4" class="probe-stats-box">
+                        <div class="probe-stats-placeholder">Waiting for probe data...</div>
+                    </div>
+                </div>
+                <div class="stack-column">
+                    <h3 style="color: #FF9800;">IPv6 Statistics</h3>
+                    <div id="probe-stats-ipv6" class="probe-stats-box">
+                        <div class="probe-stats-placeholder">Waiting for probe data...</div>
+                    </div>
+                </div>
+            </div>
+            <div id="probe-stats-chart-container">
+                <div class="probe-stats-chart-controls">
+                    <button class="btn btn-primary" onclick="resetZoom()">Reset Zoom</button>
+                </div>
+                <canvas id="probe-stats-chart" height="300"></canvas>
+            </div>
+        </div>
+
         <!-- Recording Section -->
         <div class="recording-section">
             <div class="recording-header" onclick="toggleRecordingPanel()">
@@ -1112,32 +1138,6 @@
                     <canvas id="throughput-chart" width="400" height="300"></canvas>
                 </div>
 
-            </div>
-        </div>
-
-        <!-- Probe Stats Card -->
-        <div class="card" id="probe-stats-container">
-            <h2>Probe Stream Statistics (Baseline Measurement)</h2>
-            <p class="card-description">Real-time statistics from 100pps probe streams. Delay deviation shows deviation from incrementally calculated baseline. Bands show 50th/99th percentile and full range.</p>
-            <div class="dual-stack-container">
-                <div class="stack-column">
-                    <h3 style="color: #2196F3;">IPv4 Statistics</h3>
-                    <div id="probe-stats-ipv4" class="probe-stats-box">
-                        <div class="probe-stats-placeholder">Waiting for probe data...</div>
-                    </div>
-                </div>
-                <div class="stack-column">
-                    <h3 style="color: #FF9800;">IPv6 Statistics</h3>
-                    <div id="probe-stats-ipv6" class="probe-stats-box">
-                        <div class="probe-stats-placeholder">Waiting for probe data...</div>
-                    </div>
-                </div>
-            </div>
-            <div id="probe-stats-chart-container">
-                <div class="probe-stats-chart-controls">
-                    <button class="btn btn-primary" onclick="resetZoom()">Reset Zoom</button>
-                </div>
-                <canvas id="probe-stats-chart" height="300"></canvas>
             </div>
         </div>
         
