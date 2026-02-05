@@ -430,7 +430,7 @@ impl CanvasRenderer {
         // Draw a semi-transparent white background to lighten the area behind the chart
         // This improves chart visibility while still allowing the underlying image to show through
         self.ctx
-            .set_fill_style(&JsValue::from_str("rgba(255, 255, 255, 0.6)"));
+            .set_fill_style(&JsValue::from_str("rgba(255, 255, 255, 0.85)"));
         self.ctx.fill_rect(x, y, width, height);
 
         self.ctx
