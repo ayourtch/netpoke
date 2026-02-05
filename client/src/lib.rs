@@ -1952,13 +1952,13 @@ pub fn on_gps_update(
 }
 
 #[wasm_bindgen]
-pub fn on_orientation(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
+pub fn on_orientation(alpha: Option<f64>, beta: Option<f64>, gamma: Option<f64>, absolute: bool) {
     if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
         if let Some(ref mut mgr) = *manager_guard {
             let orientation_data = recorder::types::OrientationData {
-                alpha: Some(alpha),
-                beta: Some(beta),
-                gamma: Some(gamma),
+                alpha,
+                beta,
+                gamma,
                 absolute,
             };
             mgr.update_orientation(orientation_data);
@@ -2003,13 +2003,13 @@ pub fn on_motion(
 }
 
 #[wasm_bindgen]
-pub fn on_magnetometer(alpha: f64, beta: f64, gamma: f64, absolute: bool) {
+pub fn on_magnetometer(alpha: Option<f64>, beta: Option<f64>, gamma: Option<f64>, absolute: bool) {
     if let Ok(mut manager_guard) = SENSOR_MANAGER.lock() {
         if let Some(ref mut mgr) = *manager_guard {
             let mag_data = recorder::types::OrientationData {
-                alpha: Some(alpha),
-                beta: Some(beta),
-                gamma: Some(gamma),
+                alpha,
+                beta,
+                gamma,
                 absolute,
             };
             mgr.update_magnetometer(mag_data);

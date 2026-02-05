@@ -847,6 +847,28 @@
         .recording-item-actions button:hover {
             background: #f0f0f0;
         }
+
+        .source-label {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 500;
+            margin-left: 5px;
+            color: white;
+        }
+
+        .source-camera {
+            background: #34C759;
+        }
+
+        .source-screen {
+            background: #FF9500;
+        }
+
+        .source-combined {
+            background: #AF52DE;
+        }
     </style>
 </head>
 <body>
@@ -925,10 +947,10 @@
                         <span id="pip-size-value">25%</span>
                     </label>
                     <div class="position-selector">
-                        <button data-position="topleft">TL</button>
-                        <button data-position="topright">TR</button>
-                        <button data-position="bottomleft">BL</button>
-                        <button data-position="bottomright" class="selected">BR</button>
+                        <button id="pip-pos-tl" data-position="topleft">TL</button>
+                        <button id="pip-pos-tr" data-position="topright">TR</button>
+                        <button id="pip-pos-bl" data-position="bottomleft">BL</button>
+                        <button id="pip-pos-br" data-position="bottomright" class="selected">BR</button>
                     </div>
                 </div>
 
@@ -949,10 +971,10 @@
                         <span id="chart-size-value">20%</span>
                     </label>
                     <div class="position-selector">
-                        <button data-position="topleft">TL</button>
-                        <button data-position="topright">TR</button>
-                        <button data-position="bottomleft">BL</button>
-                        <button data-position="bottomright" class="selected">BR</button>
+                        <button id="chart-pos-tl" data-position="topleft">TL</button>
+                        <button id="chart-pos-tr" data-position="topright">TR</button>
+                        <button id="chart-pos-bl" data-position="bottomleft">BL</button>
+                        <button id="chart-pos-br" data-position="bottomright" class="selected">BR</button>
                     </div>
                 </div>
 
@@ -2614,6 +2636,12 @@
                 };
                 renderLoop();
 
+                // Load existing recordings from IndexedDB
+                if (window.refreshRecordingsList) {
+                    await refreshRecordingsList();
+                    console.log('Recordings list loaded');
+                }
+
                 // Issue 008: Sensor tracking functions
                 let watchId = null;
                 let orientationListener = null;
@@ -2656,17 +2684,17 @@
                         // Orientation listener
                         orientationListener = (event) => {
                             on_orientation(
-                                event.alpha || 0, 
-                                event.beta || 0, 
-                                event.gamma || 0, 
+                                event.alpha,
+                                event.beta,
+                                event.gamma,
                                 event.absolute || false
                             );
                             // iOS Safari provides compass in alpha even without absolute flag
                             if (event.alpha !== null && on_magnetometer) {
                                 on_magnetometer(
                                     event.alpha,
-                                    event.beta || 0,
-                                    event.gamma || 0,
+                                    event.beta,
+                                    event.gamma,
                                     event.absolute || false
                                 );
                             }
@@ -2694,9 +2722,9 @@
                         magnetometerListener = (event) => {
                             if (on_magnetometer && event.alpha !== null) {
                                 on_magnetometer(
-                                    event.alpha || 0,
-                                    event.beta || 0,
-                                    event.gamma || 0,
+                                    event.alpha,
+                                    event.beta,
+                                    event.gamma,
                                     true  // absolute = true for deviceorientationabsolute
                                 );
                             }
@@ -2761,17 +2789,107 @@
                 // Issue 011: Function to refresh recordings list
                 async function refreshRecordingsList() {
                     console.log('[Recorder] Refreshing recordings list');
-                    // This is a placeholder - the actual implementation would query IndexedDB
-                    // and update the #recordings-container element with the list
-                    // For now, just log that it was called
+                    
                     const container = document.getElementById('recordings-container');
-                    if (container) {
-                        // The actual implementation would be more complex, fetching from IndexedDB
-                        // For now, just indicate it needs implementation
-                        console.log('[Recorder] Recordings list refresh requested');
+                    if (!container) {
+                        console.warn('[Recorder] recordings-container not found');
+                        return;
+                    }
+                    
+                    try {
+                        // Use existing WASM storage module to get all recordings
+                        const dbName = 'CameraTrackingDB';
+                        const storeName = 'recordings';
+                        
+                        // Open IndexedDB
+                        const db = await new Promise((resolve, reject) => {
+                            const request = indexedDB.open(dbName, 2);
+                            request.onerror = () => reject(request.error);
+                            request.onsuccess = () => resolve(request.result);
+                        });
+                        
+                        // Get all recordings
+                        const recordings = await new Promise((resolve, reject) => {
+                            const transaction = db.transaction([storeName], 'readonly');
+                            const store = transaction.objectStore(storeName);
+                            const request = store.getAll();
+                            request.onsuccess = () => resolve(request.result);
+                            request.onerror = () => reject(request.error);
+                        });
+                        
+                        // Close database
+                        db.close();
+                        
+                        if (recordings.length === 0) {
+                            container.innerHTML = '<p style="color:#888;">No recordings yet. Start a recording to see it listed here.</p>';
+                            return;
+                        }
+                        
+                        // Generate HTML for each recording
+                        container.innerHTML = recordings
+                            .sort((a, b) => b.timestamp - a.timestamp) // Most recent first
+                            .map(rec => {
+                                const date = new Date(rec.timestamp);
+                                const sizeInMB = (rec.videoBlob.size / (1024 * 1024)).toFixed(2);
+                                const sourceType = rec.metadata.sourceType || 'camera';
+                                const sourceClass = `source-${sourceType}`;
+                                const sourceLabel = sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
+                                
+                                return `
+                                    <div class="recording-item">
+                                        <div class="recording-info">
+                                            <div class="data"><strong>ID:</strong> ${rec.id} <span class="source-label ${sourceClass}">${sourceLabel}</span></div>
+                                            <div class="data"><strong>Date:</strong> ${date.toLocaleString()}</div>
+                                            <div class="data"><strong>Duration:</strong> ${rec.metadata.duration.toFixed(1)}s</div>
+                                            <div class="data"><strong>Frames:</strong> ${rec.metadata.frameCount}</div>
+                                            <div class="data"><strong>Size:</strong> ${sizeInMB} MB</div>
+                                        </div>
+                                        <div class="recording-actions">
+                                            <button onclick="window.downloadVideoWrapper('${rec.id}')" class="btn-download">Download Video</button>
+                                            <button onclick="window.downloadMotionDataWrapper('${rec.id}')" class="btn-download">Download Motion</button>
+                                            <button onclick="window.deleteRecordingWrapper('${rec.id}')" class="btn-delete danger">Delete</button>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('');
+                            
+                        console.log(`[Recorder] Displayed ${recordings.length} recording(s)`);
+                        
+                    } catch (error) {
+                        console.error('[Recorder] Error refreshing recordings list:', error);
+                        container.innerHTML = `<p style="color:#f44;">Error loading recordings: ${error.message}</p>`;
                     }
                 }
                 window.refreshRecordingsList = refreshRecordingsList;
+
+                // Wrapper functions to bridge HTML onclick handlers to WASM functions
+                window.downloadVideoWrapper = async function(id) {
+                    try {
+                        await download_video(id);
+                    } catch (error) {
+                        console.error('[Recorder] Error downloading video:', error);
+                        alert('Error downloading video: ' + error.message);
+                    }
+                };
+
+                window.downloadMotionDataWrapper = async function(id) {
+                    try {
+                        await download_motion_data(id);
+                    } catch (error) {
+                        console.error('[Recorder] Error downloading motion data:', error);
+                        alert('Error downloading motion data: ' + error.message);
+                    }
+                };
+
+                window.deleteRecordingWrapper = async function(id) {
+                    try {
+                        await delete_recording_by_id(id);
+                        // List will be refreshed by the WASM code after successful deletion
+                    } catch (error) {
+                        console.error('[Recorder] Error deleting recording:', error);
+                        alert('Error deleting recording: ' + error.message);
+                    }
+                };
 
                 // Issue 009: Function to handle screen share stop
                 window.onScreenShareStopped = function() {
