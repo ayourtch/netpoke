@@ -38,7 +38,7 @@ impl RecorderState {
             pip_position: PipPosition::TopLeft,
             pip_size: 0.25,
             chart_enabled: true,
-            chart_type: "metrics-chart".to_string(),
+            chart_type: "probe-stats-chart".to_string(),
             chart_position: ChartPosition::Bottom,
             chart_size: 0.20,
             recording: false,
