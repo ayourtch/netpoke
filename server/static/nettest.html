@@ -2677,19 +2677,24 @@
                     if (!sensorListenersActive) {
                         // Orientation listener
                         orientationListener = (event) => {
+                            // iOS Safari provides compass heading in alpha but doesn't set absolute=true
+                            // Always treat alpha as compass heading on iOS if we have a value
+                            const hasCompass = event.alpha !== null && event.alpha !== undefined;
+                            const effectiveAbsolute = event.absolute || hasCompass;
+                            
                             on_orientation(
                                 event.alpha,
                                 event.beta,
                                 event.gamma,
-                                event.absolute || false
+                                effectiveAbsolute
                             );
                             // iOS Safari provides compass in alpha even without absolute flag
-                            if (event.alpha !== null && on_magnetometer) {
+                            if (hasCompass && on_magnetometer) {
                                 on_magnetometer(
                                     event.alpha,
                                     event.beta,
                                     event.gamma,
-                                    event.absolute || false
+                                    effectiveAbsolute
                                 );
                             }
                         };
