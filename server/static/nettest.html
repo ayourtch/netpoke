@@ -961,20 +961,18 @@
                     <label>
                         Chart:
                         <select id="chart-type">
-                            <option value="metrics-chart">Metrics Chart</option>
+                            <option value="metrics-chart">Latency</option>
                             <option value="probe-stats-chart">Probe Stats</option>
                             <option value="both">Both Charts</option>
                         </select>
                     </label>
                     <label>
-                        Size: <input type="range" id="chart-size" min="10" max="30" value="20">
+                        Height: <input type="range" id="chart-size" min="10" max="40" value="20">
                         <span id="chart-size-value">20%</span>
                     </label>
                     <div class="position-selector">
-                        <button id="chart-pos-tl" data-position="topleft">TL</button>
-                        <button id="chart-pos-tr" data-position="topright">TR</button>
-                        <button id="chart-pos-bl" data-position="bottomleft">BL</button>
-                        <button id="chart-pos-br" data-position="bottomright" class="selected">BR</button>
+                        <button id="chart-pos-top" data-position="top">Top</button>
+                        <button id="chart-pos-bottom" data-position="bottom" class="selected">Bottom</button>
                     </div>
                 </div>
 
