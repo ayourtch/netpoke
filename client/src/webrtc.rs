@@ -715,6 +715,7 @@ impl WebRtcConnection {
         let msg = common::ControlMessage::StartSurveySession(common::StartSurveySessionMessage {
             survey_session_id: survey_session_id.to_string(),
             conn_id: self.conn_id.clone(),
+            magic_key: None,
         });
         self.send_control_message(&msg, "start survey session")
     }
