@@ -1003,7 +1003,9 @@
                 </div>
 
                 <!-- Hidden canvases for Chart.js rendering (used for overlay in recordings) -->
-                <div style="display:none" id="hidden-charts">
+                <!-- Note: Using position:absolute and left:-9999px instead of display:none -->
+                <!-- because Chart.js with responsive:true requires visible dimensions to render properly -->
+                <div style="position:absolute; left:-9999px; width:400px; height:300px;" id="hidden-charts">
                     <canvas id="metrics-chart" width="400" height="300"></canvas>
                     <canvas id="latency-chart" width="400" height="300"></canvas>
                     <canvas id="throughput-chart" width="400" height="300"></canvas>
@@ -1238,7 +1240,7 @@
                     datasets: []
                 },
                 options: {
-                    responsive: true,
+                    responsive: false,  // Fixed size for off-screen rendering (used in recording overlay)
                     maintainAspectRatio: true,
                     interaction: {
                         mode: 'nearest',
