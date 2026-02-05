@@ -202,6 +202,33 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                 *survey_id = start_survey_msg.survey_session_id.clone();
             }
 
+            // Store the magic key if provided
+            if let Some(ref magic_key) = start_survey_msg.magic_key {
+                let mut mk = session.magic_key.write().await;
+                *mk = Some(magic_key.clone());
+            }
+
+            // Create database session record if session manager is available
+            if let Some(session_manager) = &session.session_manager {
+                let magic_key = start_survey_msg.magic_key.as_deref().unwrap_or("unknown");
+                if let Err(e) = session_manager
+                    .create_session(
+                        &start_survey_msg.survey_session_id,
+                        magic_key,
+                        None, // user_login - could be extracted from auth context if available
+                    )
+                    .await
+                {
+                    tracing::error!("Failed to create survey session record: {}", e);
+                } else {
+                    tracing::info!(
+                        "Created survey session record: {} (magic_key: {})",
+                        start_survey_msg.survey_session_id,
+                        magic_key
+                    );
+                }
+            }
+
             // Register with capture service for survey-specific pcap downloads
             // We need the peer address which should be available after connection is established
             if let Some(capture_service) = &session.capture_service {

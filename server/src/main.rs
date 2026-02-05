@@ -59,7 +59,9 @@ use auth_cache::SharedAuthAddressCache;
 use client_config_api::ClientConfigState;
 use database::DbConnection;
 use dtls_keylog::DtlsKeylogService;
+use metrics_recorder::MetricsRecorder;
 use packet_capture::PacketCaptureService;
+use session_manager::SessionManager;
 use tracing_buffer::TracingService;
 
 fn get_make_service(
@@ -963,6 +965,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
+
+    // Initialize session manager and metrics recorder if database is available
+    if let Some(ref db_conn) = db {
+        let session_manager = Arc::new(SessionManager::new(db_conn.clone()));
+        let metrics_recorder = Arc::new(MetricsRecorder::new(db_conn.clone()));
+        app_state.set_session_manager(session_manager);
+        app_state.set_metrics_recorder(metrics_recorder);
+        tracing::info!("Session manager and metrics recorder initialized");
+    }
 
     // Storage path for uploads
     let storage_base_path = config.storage.base_path.clone();

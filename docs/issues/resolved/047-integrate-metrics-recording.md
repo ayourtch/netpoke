@@ -143,5 +143,40 @@ Look at how the existing code handles magic_key and maintain consistency.
 See `docs/plans/2026-02-05-survey-upload-implementation.md` - Task 15 for full details.
 See `docs/plans/2026-02-05-survey-upload-feature-design.md` - Metrics Collection & Storage section.
 
+## Resolution
+
+Integrated MetricsRecorder and SessionManager services into the survey measurement flow:
+
+### Changes Made
+
+1. **server/src/state.rs**:
+   - Added `session_manager` and `metrics_recorder` fields to `AppState`
+   - Added `session_manager`, `metrics_recorder`, and `magic_key` fields to `ClientSession`
+   - Added `set_session_manager()` and `set_metrics_recorder()` methods to `AppState`
+
+2. **server/src/signaling.rs**:
+   - Updated `ClientSession` creation to include new fields (`session_manager`, `metrics_recorder`, `magic_key`)
+
+3. **server/src/main.rs**:
+   - Added imports for `MetricsRecorder` and `SessionManager`
+   - Initialize services when database is available
+   - Set services on `app_state` after database initialization
+
+4. **server/src/data_channels.rs**:
+   - Added session creation in database when `StartSurveySession` message is received
+   - Store magic_key in ClientSession for database recording
+
+5. **server/src/measurements.rs**:
+   - Record probe stats to database in `start_probe_stats_reporter()`
+   - Update session timestamp on each metrics write
+
+6. **common/src/protocol.rs**:
+   - Added optional `magic_key` field to `StartSurveySessionMessage` for database recording
+
+### Verification
+- Build succeeds: `cargo build --package netpoke-server`
+- All existing tests pass (no regressions)
+
 ---
 *Created: 2026-02-05*
+*Resolved: 2026-02-05*

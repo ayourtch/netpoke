@@ -1,6 +1,8 @@
 use crate::dtls_keylog::DtlsKeylogService;
+use crate::metrics_recorder::MetricsRecorder;
 use crate::packet_capture::PacketCaptureService;
 use crate::packet_tracker::{PacketTracker, UdpPacketInfo};
+use crate::session_manager::SessionManager;
 use common::ClientMetrics;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -24,6 +26,10 @@ pub struct AppState {
     pub capture_service: Option<Arc<PacketCaptureService>>,
     /// DTLS keylog service for storing encryption keys by survey session
     pub keylog_service: Option<Arc<DtlsKeylogService>>,
+    /// Session manager for survey session lifecycle (database persistence)
+    pub session_manager: Option<Arc<SessionManager>>,
+    /// Metrics recorder for persisting probe statistics to database
+    pub metrics_recorder: Option<Arc<MetricsRecorder>>,
 }
 
 #[derive(Debug)]
@@ -95,6 +101,12 @@ pub struct ClientSession {
     pub capture_service: Option<Arc<PacketCaptureService>>,
     /// DTLS keylog service for storing encryption keys by survey session
     pub keylog_service: Option<Arc<DtlsKeylogService>>,
+    /// Session manager for survey session lifecycle (database persistence)
+    pub session_manager: Option<Arc<SessionManager>>,
+    /// Metrics recorder for persisting probe statistics to database
+    pub metrics_recorder: Option<Arc<MetricsRecorder>>,
+    /// Magic key for the current survey session (for database recording)
+    pub magic_key: Arc<RwLock<Option<String>>>,
 }
 
 pub struct DataChannels {
@@ -187,8 +199,10 @@ impl AppState {
             tracking_sender: tx,
             server_start_time: Instant::now(),
             peer_cleanup_sender: cleanup_tx,
-            capture_service: None, // Will be set after initialization
-            keylog_service: None,  // Will be set after initialization
+            capture_service: None,   // Will be set after initialization
+            keylog_service: None,    // Will be set after initialization
+            session_manager: None,   // Will be set after initialization
+            metrics_recorder: None,  // Will be set after initialization
         };
         (state, cleanup_rx)
     }
@@ -201,6 +215,16 @@ impl AppState {
     /// Set the keylog service for DTLS key storage
     pub fn set_keylog_service(&mut self, keylog_service: Arc<DtlsKeylogService>) {
         self.keylog_service = Some(keylog_service);
+    }
+
+    /// Set the session manager for survey session lifecycle
+    pub fn set_session_manager(&mut self, session_manager: Arc<SessionManager>) {
+        self.session_manager = Some(session_manager);
+    }
+
+    /// Set the metrics recorder for probe statistics persistence
+    pub fn set_metrics_recorder(&mut self, metrics_recorder: Arc<MetricsRecorder>) {
+        self.metrics_recorder = Some(metrics_recorder);
     }
 }
 
