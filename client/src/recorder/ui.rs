@@ -163,10 +163,19 @@ fn setup_pip_controls(document: &web_sys::Document) {
             let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
                 if let Some(target) = event.target() {
                     if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                        if let Ok(value) = input.value().parse::<f64>() {
+                        let value_str = input.value();
+                        if let Ok(value) = value_str.parse::<f64>() {
                             RECORDER_STATE.with(|state| {
                                 state.borrow_mut().pip_size = value / 100.0;
                             });
+                            // Update the label text next to the slider
+                            if let Some(window) = web_sys::window() {
+                                if let Some(document) = window.document() {
+                                    if let Some(label) = document.get_element_by_id("pip-size-value") {
+                                        label.set_text_content(Some(&format!("{}%", value_str)));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -256,10 +265,19 @@ fn setup_chart_controls(document: &web_sys::Document) {
             let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
                 if let Some(target) = event.target() {
                     if let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() {
-                        if let Ok(value) = input.value().parse::<f64>() {
+                        let value_str = input.value();
+                        if let Ok(value) = value_str.parse::<f64>() {
                             RECORDER_STATE.with(|state| {
                                 state.borrow_mut().chart_size = value / 100.0;
                             });
+                            // Update the label text next to the slider
+                            if let Some(window) = web_sys::window() {
+                                if let Some(document) = window.document() {
+                                    if let Some(label) = document.get_element_by_id("chart-size-value") {
+                                        label.set_text_content(Some(&format!("{}%", value_str)));
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -483,9 +501,9 @@ fn update_recording_ui(recording: bool) {
                 }
             }
 
-            // Disable mode/settings during recording
+            // Disable mode/settings during recording (but NOT pip-size to allow resizing during recording)
             let control_ids = ["mode-camera", "mode-screen", "mode-combined",
-                             "pip-size", "chart-enable", "chart-type", "chart-size"];
+                             "chart-enable", "chart-type", "chart-size"];
             for id in &control_ids {
                 if let Some(element) = document.get_element_by_id(id) {
                     if let Ok(input) = element.dyn_into::<web_sys::HtmlInputElement>() {
