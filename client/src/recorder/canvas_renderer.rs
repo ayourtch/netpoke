@@ -427,6 +427,12 @@ impl CanvasRenderer {
             .dyn_into()
             .map_err(|_| "Element is not a canvas")?;
 
+        // Draw a semi-transparent white background to lighten the area behind the chart
+        // This improves chart visibility while still allowing the underlying image to show through
+        self.ctx
+            .set_fill_style(&JsValue::from_str("rgba(255, 255, 255, 0.6)"));
+        self.ctx.fill_rect(x, y, width, height);
+
         self.ctx
             .draw_image_with_html_canvas_element_and_dw_and_dh(
                 &chart_canvas,
