@@ -209,3 +209,24 @@ auth_timeout_secs = 300
 # Maximum bandwidth per stream in bits/second (0 = unlimited)
 # Can be used to limit the bandwidth used by iperf3 tests
 max_bandwidth = 0
+
+# Database Configuration
+# SQLite database for storing survey sessions, metrics, and recording metadata
+[database]
+# Path to the SQLite database file
+# The directory must exist and be writable by the server process
+path = "/var/lib/netpoke/netpoke.db"
+
+# Storage Configuration
+# Settings for uploaded survey recordings (video + sensor data)
+[storage]
+# Base path for uploaded files
+# Files are organized as: {base_path}/{magic_key}/{YYYY}/{MM}/{DD}/{session_id}/
+base_path = "/var/lib/netpoke/uploads"
+
+# Maximum video file size in bytes (default: 1 GB)
+max_video_size_bytes = 1073741824
+
+# Upload chunk size in bytes (default: 1 MB)
+# Smaller chunks use more requests but allow finer-grained resume
+chunk_size_bytes = 1048576
