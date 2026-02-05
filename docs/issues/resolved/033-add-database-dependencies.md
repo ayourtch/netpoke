@@ -54,3 +54,15 @@ See `docs/plans/2026-02-05-survey-upload-implementation.md` - Task 1 for full de
 
 ---
 *Created: 2026-02-05*
+*Resolved: 2026-02-05*
+
+## Resolution
+
+Added the following dependencies to `server/Cargo.toml`:
+- `rusqlite = { version = "0.30", features = ["bundled"] }`
+- `tokio-rusqlite = "0.5"`
+- `sha2 = "0.10"`
+- `csv = "1.3"`
+- `tempfile = "3.10"` (dev-dependencies)
+
+Build verified successfully with `cargo check`.
