@@ -1004,7 +1004,7 @@
 
                 <!-- Hidden canvases for Chart.js rendering (used for overlay in recordings) -->
                 <!-- Note: Using position:absolute and left:-9999px instead of display:none -->
-                <!-- because Chart.js with responsive:true requires visible dimensions to render properly -->
+                <!-- because display:none prevents the canvas from being rendered/composited -->
                 <div style="position:absolute; left:-9999px; width:400px; height:300px;" id="hidden-charts">
                     <canvas id="metrics-chart" width="400" height="300"></canvas>
                     <canvas id="latency-chart" width="400" height="300"></canvas>
