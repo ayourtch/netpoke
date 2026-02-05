@@ -30,6 +30,50 @@ pub async fn get_screen_stream() -> Result<MediaStream, JsValue> {
     Ok(MediaStream::from(stream_js))
 }
 
+/// Get both camera and screen streams concurrently.
+///
+/// This function is needed for Combined recording mode because `getDisplayMedia`
+/// must be called directly from a user gesture handler. By initiating both
+/// promises synchronously (before any await) and using `Promise.all`, both
+/// media requests happen within the user gesture context.
+pub async fn get_combined_streams() -> Result<(MediaStream, MediaStream), JsValue> {
+    let window = web_sys::window().ok_or("No window")?;
+    let navigator = window.navigator();
+    let media_devices = navigator.media_devices()?;
+
+    // Create camera constraints
+    let mut camera_constraints = MediaStreamConstraints::new();
+    camera_constraints.set_audio(&JsValue::TRUE);
+    camera_constraints.set_video(&create_camera_constraints());
+
+    // Create screen constraints
+    let mut screen_constraints = web_sys::DisplayMediaStreamConstraints::new();
+    screen_constraints.set_audio(&JsValue::TRUE);
+    screen_constraints.set_video(&create_screen_constraints());
+
+    // IMPORTANT: Start both promises synchronously within the user gesture context
+    // This is crucial because getDisplayMedia must be called from a user gesture handler.
+    // If we await getUserMedia first, the user gesture context is lost by the time
+    // we call getDisplayMedia.
+    let camera_promise = media_devices.get_user_media_with_constraints(&camera_constraints)?;
+    let screen_promise = media_devices.get_display_media_with_constraints(&screen_constraints)?;
+
+    // Create Promise.all to wait for both concurrently
+    let promises = js_sys::Array::new();
+    promises.push(&camera_promise);
+    promises.push(&screen_promise);
+    let combined_promise = js_sys::Promise::all(&promises);
+
+    // Now we can await - the user gesture requirement is satisfied
+    let results = JsFuture::from(combined_promise).await?;
+    let results_array = js_sys::Array::from(&results);
+
+    let camera_stream = MediaStream::from(results_array.get(0));
+    let screen_stream = MediaStream::from(results_array.get(1));
+
+    Ok((camera_stream, screen_stream))
+}
+
 fn create_camera_constraints() -> JsValue {
     let obj = js_sys::Object::new();
 
