@@ -192,5 +192,36 @@ if (window.refreshRecordingsList) {
 - Issue 011 (resolved): Recordings list not refreshed after save - partially addressed but implementation was incomplete
 - Issue 012 (resolved): Missing download functions - functions exist but not wired to UI
 
+## Resolution
+
+**Resolved: 2026-02-05**
+
+Implemented the full `refreshRecordingsList()` function and added wrapper functions for UI interaction.
+
+### Changes Made:
+
+1. **In `server/static/nettest.html` (lines ~2784-2886)**:
+   - Replaced placeholder `refreshRecordingsList()` with full implementation
+   - Function now queries IndexedDB's `CameraTrackingDB` database
+   - Retrieves all recordings from the `recordings` object store
+   - Generates HTML for each recording with:
+     - Recording ID and source type badge (camera/screen/combined)
+     - Date, duration, frame count, and file size
+     - Action buttons for download and delete
+   - Sorts recordings by timestamp (most recent first)
+   - Handles empty state and error cases
+
+2. **Added wrapper functions** (lines ~2888-2912):
+   - `downloadVideoWrapper(id)` - Calls WASM `download_video()` function
+   - `downloadMotionDataWrapper(id)` - Calls WASM `download_motion_data()` function
+   - `deleteRecordingWrapper(id)` - Calls WASM `delete_recording_by_id()` function
+   - Each wrapper includes error handling with console logging and user alerts
+
+### Verification:
+- Function implementation matches reference from `tmp/camera-standalone-for-cross-check/camera-tracker.html`
+- Uses existing IndexedDB structure (no schema changes required)
+- Integrates with existing WASM storage functions
+- Recordings list will now populate and allow users to download/delete recordings
+
 ---
 *Created: 2026-02-04*

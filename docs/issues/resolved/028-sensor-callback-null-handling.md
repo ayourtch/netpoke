@@ -201,5 +201,47 @@ However, this still loses the distinction between 0 and null inside WASM.
 ## Related Issues
 - Issue 022 (resolved): on_magnetometer signature mismatch - partially addressed but didn't fix the Optional parameter issue
 
+## Resolution
+
+**Resolved: 2026-02-05**
+
+Updated WASM function signatures to properly handle null sensor values using `Option<f64>` parameters.
+
+### Changes Made:
+
+1. **In `client/src/lib.rs`**:
+   - Updated `on_orientation()` (line 1955):
+     - Changed parameters from `f64` to `Option<f64>` for `alpha`, `beta`, `gamma`
+     - Removed wrapping of values in `Some()` since they're already Optional
+     - Now preserves `None` for unavailable sensor data
+   
+   - Updated `on_magnetometer()` (line 2006):
+     - Changed parameters from `f64` to `Option<f64>` for `alpha`, `beta`, `gamma`
+     - Removed wrapping of values in `Some()` since they're already Optional
+     - Now preserves `None` for unavailable sensor data
+
+2. **In `server/static/nettest.html`**:
+   - Updated orientation listener (line ~2685):
+     - Removed `|| 0` coalescing operators
+     - Now passes `event.alpha`, `event.beta`, `event.gamma` directly (null as-is)
+   
+   - Updated inline magnetometer call in orientation listener (line ~2694):
+     - Removed `|| 0` coalescing operators
+     - Passes null values directly to WASM
+   
+   - Updated magnetometer listener (line ~2724):
+     - Removed `|| 0` coalescing operators
+     - Passes null values directly to WASM
+
+3. **Rebuilt WASM module**:
+   - Built with `wasm-pack build --target web --out-dir ../server/static/pkg`
+   - Verified function exports with correct signatures
+
+### Verification:
+- WASM functions now distinguish between `Some(0.0)` (actual zero) and `None` (unavailable)
+- Improves data quality for motion tracking
+- Matches reference implementation from `tmp/camera-standalone-for-cross-check/src/lib.rs`
+- Exports verified in `server/static/pkg/netpoke_client.js`
+
 ---
 *Created: 2026-02-04*

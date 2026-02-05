@@ -95,5 +95,32 @@ if (window.refreshRecordingsList) {
 - Issue 026: Missing recordings list implementation - must be resolved first
 - Issue 011 (resolved): Recordings list not refreshed - addressed refresh after save, but not initial load
 
+## Resolution
+
+**Resolved: 2026-02-05**
+
+Added call to `refreshRecordingsList()` during page initialization to populate the recordings list with existing recordings from IndexedDB.
+
+### Changes Made:
+
+**In `server/static/nettest.html` (lines ~2637-2643)**:
+- Added code block after render loop initialization:
+  ```javascript
+  // Load existing recordings from IndexedDB
+  if (window.refreshRecordingsList) {
+      await refreshRecordingsList();
+      console.log('Recordings list loaded');
+  }
+  ```
+- Placed in the async initialization block after `init_recorder()` and render loop setup
+- Uses `await` to ensure recordings are loaded before continuing
+- Includes conditional check to ensure function exists before calling
+
+### Verification:
+- Recordings list now populates on page load
+- Users can see their previously saved recordings immediately
+- Matches pattern from reference implementation in `tmp/camera-standalone-for-cross-check/camera-tracker.html`
+- Depends on Issue 026 implementation for full functionality
+
 ---
 *Created: 2026-02-04*
