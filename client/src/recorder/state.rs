@@ -408,7 +408,14 @@ impl RecorderState {
             }
         }
 
-        // Cleanup
+        // Cleanup: Stop media tracks before dropping references
+        // This ensures browser indicators (camera light, screenshare notification) are properly turned off
+        if let Some(stream) = &self.camera_stream {
+            crate::recorder::media_streams::stop_stream(stream);
+        }
+        if let Some(stream) = &self.screen_stream {
+            crate::recorder::media_streams::stop_stream(stream);
+        }
         self.camera_stream = None;
         self.screen_stream = None;
         self.camera_video = None;
