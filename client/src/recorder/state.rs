@@ -280,22 +280,24 @@ impl RecorderState {
                 }
             }
 
-            // Render sensor overlay if we have sensor data
+            // Render sensor overlay if enabled AND we have sensor data
             if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
                 if let Some(ref mgr) = *manager_guard {
-                    let motion_data = mgr.get_motion_data();
-                    if let Some(latest) = motion_data.last() {
-                        let _ = renderer.render_sensor_overlay(
-                            &latest.timestamp_utc,
-                            &latest.gps,
-                            &latest.magnetometer,
-                            &latest.orientation,
-                            &Some(latest.acceleration.clone()),
-                            &latest.camera_direction,
-                        );
+                    if mgr.is_overlay_enabled() {
+                        let motion_data = mgr.get_motion_data();
+                        if let Some(latest) = motion_data.last() {
+                            let _ = renderer.render_sensor_overlay(
+                                &latest.timestamp_utc,
+                                &latest.gps,
+                                &latest.magnetometer,
+                                &latest.orientation,
+                                &Some(latest.acceleration.clone()),
+                                &latest.camera_direction,
+                            );
 
-                        // Render compass if we have camera direction
-                        let _ = renderer.render_compass(latest.camera_direction);
+                            // Render compass if we have camera direction
+                            let _ = renderer.render_compass(latest.camera_direction);
+                        }
                     }
                 }
             }
