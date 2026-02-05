@@ -55,7 +55,7 @@ impl RecorderState {
     }
 
     pub async fn start_recording(&mut self) -> Result<(), JsValue> {
-        use crate::recorder::media_streams::{get_camera_stream, get_screen_stream, get_combined_streams, add_screen_stop_listener};
+        use crate::recorder::media_streams::{get_camera_stream, get_screen_stream, get_combined_streams, add_screen_stop_listener, wait_for_video_ready};
         use crate::recorder::types::CameraFacing;
         use crate::recorder::utils::log;
 
@@ -179,7 +179,41 @@ impl RecorderState {
 
         self.renderer = Some(CanvasRenderer::new(canvas.clone())?);
 
-        // Start MediaRecorder with canvas stream
+        // Wait for video metadata to load and set canvas dimensions before capturing stream
+        // This ensures the recording has proper dimensions from the first frame
+        let primary_video = match self.source_type {
+            SourceType::Camera => self.camera_video.as_ref(),
+            SourceType::Screen | SourceType::Combined => self.screen_video.as_ref(),
+        };
+
+        if let Some(video) = primary_video {
+            log("[Recorder] Waiting for video metadata to load...");
+            wait_for_video_ready(video).await?;
+
+            // Set canvas dimensions from video dimensions
+            let video_width = video.video_width();
+            let video_height = video.video_height();
+            if video_width > 0 && video_height > 0 {
+                canvas.set_width(video_width);
+                canvas.set_height(video_height);
+                log(&format!(
+                    "[Recorder] Canvas dimensions set to {}x{}",
+                    video_width, video_height
+                ));
+            } else {
+                // Fallback to reasonable default if video dimensions not available
+                canvas.set_width(1280);
+                canvas.set_height(720);
+                log("[Recorder] Using fallback canvas dimensions 1280x720");
+            }
+        } else {
+            // Fallback dimensions if no video element
+            canvas.set_width(1280);
+            canvas.set_height(720);
+            log("[Recorder] No video element, using fallback canvas dimensions 1280x720");
+        }
+
+        // Start MediaRecorder with canvas stream (now canvas has proper dimensions)
         let canvas_stream = canvas
             .capture_stream()
             .map_err(|_| "Failed to capture canvas stream")?;
