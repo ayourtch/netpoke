@@ -106,8 +106,12 @@ impl RecorderState {
                 }))?;
             }
             SourceType::Combined => {
-                let camera_stream = get_camera_stream().await?;
-                let screen_stream = get_screen_stream().await?;
+                // Use get_combined_streams to request both streams concurrently.
+                // This is necessary because getDisplayMedia must be called from a user gesture
+                // handler. By starting both promises synchronously (before any await), we ensure
+                // both media requests happen within the user gesture context.
+                use crate::recorder::media_streams::get_combined_streams;
+                let (camera_stream, screen_stream) = get_combined_streams().await?;
 
                 let camera_video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
                 camera_video.set_autoplay(true);
