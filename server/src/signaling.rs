@@ -153,8 +153,11 @@ pub async fn signaling_start(
         packet_tracker: state.packet_tracker.clone(), // Share global packet tracker
         icmp_error_count: Arc::new(tokio::sync::Mutex::new(0)),
         last_icmp_error: Arc::new(tokio::sync::Mutex::new(None)),
-        capture_service: state.capture_service.clone(), // For survey-specific pcap
-        keylog_service: state.keylog_service.clone(),   // For DTLS key storage
+        capture_service: state.capture_service.clone(),   // For survey-specific pcap
+        keylog_service: state.keylog_service.clone(),     // For DTLS key storage
+        session_manager: state.session_manager.clone(),   // For survey session lifecycle
+        metrics_recorder: state.metrics_recorder.clone(), // For metrics persistence
+        magic_key: Arc::new(tokio::sync::RwLock::new(None)), // Set when survey starts
     });
 
     // Set up data channel handlers

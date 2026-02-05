@@ -318,6 +318,10 @@ pub struct StartSurveySessionMessage {
     /// Connection ID for multi-path ECMP testing (UUID string)
     #[serde(default)]
     pub conn_id: String,
+
+    /// Magic key used for authentication (optional, extracted from cookie on server if not provided)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub magic_key: Option<String>,
 }
 
 /// Message sent from server to client when all channels are ready

@@ -1159,7 +1159,7 @@ pub async fn start_probe_stats_reporter(session: Arc<ClientSession>) {
         }
 
         // Calculate stats from received probes
-        let stats = calculate_probe_stream_stats(&session).await;
+        let c2s_stats = calculate_probe_stream_stats(&session).await;
 
         // Get survey session ID
         let survey_session_id = session.survey_session_id.read().await.clone();
@@ -1170,13 +1170,43 @@ pub async fn start_probe_stats_reporter(session: Arc<ClientSession>) {
             state.client_reported_s2c_stats.clone().unwrap_or_default()
         };
 
+        let timestamp_ms = current_time_ms();
+
+        // Record stats to database if metrics recorder is available
+        if let Some(metrics_recorder) = &session.metrics_recorder {
+            if !survey_session_id.is_empty() {
+                if let Err(e) = metrics_recorder
+                    .record_probe_stats(
+                        &survey_session_id,
+                        &session.conn_id,
+                        timestamp_ms,
+                        &c2s_stats,
+                        &s2c_stats,
+                    )
+                    .await
+                {
+                    tracing::error!("Failed to record probe stats: {}", e);
+                }
+
+                // Update session timestamp
+                if let Some(session_manager) = &session.session_manager {
+                    if let Err(e) = session_manager
+                        .update_session_timestamp(&survey_session_id)
+                        .await
+                    {
+                        tracing::error!("Failed to update session timestamp: {}", e);
+                    }
+                }
+            }
+        }
+
         // Create stats report
         let report = common::ControlMessage::ProbeStats(common::ProbeStatsReport {
             conn_id: session.conn_id.clone(),
             survey_session_id,
-            timestamp_ms: current_time_ms(),
-            c2s_stats: stats, // C2S stats are what the server measures
-            s2c_stats,        // S2C stats come from client reports
+            timestamp_ms,
+            c2s_stats, // C2S stats are what the server measures
+            s2c_stats, // S2C stats come from client reports
         });
 
         // Send stats report on control channel
