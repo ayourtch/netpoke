@@ -2,6 +2,14 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{MediaStream, MediaStreamConstraints, MediaStreamTrack};
 
+/// Video ready state constant: HAVE_CURRENT_DATA
+/// At this state, the video has enough data for the current playback position
+/// and the video dimensions are available.
+const READY_STATE_HAVE_CURRENT_DATA: u16 = 2;
+
+/// Timeout in milliseconds for waiting for video metadata to load
+const VIDEO_METADATA_TIMEOUT_MS: i32 = 3000;
+
 pub async fn get_camera_stream() -> Result<MediaStream, JsValue> {
     let window = web_sys::window().ok_or("No window")?;
     let navigator = window.navigator();
@@ -140,7 +148,11 @@ pub async fn wait_for_video_ready(video: &web_sys::HtmlVideoElement) -> Result<(
     use wasm_bindgen::JsCast;
 
     // If video is already ready (has dimensions), return immediately
-    if video.ready_state() >= 2 && video.video_width() > 0 && video.video_height() > 0 {
+    // READY_STATE_HAVE_CURRENT_DATA (2) means video dimensions are available
+    if video.ready_state() >= READY_STATE_HAVE_CURRENT_DATA
+        && video.video_width() > 0
+        && video.video_height() > 0
+    {
         return Ok(());
     }
 
@@ -159,9 +171,12 @@ pub async fn wait_for_video_ready(video: &web_sys::HtmlVideoElement) -> Result<(
         );
         callback.forget();
 
-        // Also set a timeout in case metadata never loads (3 seconds)
+        // Also set a timeout in case metadata never loads
         let window = web_sys::window().unwrap();
-        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 3000);
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            &resolve,
+            VIDEO_METADATA_TIMEOUT_MS,
+        );
     });
 
     // Wait for the promise to resolve
