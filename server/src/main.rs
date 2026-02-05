@@ -140,11 +140,12 @@ fn get_make_service(
         .route("/api/keylog/clear", post(dtls_keylog_api::clear_keylog))
         .with_state(keylog_service);
 
-    // Upload API routes for survey recordings (only if database is available)
-    let upload_routes: Option<Router> = db.as_ref().map(|db_conn| {
+    // Upload API routes for survey recordings - always registered
+    // (endpoints check for database availability and return helpful errors)
+    let upload_routes = {
         use axum::extract::DefaultBodyLimit;
         let upload_state = Arc::new(upload_api::UploadState {
-            db: db_conn.clone(),
+            db: db.clone(), // Optional database - endpoints handle None case
             storage_base_path: storage_base_path.clone(),
         });
         Router::new()
@@ -153,7 +154,7 @@ fn get_make_service(
             .route("/api/upload/finalize", post(upload_api::finalize_upload))
             .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB to accommodate chunk size
             .with_state(upload_state)
-    });
+    };
 
     // Analyst API routes for browsing survey data (only if database is available)
     let analyst_routes: Option<Router> = db.as_ref().map(|db_conn| {
@@ -249,12 +250,10 @@ fn get_make_service(
             ));
 
             // Upload routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
-            let hybrid_upload = upload_routes.map(|routes| {
-                routes.route_layer(middleware::from_fn_with_state(
-                    auth_state.clone(),
-                    survey_middleware::require_auth_or_survey_session,
-                ))
-            });
+            let hybrid_upload = upload_routes.route_layer(middleware::from_fn_with_state(
+                auth_state.clone(),
+                survey_middleware::require_auth_or_survey_session,
+            ));
 
             // Analyst routes - require full authentication
             let protected_analyst = analyst_routes.map(|routes| {
@@ -297,12 +296,8 @@ fn get_make_service(
                 .merge(protected_tracing_global)
                 .merge(hybrid_keylog)
                 .merge(protected_dashboard)
-                .merge(protected_static);
-
-            // Add upload routes if database is available
-            if let Some(upload) = hybrid_upload {
-                router = router.merge(upload);
-            }
+                .merge(protected_static)
+                .merge(hybrid_upload); // Upload routes always registered
 
             // Add analyst routes if database is available
             if let Some(analyst) = protected_analyst {
@@ -324,12 +319,8 @@ fn get_make_service(
                 .merge(client_config_routes)
                 .route("/", get(embedded::serve_index))
                 .route("/public/{*path}", get(embedded::serve_public))
-                .route("/static/{*path}", get(embedded::serve_static));
-
-            // Add upload routes if database is available
-            if let Some(upload) = upload_routes {
-                router = router.merge(upload);
-            }
+                .route("/static/{*path}", get(embedded::serve_static))
+                .merge(upload_routes); // Upload routes always registered
 
             // Add analyst routes if database is available
             if let Some(analyst) = analyst_routes {
@@ -352,12 +343,8 @@ fn get_make_service(
             .merge(client_config_routes)
             .route("/", get(embedded::serve_index))
             .route("/public/{*path}", get(embedded::serve_public))
-            .route("/static/{*path}", get(embedded::serve_static));
-
-        // Add upload routes if database is available
-        if let Some(upload) = upload_routes {
-            router = router.merge(upload);
-        }
+            .route("/static/{*path}", get(embedded::serve_static))
+            .merge(upload_routes); // Upload routes always registered
 
         // Add analyst routes if database is available
         if let Some(analyst) = analyst_routes {
