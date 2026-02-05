@@ -4,6 +4,17 @@
   debug:
     msg: "This is a debug message {{ server_name }}"
 
+- name: Ensure data directory exists for database and uploads
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  loop:
+      - /var/lib/netpoke
+      - /var/lib/netpoke/uploads
+
 - name: Copy netpoke with owner and permissions
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../../out/netpoke-server"
