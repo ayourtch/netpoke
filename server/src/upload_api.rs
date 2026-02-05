@@ -24,8 +24,34 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 /// State shared by upload API handlers
 #[derive(Clone)]
 pub struct UploadState {
-    pub db: DbConnection,
+    pub db: Option<DbConnection>,
     pub storage_base_path: String,
+}
+
+/// Error response for upload API
+#[derive(Debug, Serialize)]
+pub struct UploadError {
+    pub error: String,
+}
+
+impl UploadError {
+    fn database_unavailable() -> Self {
+        Self {
+            error: "Upload feature is unavailable - database not configured".to_string(),
+        }
+    }
+
+    fn session_not_found(session_id: &str) -> Self {
+        Self {
+            error: format!("Session not found: {}", session_id),
+        }
+    }
+
+    fn recording_not_found(recording_id: &str) -> Self {
+        Self {
+            error: format!("Recording not found: {}", recording_id),
+        }
+    }
 }
 
 // ============================================================================
@@ -64,10 +90,19 @@ pub struct PrepareUploadResponse {
 pub async fn prepare_upload(
     State(state): State<Arc<UploadState>>,
     Json(req): Json<PrepareUploadRequest>,
-) -> Result<Json<PrepareUploadResponse>, StatusCode> {
+) -> Result<Json<PrepareUploadResponse>, (StatusCode, Json<UploadError>)> {
+    // Step 0: Check if database is available
+    let db = state.db.as_ref().ok_or_else(|| {
+        tracing::warn!("Upload prepare failed: database not configured");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(UploadError::database_unavailable()),
+        )
+    })?;
+
     // Step 1: Verify session exists
     let session_exists = {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         let count: i64 = db
             .query_row(
                 "SELECT COUNT(*) FROM survey_sessions WHERE session_id = ? AND deleted = 0",
@@ -76,19 +111,27 @@ pub async fn prepare_upload(
             )
             .map_err(|e| {
                 tracing::error!("Database error checking session: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(UploadError {
+                        error: "Database error".to_string(),
+                    }),
+                )
             })?;
         count > 0
     };
 
     if !session_exists {
         tracing::warn!("Upload prepare: session not found: {}", req.session_id);
-        return Err(StatusCode::NOT_FOUND);
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(UploadError::session_not_found(&req.session_id)),
+        ));
     }
 
     // Step 2: Get session details for path construction
     let (magic_key, start_time): (String, i64) = {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         db.query_row(
             "SELECT magic_key, start_time FROM survey_sessions WHERE session_id = ?",
             params![&req.session_id],
@@ -96,7 +139,12 @@ pub async fn prepare_upload(
         )
         .map_err(|e| {
             tracing::error!("Database error getting session details: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Database error".to_string(),
+                }),
+            )
         })?
     };
 
@@ -104,7 +152,12 @@ pub async fn prepare_upload(
     let start_dt = chrono::DateTime::from_timestamp_millis(start_time)
         .ok_or_else(|| {
             tracing::error!("Invalid timestamp: {}", start_time);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Invalid session timestamp".to_string(),
+                }),
+            )
         })?;
 
     let session_dir = PathBuf::from(&state.storage_base_path)
@@ -119,7 +172,12 @@ pub async fn prepare_upload(
         .await
         .map_err(|e| {
             tracing::error!("Failed to create session directory: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to create storage directory".to_string(),
+                }),
+            )
         })?;
 
     let video_path = session_dir.join(format!("{}.webm", req.recording_id));
@@ -130,7 +188,12 @@ pub async fn prepare_upload(
         .await
         .map_err(|e| {
             tracing::error!("Failed to calculate video checksums: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to process video file".to_string(),
+                }),
+            )
         })?
         .into_iter()
         .enumerate()
@@ -146,7 +209,12 @@ pub async fn prepare_upload(
         .await
         .map_err(|e| {
             tracing::error!("Failed to calculate sensor checksums: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to process sensor file".to_string(),
+                }),
+            )
         })?
         .into_iter()
         .enumerate()
@@ -179,10 +247,16 @@ pub async fn prepare_upload(
 
     // Step 5: Create or update recording in database
     {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
-        let device_info_json =
-            serde_json::to_string(&req.device_info).map_err(|_| StatusCode::BAD_REQUEST)?;
+        let device_info_json = serde_json::to_string(&req.device_info).map_err(|_| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(UploadError {
+                    error: "Invalid device info".to_string(),
+                }),
+            )
+        })?;
 
         db.execute(
             "INSERT INTO recordings (
@@ -215,7 +289,12 @@ pub async fn prepare_upload(
         )
         .map_err(|e| {
             tracing::error!("Database error creating recording: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to create recording".to_string(),
+                }),
+            )
         })?;
     }
 
@@ -257,14 +336,28 @@ pub async fn upload_chunk(
     State(state): State<Arc<UploadState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<ChunkUploadResponse>, StatusCode> {
+) -> Result<Json<ChunkUploadResponse>, (StatusCode, Json<UploadError>)> {
+    // Step 0: Check if database is available
+    let db = state.db.as_ref().ok_or_else(|| {
+        tracing::warn!("Upload chunk failed: database not configured");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(UploadError::database_unavailable()),
+        )
+    })?;
+
     // Step 1: Extract headers
     let recording_id = headers
         .get("X-Recording-Id")
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
             tracing::warn!("Missing X-Recording-Id header");
-            StatusCode::BAD_REQUEST
+            (
+                StatusCode::BAD_REQUEST,
+                Json(UploadError {
+                    error: "Missing X-Recording-Id header".to_string(),
+                }),
+            )
         })?;
 
     let file_type = headers
@@ -272,12 +365,22 @@ pub async fn upload_chunk(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
             tracing::warn!("Missing X-File-Type header");
-            StatusCode::BAD_REQUEST
+            (
+                StatusCode::BAD_REQUEST,
+                Json(UploadError {
+                    error: "Missing X-File-Type header".to_string(),
+                }),
+            )
         })?;
 
     if file_type != "video" && file_type != "sensor" {
         tracing::warn!("Invalid file type: {}", file_type);
-        return Err(StatusCode::BAD_REQUEST);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(UploadError {
+                error: format!("Invalid file type: {}", file_type),
+            }),
+        ));
     }
 
     let chunk_index: usize = headers
@@ -286,7 +389,12 @@ pub async fn upload_chunk(
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| {
             tracing::warn!("Missing or invalid X-Chunk-Index header");
-            StatusCode::BAD_REQUEST
+            (
+                StatusCode::BAD_REQUEST,
+                Json(UploadError {
+                    error: "Missing or invalid X-Chunk-Index header".to_string(),
+                }),
+            )
         })?;
 
     let expected_checksum = headers
@@ -294,7 +402,12 @@ pub async fn upload_chunk(
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| {
             tracing::warn!("Missing X-Chunk-Checksum header");
-            StatusCode::BAD_REQUEST
+            (
+                StatusCode::BAD_REQUEST,
+                Json(UploadError {
+                    error: "Missing X-Chunk-Checksum header".to_string(),
+                }),
+            )
         })?;
 
     // Step 2: Verify checksum
@@ -307,12 +420,17 @@ pub async fn upload_chunk(
             expected_checksum,
             actual_checksum
         );
-        return Err(StatusCode::BAD_REQUEST);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(UploadError {
+                error: "Checksum mismatch".to_string(),
+            }),
+        ));
     }
 
     // Step 3: Get file path from database
     let file_path = {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         
         // Use explicit queries to avoid any SQL injection risk
         let path: String = match file_type {
@@ -328,12 +446,20 @@ pub async fn upload_chunk(
             ),
             _ => {
                 tracing::warn!("Invalid file type: {}", file_type);
-                return Err(StatusCode::BAD_REQUEST);
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(UploadError {
+                        error: format!("Invalid file type: {}", file_type),
+                    }),
+                ));
             }
         }
         .map_err(|_| {
             tracing::warn!("Recording not found: {}", recording_id);
-            StatusCode::NOT_FOUND
+            (
+                StatusCode::NOT_FOUND,
+                Json(UploadError::recording_not_found(recording_id)),
+            )
         })?;
         PathBuf::from(path)
     };
@@ -346,7 +472,12 @@ pub async fn upload_chunk(
         .await
         .map_err(|e| {
             tracing::error!("Failed to open file for writing: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to open file for writing".to_string(),
+                }),
+            )
         })?;
 
     let offset = (chunk_index * CHUNK_SIZE) as u64;
@@ -354,23 +485,38 @@ pub async fn upload_chunk(
         .await
         .map_err(|e| {
             tracing::error!("Failed to seek in file: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to seek in file".to_string(),
+                }),
+            )
         })?;
 
     file.write_all(&body).await.map_err(|e| {
         tracing::error!("Failed to write chunk: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(UploadError {
+                error: "Failed to write chunk".to_string(),
+            }),
+        )
     })?;
 
     file.flush().await.map_err(|e| {
         tracing::error!("Failed to flush file: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(UploadError {
+                error: "Failed to flush file".to_string(),
+            }),
+        )
     })?;
 
     // Step 5: Update uploaded bytes in database
     let bytes_received = body.len();
     {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         let new_uploaded = offset + bytes_received as u64;
         
         // Use explicit queries to avoid any SQL injection risk
@@ -385,12 +531,22 @@ pub async fn upload_chunk(
             ),
             _ => {
                 tracing::warn!("Invalid file type: {}", file_type);
-                return Err(StatusCode::BAD_REQUEST);
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(UploadError {
+                        error: format!("Invalid file type: {}", file_type),
+                    }),
+                ));
             }
         }
         .map_err(|e| {
             tracing::error!("Failed to update uploaded bytes: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to update uploaded bytes".to_string(),
+                }),
+            )
         })?;
     }
 
@@ -432,10 +588,19 @@ pub struct FinalizeUploadResponse {
 pub async fn finalize_upload(
     State(state): State<Arc<UploadState>>,
     Json(req): Json<FinalizeUploadRequest>,
-) -> Result<Json<FinalizeUploadResponse>, StatusCode> {
+) -> Result<Json<FinalizeUploadResponse>, (StatusCode, Json<UploadError>)> {
+    // Step 0: Check if database is available
+    let db = state.db.as_ref().ok_or_else(|| {
+        tracing::warn!("Upload finalize failed: database not configured");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(UploadError::database_unavailable()),
+        )
+    })?;
+
     // Step 1: Get recording details
     let (video_path, sensor_path, video_size, sensor_size): (String, String, i64, i64) = {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         db.query_row(
             "SELECT video_path, sensor_path, video_size_bytes, sensor_size_bytes
              FROM recordings WHERE recording_id = ?",
@@ -444,7 +609,10 @@ pub async fn finalize_upload(
         )
         .map_err(|_| {
             tracing::warn!("Recording not found for finalize: {}", req.recording_id);
-            StatusCode::NOT_FOUND
+            (
+                StatusCode::NOT_FOUND,
+                Json(UploadError::recording_not_found(&req.recording_id)),
+            )
         })?
     };
 
@@ -453,7 +621,12 @@ pub async fn finalize_upload(
         .await
         .map_err(|e| {
             tracing::error!("Failed to calculate video checksums: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to verify video file".to_string(),
+                }),
+            )
         })?
         .into_iter()
         .flatten()
@@ -468,7 +641,12 @@ pub async fn finalize_upload(
             .await
             .map_err(|e| {
                 tracing::error!("Failed to calculate sensor checksums: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(UploadError {
+                        error: "Failed to verify sensor file".to_string(),
+                    }),
+                )
             })?
             .into_iter()
             .flatten()
@@ -479,7 +657,7 @@ pub async fn finalize_upload(
 
     // Step 4: Update recording status
     if video_verified && sensor_verified {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         let now_ms = chrono::Utc::now().timestamp_millis() as u64;
 
         db.execute(
@@ -488,19 +666,29 @@ pub async fn finalize_upload(
         )
         .map_err(|e| {
             tracing::error!("Failed to update recording status: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to update recording status".to_string(),
+                }),
+            )
         })?;
 
         tracing::info!("Upload finalized successfully: {}", req.recording_id);
     } else {
-        let db = state.db.lock().await;
+        let db = db.lock().await;
         db.execute(
             "UPDATE recordings SET upload_status = 'failed' WHERE recording_id = ?",
             params![&req.recording_id],
         )
         .map_err(|e| {
             tracing::error!("Failed to update recording status: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(UploadError {
+                    error: "Failed to update recording status".to_string(),
+                }),
+            )
         })?;
 
         tracing::warn!(
