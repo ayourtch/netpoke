@@ -323,35 +323,36 @@ impl RecorderState {
                 }
             }
 
-            // Render sensor overlay if enabled AND we have sensor data
-            // Use current sensor state directly rather than requiring motion_data entries
-            // This allows overlay to work on macOS/desktop where devicemotion events don't fire
+            // Render sensor overlay if enabled
+            // Always show the timestamp when overlay is enabled, even if sensor data is unavailable
+            // Sensor values will show "acquiring..." or "-" when not available
             if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
                 if let Some(ref mgr) = *manager_guard {
                     if mgr.is_overlay_enabled() {
-                        // Get current timestamp
+                        // Get current timestamp - always available
                         let timestamp_utc = crate::recorder::utils::format_timestamp(js_sys::Date::now());
                         
                         // Get current sensor values directly from the manager
+                        // These may be None on desktop or if sensors are unavailable
                         let gps = mgr.get_current_gps().clone();
                         let magnetometer = mgr.get_current_magnetometer().clone();
                         let orientation = mgr.get_current_orientation().clone();
                         let acceleration = mgr.get_current_acceleration().clone();
                         let camera_direction = mgr.get_current_camera_direction();
                         
-                        // Only render if we have at least GPS or orientation data
-                        // (i.e., at least some sensor data is available)
-                        if gps.is_some() || orientation.is_some() || acceleration.is_some() {
-                            let _ = renderer.render_sensor_overlay(
-                                &timestamp_utc,
-                                &gps,
-                                &magnetometer,
-                                &orientation,
-                                &acceleration,
-                                &camera_direction,
-                            );
+                        // Always render the overlay when enabled - timestamp is always shown
+                        // Sensor values display "acquiring..." or "-" when unavailable
+                        let _ = renderer.render_sensor_overlay(
+                            &timestamp_utc,
+                            &gps,
+                            &magnetometer,
+                            &orientation,
+                            &acceleration,
+                            &camera_direction,
+                        );
 
-                            // Render compass if we have camera direction
+                        // Render compass only if we have camera direction data
+                        if camera_direction.is_some() {
                             let _ = renderer.render_compass(camera_direction);
                         }
                     }
