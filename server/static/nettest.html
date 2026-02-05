@@ -3342,7 +3342,21 @@
                         });
 
                         if (!prepareResp.ok) {
-                            throw new Error(`Prepare failed: ${prepareResp.status}`);
+                            let errorMsg = `Upload failed: HTTP ${prepareResp.status}`;
+                            try {
+                                const errorData = await prepareResp.json();
+                                if (errorData.error) {
+                                    errorMsg = errorData.error;
+                                }
+                            } catch (e) {
+                                // Response wasn't JSON, use status-based messages
+                                if (prepareResp.status === 503) {
+                                    errorMsg = 'Upload service unavailable - server may not be fully configured';
+                                } else if (prepareResp.status === 404) {
+                                    errorMsg = 'Session not found - please start a survey first';
+                                }
+                            }
+                            throw new Error(errorMsg);
                         }
                         const prepareData = await prepareResp.json();
 
@@ -3395,7 +3409,16 @@
                         });
 
                         if (!finalizeResp.ok) {
-                            throw new Error(`Finalize failed: ${finalizeResp.status}`);
+                            let errorMsg = `Finalize failed: HTTP ${finalizeResp.status}`;
+                            try {
+                                const errorData = await finalizeResp.json();
+                                if (errorData.error) {
+                                    errorMsg = errorData.error;
+                                }
+                            } catch (e) {
+                                // Response wasn't JSON
+                            }
+                            throw new Error(errorMsg);
                         }
 
                         const finalizeData = await finalizeResp.json();
