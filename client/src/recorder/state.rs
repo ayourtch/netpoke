@@ -78,6 +78,9 @@ impl RecorderState {
                 video.set_autoplay(true);
                 video.set_muted(true);
                 video.set_src_object(Some(&stream));
+                // Explicitly call play() to ensure video starts playing
+                // This is required for live streams from srcObject even with autoplay set
+                let _ = video.play();
                 self.camera_stream = Some(stream);
                 self.camera_video = Some(video);
             }
@@ -87,6 +90,8 @@ impl RecorderState {
                 video.set_autoplay(true);
                 video.set_muted(true);
                 video.set_src_object(Some(&stream));
+                // Explicitly call play() to ensure video starts playing
+                let _ = video.play();
                 self.screen_stream = Some(stream.clone());
                 self.screen_video = Some(video);
 
@@ -116,11 +121,15 @@ impl RecorderState {
                 camera_video.set_autoplay(true);
                 camera_video.set_muted(true);
                 camera_video.set_src_object(Some(&camera_stream));
+                // Explicitly call play() to ensure video starts playing
+                let _ = camera_video.play();
 
                 let screen_video: HtmlVideoElement = document.create_element("video")?.dyn_into()?;
                 screen_video.set_autoplay(true);
                 screen_video.set_muted(true);
                 screen_video.set_src_object(Some(&screen_stream));
+                // Explicitly call play() to ensure video starts playing
+                let _ = screen_video.play();
 
                 self.camera_stream = Some(camera_stream);
                 self.screen_stream = Some(screen_stream.clone());
