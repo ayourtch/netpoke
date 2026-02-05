@@ -126,5 +126,36 @@ However, this is more complex and changes working WASM code. **Option 1 is recom
 ## Related Issues
 None - this is a new discovery from comparing reference vs integrated implementations.
 
+## Resolution
+
+**Resolved: 2026-02-05**
+
+Added ID attributes to PiP and chart position buttons to match the IDs expected by the WASM event handler setup code.
+
+### Changes Made:
+
+**In `server/static/nettest.html`**:
+
+1. **PiP position buttons** (lines ~928-932):
+   - Added `id="pip-pos-tl"` to top-left button
+   - Added `id="pip-pos-tr"` to top-right button
+   - Added `id="pip-pos-bl"` to bottom-left button
+   - Added `id="pip-pos-br"` to bottom-right button
+   - Preserved existing `data-position` attributes
+
+2. **Chart position buttons** (lines ~952-956):
+   - Added `id="chart-pos-tl"` to top-left button
+   - Added `id="chart-pos-tr"` to top-right button
+   - Added `id="chart-pos-bl"` to bottom-left button
+   - Added `id="chart-pos-br"` to bottom-right button
+   - Preserved existing `data-position` attributes
+
+### Verification:
+- IDs now match what WASM code expects in `client/src/recorder/ui.rs`
+- `setup_pip_controls()` calls `get_element_by_id()` with these IDs (lines 109-112)
+- `setup_chart_controls()` calls `get_element_by_id()` with these IDs (lines 201-204)
+- Event listeners will now properly attach to buttons
+- Users can now control camera and chart overlay positions in recordings
+
 ---
 *Created: 2026-02-04*
