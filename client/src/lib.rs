@@ -2042,6 +2042,9 @@ pub async fn download_video(id: String) -> Result<(), JsValue> {
     let window = web_sys::window().ok_or("No window")?;
     let document = window.document().ok_or("No document")?;
 
+    // Initialize database before accessing (Issue 032)
+    recorder::storage::openDb().await?;
+
     // Get recording from IndexedDB
     let recording_js = recorder::storage::getRecording(&id).await?;
 
@@ -2088,6 +2091,9 @@ pub async fn download_motion_data(id: String) -> Result<(), JsValue> {
 
     let window = web_sys::window().ok_or("No window")?;
     let document = window.document().ok_or("No document")?;
+
+    // Initialize database before accessing (Issue 032)
+    recorder::storage::openDb().await?;
 
     // Get recording from IndexedDB
     let recording_js = recorder::storage::getRecording(&id).await?;
