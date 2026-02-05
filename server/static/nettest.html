@@ -3146,7 +3146,7 @@
                 // Get recording from IndexedDB by ID
                 async function getRecordingFromDB(recordingId) {
                     return new Promise((resolve, reject) => {
-                        const request = indexedDB.open('video_recordings', 1);
+                        const request = indexedDB.open('NetpokeRecordingsDB', 1);
                         request.onerror = () => reject(request.error);
                         request.onsuccess = () => {
                             const db = request.result;
@@ -3159,13 +3159,19 @@
                                 resolve(getRequest.result);
                             };
                         };
+                        request.onupgradeneeded = (event) => {
+                            const db = event.target.result;
+                            if (!db.objectStoreNames.contains('recordings')) {
+                                db.createObjectStore('recordings', { keyPath: 'id' });
+                            }
+                        };
                     });
                 }
 
                 // Update recording in IndexedDB
                 async function updateRecordingInDB(recording) {
                     return new Promise((resolve, reject) => {
-                        const request = indexedDB.open('video_recordings', 1);
+                        const request = indexedDB.open('NetpokeRecordingsDB', 1);
                         request.onerror = () => reject(request.error);
                         request.onsuccess = () => {
                             const db = request.result;
@@ -3177,6 +3183,12 @@
                                 db.close();
                                 resolve();
                             };
+                        };
+                        request.onupgradeneeded = (event) => {
+                            const db = event.target.result;
+                            if (!db.objectStoreNames.contains('recordings')) {
+                                db.createObjectStore('recordings', { keyPath: 'id' });
+                            }
                         };
                     });
                 }
