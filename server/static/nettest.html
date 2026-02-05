@@ -2623,6 +2623,57 @@
                     init_recorder();
                     console.log('Recorder initialized');
 
+                    // Check if screen capture is supported (getDisplayMedia)
+                    // iOS Safari does not support getDisplayMedia, so disable Screen and Combined modes
+                    const isScreenCaptureSupported = navigator.mediaDevices && 
+                        typeof navigator.mediaDevices.getDisplayMedia === 'function';
+                    
+                    if (!isScreenCaptureSupported) {
+                        console.log('Screen capture not supported - disabling Screen and Combined recording modes');
+                        
+                        // Disable Screen Only mode
+                        const screenRadio = document.getElementById('mode-screen');
+                        if (screenRadio) {
+                            screenRadio.disabled = true;
+                            const screenLabel = screenRadio.parentElement;
+                            if (screenLabel) {
+                                screenLabel.style.opacity = '0.5';
+                                screenLabel.style.cursor = 'not-allowed';
+                                screenLabel.title = 'Screen capture is not supported on this device';
+                            }
+                        }
+                        
+                        // Disable Combined (PiP) mode
+                        const combinedRadio = document.getElementById('mode-combined');
+                        if (combinedRadio) {
+                            combinedRadio.disabled = true;
+                            // Uncheck if it was the default selection
+                            if (combinedRadio.checked) {
+                                combinedRadio.checked = false;
+                            }
+                            const combinedLabel = combinedRadio.parentElement;
+                            if (combinedLabel) {
+                                combinedLabel.style.opacity = '0.5';
+                                combinedLabel.style.cursor = 'not-allowed';
+                                combinedLabel.title = 'Screen capture is not supported on this device';
+                            }
+                        }
+                        
+                        // Auto-select Camera mode since it's the only supported option
+                        const cameraRadio = document.getElementById('mode-camera');
+                        if (cameraRadio) {
+                            cameraRadio.checked = true;
+                            // Trigger change event to update recorder state
+                            cameraRadio.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                        }
+                        
+                        // Hide PiP controls since Combined mode is not available
+                        const pipControls = document.getElementById('pip-controls');
+                        if (pipControls) {
+                            pipControls.style.display = 'none';
+                        }
+                    }
+
                 // Expose recorder_render_frame to global scope for render loop
                 window.recorder_render_frame = recorder_render_frame;
 
