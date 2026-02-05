@@ -290,22 +290,35 @@ impl RecorderState {
             }
 
             // Render sensor overlay if enabled AND we have sensor data
+            // Use current sensor state directly rather than requiring motion_data entries
+            // This allows overlay to work on macOS/desktop where devicemotion events don't fire
             if let Ok(manager_guard) = crate::SENSOR_MANAGER.lock() {
                 if let Some(ref mgr) = *manager_guard {
                     if mgr.is_overlay_enabled() {
-                        let motion_data = mgr.get_motion_data();
-                        if let Some(latest) = motion_data.last() {
+                        // Get current timestamp
+                        let timestamp_utc = crate::recorder::utils::format_timestamp(js_sys::Date::now());
+                        
+                        // Get current sensor values directly from the manager
+                        let gps = mgr.get_current_gps().clone();
+                        let magnetometer = mgr.get_current_magnetometer().clone();
+                        let orientation = mgr.get_current_orientation().clone();
+                        let acceleration = mgr.get_current_acceleration().clone();
+                        let camera_direction = mgr.get_current_camera_direction();
+                        
+                        // Only render if we have at least GPS or orientation data
+                        // (i.e., at least some sensor data is available)
+                        if gps.is_some() || orientation.is_some() || acceleration.is_some() {
                             let _ = renderer.render_sensor_overlay(
-                                &latest.timestamp_utc,
-                                &latest.gps,
-                                &latest.magnetometer,
-                                &latest.orientation,
-                                &Some(latest.acceleration.clone()),
-                                &latest.camera_direction,
+                                &timestamp_utc,
+                                &gps,
+                                &magnetometer,
+                                &orientation,
+                                &acceleration,
+                                &camera_direction,
                             );
 
                             // Render compass if we have camera direction
-                            let _ = renderer.render_compass(latest.camera_direction);
+                            let _ = renderer.render_compass(camera_direction);
                         }
                     }
                 }
