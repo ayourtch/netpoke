@@ -313,22 +313,28 @@ pub async fn upload_chunk(
     // Step 3: Get file path from database
     let file_path = {
         let db = state.db.lock().await;
-        let column = if file_type == "video" {
-            "video_path"
-        } else {
-            "sensor_path"
-        };
-        let query = format!(
-            "SELECT {} FROM recordings WHERE recording_id = ?",
-            column
-        );
-
-        let path: String = db
-            .query_row(&query, params![recording_id], |row| row.get(0))
-            .map_err(|_| {
-                tracing::warn!("Recording not found: {}", recording_id);
-                StatusCode::NOT_FOUND
-            })?;
+        
+        // Use explicit queries to avoid any SQL injection risk
+        let path: String = match file_type {
+            "video" => db.query_row(
+                "SELECT video_path FROM recordings WHERE recording_id = ?",
+                params![recording_id],
+                |row| row.get(0),
+            ),
+            "sensor" => db.query_row(
+                "SELECT sensor_path FROM recordings WHERE recording_id = ?",
+                params![recording_id],
+                |row| row.get(0),
+            ),
+            _ => {
+                tracing::warn!("Invalid file type: {}", file_type);
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+        .map_err(|_| {
+            tracing::warn!("Recording not found: {}", recording_id);
+            StatusCode::NOT_FOUND
+        })?;
         PathBuf::from(path)
     };
 
@@ -365,22 +371,27 @@ pub async fn upload_chunk(
     let bytes_received = body.len();
     {
         let db = state.db.lock().await;
-        let column = if file_type == "video" {
-            "video_uploaded_bytes"
-        } else {
-            "sensor_uploaded_bytes"
-        };
         let new_uploaded = offset + bytes_received as u64;
-        let query = format!(
-            "UPDATE recordings SET {} = MAX({}, ?) WHERE recording_id = ?",
-            column, column
-        );
-
-        db.execute(&query, params![new_uploaded, recording_id])
-            .map_err(|e| {
-                tracing::error!("Failed to update uploaded bytes: {}", e);
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+        
+        // Use explicit queries to avoid any SQL injection risk
+        match file_type {
+            "video" => db.execute(
+                "UPDATE recordings SET video_uploaded_bytes = MAX(video_uploaded_bytes, ?) WHERE recording_id = ?",
+                params![new_uploaded, recording_id],
+            ),
+            "sensor" => db.execute(
+                "UPDATE recordings SET sensor_uploaded_bytes = MAX(sensor_uploaded_bytes, ?) WHERE recording_id = ?",
+                params![new_uploaded, recording_id],
+            ),
+            _ => {
+                tracing::warn!("Invalid file type: {}", file_type);
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+        .map_err(|e| {
+            tracing::error!("Failed to update uploaded bytes: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     tracing::debug!(
