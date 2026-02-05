@@ -919,6 +919,101 @@
             </div>
         </div>
 
+        <!-- Controls Card -->
+        <div class="card">
+            <div class="controls-section">
+                <div class="control-group">
+                    <label for="conn-count">Connections per Address Family (ECMP):</label>
+                    <select id="conn-count">
+                        <option value="1" selected>1 connection</option>
+                        <option value="2">2 connections</option>
+                        <option value="4">4 connections</option>
+                        <option value="8">8 connections</option>
+                        <option value="16">16 connections</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <button id="analyze-network-btn" class="btn btn-primary" onclick="analyzeNetwork()">Analyze Network</button>
+                    <button id="stop-testing-btn" class="btn btn-danger" onclick="stopTesting()" disabled>Stop Testing</button>
+                </div>
+                <span id="wake-lock-status">Wake Lock: Checking...</span>
+            </div>
+        </div>
+        
+        <!-- Status -->
+        <div id="status">Loading WASM module...</div>
+        <div id="ayxx"></div>
+        <div id="error"></div>
+
+        <!-- Peer Connections Card -->
+        <div class="card" id="peer-connections-container">
+            <h2>Peer Connections</h2>
+            <p class="card-description">Active peer connections with their connection IDs (matching traceroute data) and address information.</p>
+            <div id="peer-connections-list">
+                <div class="peer-connection-placeholder">No active connections. Click "Analyze Network" to start.</div>
+            </div>
+        </div>
+
+        <!-- Traceroute Visualization Card -->
+        <div class="card" id="traceroute-visualization">
+            <h2>Traceroute Path Visualization</h2>
+            <p class="card-description">Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</p>
+            
+            <div class="dual-stack-container">
+                <div class="stack-column">
+                    <h3 style="color: #2196F3;">IPv4 Path</h3>
+                    <div id="traceroute-graph-ipv4" class="traceroute-box ipv4">
+                        <div class="traceroute-placeholder">No IPv4 traceroute data available.</div>
+                    </div>
+                </div>
+                <div class="stack-column">
+                    <h3 style="color: #FF9800;">IPv6 Path</h3>
+                    <div id="traceroute-graph-ipv6" class="traceroute-box ipv6">
+                        <div class="traceroute-placeholder">No IPv6 traceroute data available.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Server Messages Card -->
+        <div class="card" id="server-messages-container">
+            <h2>Server Messages (Traceroute Log)</h2>
+            <p class="card-description">Raw traceroute messages. Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</p>
+            <textarea id="server-messages" readonly></textarea>
+        </div>
+
+        <!-- Packet Capture Card -->
+        <div class="card" id="packet-capture-container">
+            <h2>Packet Capture & Tracing</h2>
+            <p class="card-description">Download captured network traffic (PCAP) or server logs (tracing buffer) for analysis.</p>
+            <div class="capture-buttons">
+                <div class="capture-item" id="download-pcap-container" style="display: none;">
+                    <a id="download-pcap-btn" href="/api/capture/download" class="capture-btn green">
+                        📥 Download PCAP
+                    </a>
+                    <span id="capture-status" class="capture-status">Checking capture status...</span>
+                </div>
+                <div class="capture-item">
+                    <button id="download-survey-pcap-btn" onclick="downloadSurveyPcap()" class="capture-btn purple" disabled>
+                        📥 Download Survey PCAP
+                    </button>
+                    <span id="survey-pcap-status" class="capture-status">Start a survey session first</span>
+                </div>
+                <div class="capture-item">
+                    <button id="download-survey-keylog-btn" onclick="downloadSurveyKeylog()" class="capture-btn deep-purple" disabled>
+                        🔐 Download Survey DTLS keys
+                    </button>
+                    <span id="survey-keylog-status" class="capture-status">Start a survey session first</span>
+                </div>
+                <div class="capture-item" id="download-tracing-container" style="display: none;">
+                    <a id="download-tracing-btn" href="/api/tracing/download" class="capture-btn blue">
+                        📋 Download Tracing Log
+                    </a>
+                    <span id="tracing-status" class="capture-status">Checking tracing status...</span>
+                </div>
+            </div>
+        </div>
+
         <!-- Recording Section -->
         <div class="recording-section">
             <div class="recording-header" onclick="toggleRecordingPanel()">
@@ -1017,101 +1112,6 @@
                     <canvas id="throughput-chart" width="400" height="300"></canvas>
                 </div>
 
-            </div>
-        </div>
-
-        <!-- Controls Card -->
-        <div class="card">
-            <div class="controls-section">
-                <div class="control-group">
-                    <label for="conn-count">Connections per Address Family (ECMP):</label>
-                    <select id="conn-count">
-                        <option value="1" selected>1 connection</option>
-                        <option value="2">2 connections</option>
-                        <option value="4">4 connections</option>
-                        <option value="8">8 connections</option>
-                        <option value="16">16 connections</option>
-                    </select>
-                </div>
-                <div class="control-group">
-                    <button id="analyze-network-btn" class="btn btn-primary" onclick="analyzeNetwork()">Analyze Network</button>
-                    <button id="stop-testing-btn" class="btn btn-danger" onclick="stopTesting()" disabled>Stop Testing</button>
-                </div>
-                <span id="wake-lock-status">Wake Lock: Checking...</span>
-            </div>
-        </div>
-        
-        <!-- Status -->
-        <div id="status">Loading WASM module...</div>
-        <div id="ayxx"></div>
-        <div id="error"></div>
-
-        <!-- Peer Connections Card -->
-        <div class="card" id="peer-connections-container">
-            <h2>Peer Connections</h2>
-            <p class="card-description">Active peer connections with their connection IDs (matching traceroute data) and address information.</p>
-            <div id="peer-connections-list">
-                <div class="peer-connection-placeholder">No active connections. Click "Analyze Network" to start.</div>
-            </div>
-        </div>
-
-        <!-- Traceroute Visualization Card -->
-        <div class="card" id="traceroute-visualization">
-            <h2>Traceroute Path Visualization</h2>
-            <p class="card-description">Visual representation of network path. Each column represents a hop, nodes show router addresses. Hover for details.</p>
-            
-            <div class="dual-stack-container">
-                <div class="stack-column">
-                    <h3 style="color: #2196F3;">IPv4 Path</h3>
-                    <div id="traceroute-graph-ipv4" class="traceroute-box ipv4">
-                        <div class="traceroute-placeholder">No IPv4 traceroute data available.</div>
-                    </div>
-                </div>
-                <div class="stack-column">
-                    <h3 style="color: #FF9800;">IPv6 Path</h3>
-                    <div id="traceroute-graph-ipv6" class="traceroute-box ipv6">
-                        <div class="traceroute-placeholder">No IPv6 traceroute data available.</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Server Messages Card -->
-        <div class="card" id="server-messages-container">
-            <h2>Server Messages (Traceroute Log)</h2>
-            <p class="card-description">Raw traceroute messages. Messages are prefixed with [conn_id] to identify which connection each hop belongs to.</p>
-            <textarea id="server-messages" readonly></textarea>
-        </div>
-
-        <!-- Packet Capture Card -->
-        <div class="card" id="packet-capture-container">
-            <h2>Packet Capture & Tracing</h2>
-            <p class="card-description">Download captured network traffic (PCAP) or server logs (tracing buffer) for analysis.</p>
-            <div class="capture-buttons">
-                <div class="capture-item" id="download-pcap-container" style="display: none;">
-                    <a id="download-pcap-btn" href="/api/capture/download" class="capture-btn green">
-                        📥 Download PCAP
-                    </a>
-                    <span id="capture-status" class="capture-status">Checking capture status...</span>
-                </div>
-                <div class="capture-item">
-                    <button id="download-survey-pcap-btn" onclick="downloadSurveyPcap()" class="capture-btn purple" disabled>
-                        📥 Download Survey PCAP
-                    </button>
-                    <span id="survey-pcap-status" class="capture-status">Start a survey session first</span>
-                </div>
-                <div class="capture-item">
-                    <button id="download-survey-keylog-btn" onclick="downloadSurveyKeylog()" class="capture-btn deep-purple" disabled>
-                        🔐 Download Survey DTLS keys
-                    </button>
-                    <span id="survey-keylog-status" class="capture-status">Start a survey session first</span>
-                </div>
-                <div class="capture-item" id="download-tracing-container" style="display: none;">
-                    <a id="download-tracing-btn" href="/api/tracing/download" class="capture-btn blue">
-                        📋 Download Tracing Log
-                    </a>
-                    <span id="tracing-status" class="capture-status">Checking tracing status...</span>
-                </div>
             </div>
         </div>
 
@@ -2631,6 +2631,57 @@
                     init_recorder();
                     console.log('Recorder initialized');
 
+                    // Check if screen capture is supported (getDisplayMedia)
+                    // iOS Safari does not support getDisplayMedia, so disable Screen and Combined modes
+                    const isScreenCaptureSupported = navigator.mediaDevices && 
+                        typeof navigator.mediaDevices.getDisplayMedia === 'function';
+                    
+                    if (!isScreenCaptureSupported) {
+                        console.log('Screen capture not supported - disabling Screen and Combined recording modes');
+                        
+                        // Disable Screen Only mode
+                        const screenRadio = document.getElementById('mode-screen');
+                        if (screenRadio) {
+                            screenRadio.disabled = true;
+                            const screenLabel = screenRadio.parentElement;
+                            if (screenLabel) {
+                                screenLabel.style.opacity = '0.5';
+                                screenLabel.style.cursor = 'not-allowed';
+                                screenLabel.title = 'Screen capture is not supported on this device';
+                            }
+                        }
+                        
+                        // Disable Combined (PiP) mode
+                        const combinedRadio = document.getElementById('mode-combined');
+                        if (combinedRadio) {
+                            combinedRadio.disabled = true;
+                            // Uncheck if it was the default selection
+                            if (combinedRadio.checked) {
+                                combinedRadio.checked = false;
+                            }
+                            const combinedLabel = combinedRadio.parentElement;
+                            if (combinedLabel) {
+                                combinedLabel.style.opacity = '0.5';
+                                combinedLabel.style.cursor = 'not-allowed';
+                                combinedLabel.title = 'Screen capture is not supported on this device';
+                            }
+                        }
+                        
+                        // Auto-select Camera mode since it's the only supported option
+                        const cameraRadio = document.getElementById('mode-camera');
+                        if (cameraRadio) {
+                            cameraRadio.checked = true;
+                            // Trigger change event to update recorder state
+                            cameraRadio.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
+                        }
+                        
+                        // Hide PiP controls since Combined mode is not available
+                        const pipControls = document.getElementById('pip-controls');
+                        if (pipControls) {
+                            pipControls.style.display = 'none';
+                        }
+                    }
+
                 // Expose recorder_render_frame to global scope for render loop
                 window.recorder_render_frame = recorder_render_frame;
 
@@ -2685,19 +2736,24 @@
                     if (!sensorListenersActive) {
                         // Orientation listener
                         orientationListener = (event) => {
+                            // iOS Safari provides compass heading in alpha but doesn't set absolute=true
+                            // Always treat alpha as compass heading on iOS if we have a value
+                            const hasCompass = event.alpha !== null && event.alpha !== undefined;
+                            const effectiveAbsolute = event.absolute || hasCompass;
+                            
                             on_orientation(
                                 event.alpha,
                                 event.beta,
                                 event.gamma,
-                                event.absolute || false
+                                effectiveAbsolute
                             );
                             // iOS Safari provides compass in alpha even without absolute flag
-                            if (event.alpha !== null && on_magnetometer) {
+                            if (hasCompass && on_magnetometer) {
                                 on_magnetometer(
                                     event.alpha,
                                     event.beta,
                                     event.gamma,
-                                    event.absolute || false
+                                    effectiveAbsolute
                                 );
                             }
                             // Update UI display (matching old code)
