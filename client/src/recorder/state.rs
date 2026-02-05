@@ -301,9 +301,13 @@ impl RecorderState {
 
             // Update metrics display (Issue 013)
             let elapsed = (js_sys::Date::now() - self.start_time) / 1000.0;
-            // Estimate size based on frame count (rough estimate)
-            let estimated_size = (self.frame_count as u64) * 50000; // ~50KB per frame estimate
-            crate::recorder::ui::update_recording_metrics(elapsed, self.frame_count, estimated_size);
+            // Get actual recorded size from media recorder chunks
+            let actual_size = if let Some(recorder) = &self.recorder {
+                recorder.get_chunks_size() as u64
+            } else {
+                0
+            };
+            crate::recorder::ui::update_recording_metrics(elapsed, self.frame_count, actual_size);
         }
 
         Ok(())
