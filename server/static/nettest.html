@@ -2798,14 +2798,21 @@
                     
                     try {
                         // Use existing WASM storage module to get all recordings
-                        const dbName = 'CameraTrackingDB';
+                        // Must match indexed_db.js: NetpokeRecordingsDB version 1
+                        const dbName = 'NetpokeRecordingsDB';
                         const storeName = 'recordings';
                         
                         // Open IndexedDB
                         const db = await new Promise((resolve, reject) => {
-                            const request = indexedDB.open(dbName, 2);
+                            const request = indexedDB.open(dbName, 1);
                             request.onerror = () => reject(request.error);
                             request.onsuccess = () => resolve(request.result);
+                            request.onupgradeneeded = (event) => {
+                                const db = event.target.result;
+                                if (!db.objectStoreNames.contains(storeName)) {
+                                    db.createObjectStore(storeName, { keyPath: 'id' });
+                                }
+                            };
                         });
                         
                         // Get all recordings
