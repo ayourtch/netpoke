@@ -3349,12 +3349,12 @@
                                     errorMsg = errorData.error;
                                 }
                             } catch (e) {
-                                // Response wasn't JSON, use status-based messages
+                                // Response wasn't JSON, use generic status-based fallbacks
+                                // (server normally returns JSON errors, so this is a safety net)
                                 if (prepareResp.status === 503) {
-                                    errorMsg = 'Upload service unavailable - server may not be fully configured';
-                                } else if (prepareResp.status === 404) {
-                                    errorMsg = 'Session not found - please start a survey first';
+                                    errorMsg = 'Upload service temporarily unavailable';
                                 }
+                                // For other status codes, keep the default HTTP status message
                             }
                             throw new Error(errorMsg);
                         }
