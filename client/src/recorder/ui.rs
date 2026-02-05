@@ -82,6 +82,9 @@ pub fn init_recorder_panel() {
     setup_sensor_overlay_toggle(&document);  // Issue 015
     setup_recording_buttons(&document);
 
+    // Set initial source type display (default is Combined)
+    update_source_type_display(SourceType::Combined);
+
     crate::recorder::utils::log("[Recorder] Panel initialized");
 }
 
@@ -107,6 +110,7 @@ fn setup_mode_selection(document: &web_sys::Document) {
                 state.borrow_mut().source_type = SourceType::Camera;
             });
             update_pip_visibility(false);
+            update_source_type_display(SourceType::Camera);
         }) as Box<dyn FnMut(_)>);
 
         if let Ok(element) = radio.dyn_into::<web_sys::HtmlElement>() {
@@ -122,6 +126,7 @@ fn setup_mode_selection(document: &web_sys::Document) {
                 state.borrow_mut().source_type = SourceType::Screen;
             });
             update_pip_visibility(false);
+            update_source_type_display(SourceType::Screen);
         }) as Box<dyn FnMut(_)>);
 
         if let Ok(element) = radio.dyn_into::<web_sys::HtmlElement>() {
@@ -137,6 +142,7 @@ fn setup_mode_selection(document: &web_sys::Document) {
                 state.borrow_mut().source_type = SourceType::Combined;
             });
             update_pip_visibility(true);
+            update_source_type_display(SourceType::Combined);
         }) as Box<dyn FnMut(_)>);
 
         if let Ok(element) = radio.dyn_into::<web_sys::HtmlElement>() {
@@ -492,6 +498,17 @@ fn update_pip_visibility(visible: bool) {
                     let display_value = if visible { "block" } else { "none" };
                     let _ = html_element.set_attribute("style", &format!("display: {}", display_value));
                 }
+            }
+        }
+    }
+}
+
+/// Update the source type display element (matching old code)
+fn update_source_type_display(source_type: SourceType) {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Some(element) = document.get_element_by_id("sourceType") {
+                element.set_text_content(Some(source_type.display_name()));
             }
         }
     }
