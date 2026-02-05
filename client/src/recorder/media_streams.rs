@@ -132,3 +132,40 @@ pub fn stop_stream(stream: &MediaStream) {
         track.stop();
     }
 }
+
+/// Wait for a video element to have its metadata loaded (dimensions available).
+/// This is necessary before capturing a canvas stream to ensure proper dimensions.
+pub async fn wait_for_video_ready(video: &web_sys::HtmlVideoElement) -> Result<(), JsValue> {
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::JsCast;
+
+    // If video is already ready (has dimensions), return immediately
+    if video.ready_state() >= 2 && video.video_width() > 0 && video.video_height() > 0 {
+        return Ok(());
+    }
+
+    // Create a promise that resolves when loadedmetadata fires or after timeout
+    let video_clone = video.clone();
+    let promise = js_sys::Promise::new(&mut move |resolve, _reject| {
+        // Set up loadedmetadata listener
+        let resolve_clone = resolve.clone();
+        let callback = Closure::once(Box::new(move || {
+            let _ = resolve_clone.call0(&JsValue::NULL);
+        }) as Box<dyn FnOnce()>);
+
+        let _ = video_clone.add_event_listener_with_callback(
+            "loadedmetadata",
+            callback.as_ref().unchecked_ref(),
+        );
+        callback.forget();
+
+        // Also set a timeout in case metadata never loads (3 seconds)
+        let window = web_sys::window().unwrap();
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 3000);
+    });
+
+    // Wait for the promise to resolve
+    JsFuture::from(promise).await?;
+
+    Ok(())
+}
