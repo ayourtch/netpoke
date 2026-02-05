@@ -21,6 +21,10 @@ pub struct Config {
     pub client: ClientConfig,
     #[serde(default)]
     pub iperf3: Iperf3Config,
+    #[serde(default)]
+    pub database: DatabaseConfig,
+    #[serde(default)]
+    pub storage: StorageConfig,
 }
 
 /// Tracing buffer configuration
@@ -113,6 +117,62 @@ impl Default for CaptureConfig {
     }
 }
 
+/// Database configuration for survey data persistence
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseConfig {
+    /// Path to the SQLite database file
+    #[serde(default = "default_database_path")]
+    pub path: String,
+}
+
+fn default_database_path() -> String {
+    "/var/lib/netpoke/netpoke.db".to_string()
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            path: default_database_path(),
+        }
+    }
+}
+
+/// Storage configuration for uploaded survey recordings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageConfig {
+    /// Base path for uploaded files
+    #[serde(default = "default_storage_base_path")]
+    pub base_path: String,
+    /// Maximum video file size in bytes (default: 1 GB)
+    #[serde(default = "default_max_video_size")]
+    pub max_video_size_bytes: u64,
+    /// Upload chunk size in bytes (default: 1 MB)
+    #[serde(default = "default_chunk_size")]
+    pub chunk_size_bytes: usize,
+}
+
+fn default_storage_base_path() -> String {
+    "/var/lib/netpoke/uploads".to_string()
+}
+
+fn default_max_video_size() -> u64 {
+    1_073_741_824 // 1 GB
+}
+
+fn default_chunk_size() -> usize {
+    1_048_576 // 1 MB
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            base_path: default_storage_base_path(),
+            max_video_size_bytes: default_max_video_size(),
+            chunk_size_bytes: default_chunk_size(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub host: String,
@@ -199,6 +259,8 @@ impl Default for Config {
             tracing: TracingConfig::default(),
             client: ClientConfig::default(),
             iperf3: Iperf3Config::default(),
+            database: DatabaseConfig::default(),
+            storage: StorageConfig::default(),
         }
     }
 }

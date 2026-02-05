@@ -1,4 +1,5 @@
 #![deny(unused_must_use)]
+mod analyst_api;
 mod auth_cache;
 mod auth_handlers;
 mod capture_api;
@@ -7,20 +8,25 @@ mod client_config_api;
 mod config;
 mod dashboard;
 mod data_channels;
+mod database;
 mod dtls_keylog;
 mod dtls_keylog_api;
 mod embedded;
 mod icmp_listener;
 mod measurements;
+mod metrics_recorder;
 mod packet_capture;
 mod packet_tracker;
 mod packet_tracking_api;
+mod session_manager;
 mod signaling;
 mod state;
 mod survey_middleware;
 mod tracing_api;
 mod tracing_buffer;
 mod tracking_channel;
+mod upload_api;
+mod upload_utils;
 mod webrtc_manager;
 
 use axum::{
@@ -51,6 +57,7 @@ use axum::routing::IntoMakeService;
 
 use auth_cache::SharedAuthAddressCache;
 use client_config_api::ClientConfigState;
+use database::DbConnection;
 use dtls_keylog::DtlsKeylogService;
 use packet_capture::PacketCaptureService;
 use tracing_buffer::TracingService;
@@ -63,6 +70,8 @@ fn get_make_service(
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
     keylog_service: Arc<DtlsKeylogService>,
+    db: Option<DbConnection>,
+    storage_base_path: String,
 ) -> IntoMakeServiceWithConnectInfo<axum::Router, SocketAddr> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
@@ -128,6 +137,33 @@ fn get_make_service(
         .route("/api/keylog/stats", get(dtls_keylog_api::keylog_stats))
         .route("/api/keylog/clear", post(dtls_keylog_api::clear_keylog))
         .with_state(keylog_service);
+
+    // Upload API routes for survey recordings (only if database is available)
+    let upload_routes: Option<Router> = db.as_ref().map(|db_conn| {
+        use axum::extract::DefaultBodyLimit;
+        let upload_state = Arc::new(upload_api::UploadState {
+            db: db_conn.clone(),
+            storage_base_path: storage_base_path.clone(),
+        });
+        Router::new()
+            .route("/api/upload/prepare", post(upload_api::prepare_upload))
+            .route("/api/upload/chunk", post(upload_api::upload_chunk))
+            .route("/api/upload/finalize", post(upload_api::finalize_upload))
+            .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB to accommodate chunk size
+            .with_state(upload_state)
+    });
+
+    // Analyst API routes for browsing survey data (only if database is available)
+    let analyst_routes: Option<Router> = db.as_ref().map(|db_conn| {
+        let analyst_state = Arc::new(analyst_api::AnalystState {
+            db: db_conn.clone(),
+        });
+        Router::new()
+            .route("/admin/api/sessions", get(analyst_api::list_sessions))
+            .route("/admin/api/sessions/:session_id", get(analyst_api::get_session))
+            .route("/admin/api/magic-keys", get(analyst_api::list_magic_keys))
+            .with_state(analyst_state)
+    });
 
     // Client config API routes - public, no auth required (needed by WASM client)
     let client_config_routes = Router::new()
@@ -210,6 +246,22 @@ fn get_make_service(
                 require_auth,
             ));
 
+            // Upload routes with hybrid auth - allow EITHER regular auth OR survey session (Magic Key)
+            let hybrid_upload = upload_routes.map(|routes| {
+                routes.route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    survey_middleware::require_auth_or_survey_session,
+                ))
+            });
+
+            // Analyst routes - require full authentication
+            let protected_analyst = analyst_routes.map(|routes| {
+                routes.route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    require_auth,
+                ))
+            });
+
             // Protected static files - require authentication
             let protected_static = Router::new()
                 .route("/static/{*path}", get(embedded::serve_static))
@@ -227,8 +279,8 @@ fn get_make_service(
                     survey_middleware::require_auth_or_survey_session,
                 ));
 
-            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture session (hybrid auth) + capture global (protected) + tracing session (hybrid auth) + tracing global (protected) + keylog (hybrid auth) + dashboard (protected) + static (protected)
-            Router::new()
+            // Combine: auth routes (public) + public API + public static files + client config (public) + nettest (hybrid auth) + signaling (hybrid auth) + capture session (hybrid auth) + capture global (protected) + tracing session (hybrid auth) + tracing global (protected) + keylog (hybrid auth) + upload (hybrid auth) + analyst (protected) + dashboard (protected) + static (protected)
+            let mut router = Router::new()
                 .nest("/auth", auth_router)
                 .merge(public_api)
                 .merge(client_config_routes)
@@ -243,11 +295,22 @@ fn get_make_service(
                 .merge(protected_tracing_global)
                 .merge(hybrid_keylog)
                 .merge(protected_dashboard)
-                .merge(protected_static)
-                .layer(TraceLayer::new_for_http())
+                .merge(protected_static);
+
+            // Add upload routes if database is available
+            if let Some(upload) = hybrid_upload {
+                router = router.merge(upload);
+            }
+
+            // Add analyst routes if database is available
+            if let Some(analyst) = protected_analyst {
+                router = router.merge(analyst);
+            }
+
+            router.layer(TraceLayer::new_for_http())
         } else {
             tracing::info!("Authentication is disabled or no providers are enabled");
-            Router::new()
+            let mut router = Router::new()
                 .route("/health", get(health_check))
                 .merge(signaling_routes)
                 .merge(dashboard_routes)
@@ -259,12 +322,23 @@ fn get_make_service(
                 .merge(client_config_routes)
                 .route("/", get(embedded::serve_index))
                 .route("/public/{*path}", get(embedded::serve_public))
-                .route("/static/{*path}", get(embedded::serve_static))
-                .layer(TraceLayer::new_for_http())
+                .route("/static/{*path}", get(embedded::serve_static));
+
+            // Add upload routes if database is available
+            if let Some(upload) = upload_routes {
+                router = router.merge(upload);
+            }
+
+            // Add analyst routes if database is available
+            if let Some(analyst) = analyst_routes {
+                router = router.merge(analyst);
+            }
+
+            router.layer(TraceLayer::new_for_http())
         }
     } else {
         tracing::info!("No authentication service configured");
-        Router::new()
+        let mut router = Router::new()
             .route("/health", get(health_check))
             .merge(signaling_routes)
             .merge(dashboard_routes)
@@ -276,8 +350,19 @@ fn get_make_service(
             .merge(client_config_routes)
             .route("/", get(embedded::serve_index))
             .route("/public/{*path}", get(embedded::serve_public))
-            .route("/static/{*path}", get(embedded::serve_static))
-            .layer(TraceLayer::new_for_http())
+            .route("/static/{*path}", get(embedded::serve_static));
+
+        // Add upload routes if database is available
+        if let Some(upload) = upload_routes {
+            router = router.merge(upload);
+        }
+
+        // Add analyst routes if database is available
+        if let Some(analyst) = analyst_routes {
+            router = router.merge(analyst);
+        }
+
+        router.layer(TraceLayer::new_for_http())
     };
 
     app.into_make_service_with_connect_info::<SocketAddr>()
@@ -292,6 +377,8 @@ async fn http_server(
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
     keylog_service: Arc<DtlsKeylogService>,
+    db: Option<DbConnection>,
+    storage_base_path: String,
 ) {
     let srv = get_make_service(
         app_state,
@@ -301,6 +388,8 @@ async fn http_server(
         client_config_state,
         auth_cache,
         keylog_service,
+        db,
+        storage_base_path,
     );
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
@@ -332,6 +421,8 @@ async fn https_server(
     client_config_state: Arc<ClientConfigState>,
     auth_cache: Option<SharedAuthAddressCache>,
     keylog_service: Arc<DtlsKeylogService>,
+    db: Option<DbConnection>,
+    storage_base_path: String,
 ) {
     let srv = get_make_service(
         app_state,
@@ -341,6 +432,8 @@ async fn https_server(
         client_config_state,
         auth_cache,
         keylog_service,
+        db,
+        storage_base_path,
     );
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
@@ -843,6 +936,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
 
+    // Initialize database for survey data persistence
+    let db: Option<DbConnection> = {
+        let db_path = std::path::PathBuf::from(&config.database.path);
+        
+        // Create parent directory if needed
+        if let Some(parent) = db_path.parent() {
+            if !parent.exists() {
+                match std::fs::create_dir_all(parent) {
+                    Ok(_) => tracing::debug!("Created database directory: {:?}", parent),
+                    Err(e) => {
+                        tracing::warn!("Failed to create database directory: {}. Survey features disabled.", e);
+                    }
+                }
+            }
+        }
+        
+        match database::init_database(&db_path) {
+            Ok(conn) => {
+                tracing::info!("Database initialized at {:?}", db_path);
+                Some(conn)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize database: {}. Survey upload features disabled.", e);
+                None
+            }
+        }
+    };
+
+    // Storage path for uploads
+    let storage_base_path = config.storage.base_path.clone();
+    if db.is_some() {
+        tracing::info!("Survey upload storage path: {}", storage_base_path);
+    }
+
     let mut tasks = Vec::new();
 
     if config.server.enable_http {
@@ -854,6 +981,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let client_cfg = client_config_state.clone();
         let auth_cache_clone = auth_cache.clone();
         let keylog_svc = keylog_service.clone();
+        let db_clone = db.clone();
+        let storage_path = storage_base_path.clone();
         tasks.push(tokio::spawn(async move {
             http_server(
                 http_config,
@@ -864,6 +993,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 client_cfg,
                 auth_cache_clone,
                 keylog_svc,
+                db_clone,
+                storage_path,
             )
             .await
         }));
@@ -880,6 +1011,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let client_cfg = client_config_state.clone();
         let auth_cache_clone = auth_cache.clone();
         let keylog_svc = keylog_service.clone();
+        let db_clone = db.clone();
+        let storage_path = storage_base_path.clone();
         tasks.push(tokio::spawn(async move {
             https_server(
                 https_config,
@@ -890,6 +1023,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 client_cfg,
                 auth_cache_clone,
                 keylog_svc,
+                db_clone,
+                storage_path,
             )
             .await
         }));
