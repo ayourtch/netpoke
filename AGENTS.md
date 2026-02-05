@@ -2,6 +2,60 @@
 
 This file captures the knowledge and decisions made during the initial setup and development of NetPoke (formerly WiFi-Verify).
 
+## Issue Fixing Process
+
+**IMPORTANT**: When a user asks to fix something (bugs, issues, problems, or defects), follow this structured troubleshooting process:
+
+### 1. Find and Document the Issue
+
+Before making any code changes, create an issue file following the process in `prompts/find-issues.md`:
+
+1. Investigate and understand the problem thoroughly
+2. Identify the root cause
+3. Create an issue file in `docs/issues/open/` using the next available issue number
+4. Use the naming convention: `NNN-short-description.md` (e.g., `033-broken-traceroute-response.md`)
+5. Document in the issue file:
+   - **Summary**: Brief description of the issue
+   - **Location**: File paths, function names, line numbers
+   - **Current Behavior**: What's happening (the bug)
+   - **Expected Behavior**: What should happen
+   - **Impact**: How this affects users or the system
+   - **Root Cause Analysis**: Why this is happening
+   - **Suggested Implementation**: Proposed fix plan with specific steps
+
+### 2. Fix the Issue
+
+Once the issue is documented, implement the fix following `prompts/fix-issues.md`:
+
+1. Verify the issue still exists before fixing
+2. Make minimal, targeted changes to resolve the issue
+3. Build and test to verify the fix works
+4. Update the issue file with a **Resolution** section documenting:
+   - What changes were made
+   - Which files were modified
+   - How it was verified
+
+### 3. Move the Resolved Issue
+
+After the fix is complete:
+
+```bash
+git mv docs/issues/open/NNN-description.md docs/issues/resolved/
+```
+
+### Why This Process Matters
+
+- **Documentation**: Creates a historical record of issues and their resolutions
+- **Root Cause Analysis**: Ensures problems are understood before being "fixed"
+- **Knowledge Transfer**: Helps future agents understand what went wrong and why
+- **Prevents Regression**: Documented issues make it easier to catch if they return
+
+### Reference Files
+
+- `prompts/find-issues.md`: Detailed guidance for identifying and documenting issues
+- `prompts/fix-issues.md`: Detailed guidance for implementing fixes
+- `docs/issues/README.md`: Complete issue tracking process and file format
+
 ## Project Overview
 
 **NetPoke** is a browser-based network measurement and survey platform that measures end-to-end application-layer network performance. Unlike traditional WiFi survey tools that focus on radio frequency (RF) metrics, NetPoke measures what applications actually experience: latency, jitter, packet loss, path characteristics, and throughput.
