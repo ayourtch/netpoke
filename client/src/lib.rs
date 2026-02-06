@@ -442,7 +442,7 @@ fn should_abort_testing() -> bool {
 }
 
 /// Get current survey session ID
-fn get_survey_session_id() -> String {
+pub(crate) fn get_survey_session_id() -> String {
     SURVEY_SESSION_ID.with(|id| id.borrow().clone())
 }
 
