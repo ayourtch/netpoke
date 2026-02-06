@@ -27,7 +27,7 @@ pub struct AnalystState {
 /// Check if a user has access to a specific magic key
 fn user_has_access(analyst_access: &HashMap<String, Vec<String>>, username: &str, magic_key: &str) -> bool {
     if let Some(allowed_keys) = analyst_access.get(username) {
-        allowed_keys.contains(&"*".to_string()) || allowed_keys.contains(&magic_key.to_string())
+        allowed_keys.iter().any(|k| k == "*" || k == magic_key)
     } else {
         false
     }
@@ -36,7 +36,7 @@ fn user_has_access(analyst_access: &HashMap<String, Vec<String>>, username: &str
 /// Check if a user has wildcard access to all magic keys
 fn user_has_wildcard_access(analyst_access: &HashMap<String, Vec<String>>, username: &str) -> bool {
     if let Some(allowed_keys) = analyst_access.get(username) {
-        allowed_keys.contains(&"*".to_string())
+        allowed_keys.iter().any(|k| k == "*")
     } else {
         false
     }
