@@ -28,3 +28,19 @@ Recordings are listed with metadata only. There are no video player controls, no
 
 ## Created
 2026-02-06
+
+## Resolution
+1. Added `download_recording_video` and `download_recording_sensor` API endpoints to `analyst_api.rs`
+2. Registered new routes at `/admin/api/recordings/{recording_id}/video` and `/admin/api/recordings/{recording_id}/sensor`
+3. Added inline HTML5 video player with play/pause toggle in the admin panel
+4. Added sensor data download button for completed recordings
+5. Added CSS styles for video container, action buttons, and download links
+6. All endpoints include access control (verify user has access to recording's magic key)
+
+### Files Modified
+- `server/src/analyst_api.rs` - Added recording file download endpoints with access control
+- `server/src/main.rs` - Registered new recording routes
+- `server/static/admin/surveys.html` - Added video player, sensor download, and improved UI
+
+## Resolved
+2026-02-06

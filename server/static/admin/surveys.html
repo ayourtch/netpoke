@@ -313,6 +313,69 @@
             margin-top: 2px;
         }
 
+        .recording-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .btn-small {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: opacity 0.2s;
+        }
+
+        .btn-small:hover {
+            opacity: 0.85;
+        }
+
+        .btn-video {
+            background-color: #2196F3;
+        }
+
+        .btn-sensor {
+            background-color: #FF9800;
+        }
+
+        .btn-pcap {
+            background-color: #4CAF50;
+        }
+
+        .btn-keylog {
+            background-color: #9C27B0;
+        }
+
+        .download-links {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+            margin-bottom: 12px;
+        }
+
+        .video-container {
+            margin-top: 8px;
+            margin-bottom: 8px;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .video-container video {
+            width: 100%;
+            max-height: 400px;
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
@@ -668,17 +731,29 @@
                     </div>
                     <div class="detail-item">
                         <label>PCAP</label>
-                        <div class="value">${details.pcap_path
+                        <div class="value">${details.has_pcap
                             ? '<span class="badge badge-green">✓ Available</span>'
                             : '<span class="badge badge-gray">Not captured</span>'}</div>
                     </div>
                     <div class="detail-item">
                         <label>Keylog</label>
-                        <div class="value">${details.keylog_path
+                        <div class="value">${details.has_keylog
                             ? '<span class="badge badge-green">✓ Available</span>'
                             : '<span class="badge badge-gray">Not captured</span>'}</div>
                     </div>
                 </div>`;
+
+            // Download links for PCAP and Keylog
+            if (details.has_pcap || details.has_keylog) {
+                html += '<div class="download-links">';
+                if (details.has_pcap) {
+                    html += `<a class="btn-small btn-pcap" href="/api/capture/download/session?survey_session_id=${encodeURIComponent(details.session_id)}" target="_blank">📦 Download PCAP</a>`;
+                }
+                if (details.has_keylog) {
+                    html += `<a class="btn-small btn-keylog" href="/api/keylog/download/session?survey_session_id=${encodeURIComponent(details.session_id)}" target="_blank">🔑 Download Keylog</a>`;
+                }
+                html += '</div>';
+            }
 
             if (details.user_login) {
                 html += `<p style="font-size: 13px; color: #666; margin-bottom: 12px;">
@@ -699,18 +774,39 @@
 
                     const videoSize = formatBytes(rec.video_size_bytes);
                     const sensorSize = formatBytes(rec.sensor_size_bytes);
+                    const videoUrl = `/admin/api/recordings/${encodeURIComponent(rec.recording_id)}/video`;
+                    const sensorUrl = `/admin/api/recordings/${encodeURIComponent(rec.recording_id)}/sensor`;
+                    const videoPlayerId = `video-${rec.recording_id}`;
 
                     html += `
-                        <div class="recording-item">
-                            <div class="recording-info">
-                                <div class="name">Recording ${i + 1} ${statusBadge}</div>
-                                <div class="meta">
-                                    Video: ${videoSize} | Sensors: ${sensorSize}
-                                    ${rec.completed_at ? ' | Completed: ' + new Date(rec.completed_at).toLocaleString() : ''}
+                        <div class="recording-item" style="flex-direction: column; align-items: stretch;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div class="recording-info">
+                                    <div class="name">Recording ${i + 1} ${statusBadge}</div>
+                                    <div class="meta">
+                                        Video: ${videoSize} | Sensors: ${sensorSize}
+                                        ${rec.completed_at ? ' | Completed: ' + new Date(rec.completed_at).toLocaleString() : ''}
+                                    </div>
+                                    ${rec.user_notes ? `<div class="notes">Notes: ${escapeHtml(rec.user_notes)}</div>` : ''}
+                                    ${rec.device_info_json ? `<div class="meta">Device: ${formatDeviceInfo(rec.device_info_json)}</div>` : ''}
                                 </div>
-                                ${rec.user_notes ? `<div class="notes">Notes: ${escapeHtml(rec.user_notes)}</div>` : ''}
-                                ${rec.device_info_json ? `<div class="meta">Device: ${formatDeviceInfo(rec.device_info_json)}</div>` : ''}
+                                <div class="recording-actions">
+                                    ${rec.upload_status === 'complete' && rec.video_size_bytes > 0
+                                        ? `<button class="btn-small btn-video" onclick="toggleVideo('${videoPlayerId}', '${videoUrl}')">▶ Play Video</button>`
+                                        : ''}
+                                    ${rec.upload_status === 'complete' && rec.sensor_size_bytes > 0
+                                        ? `<a class="btn-small btn-sensor" href="${sensorUrl}">📊 Download Sensors</a>`
+                                        : ''}
+                                </div>
                             </div>
+                            ${rec.upload_status === 'complete' && rec.video_size_bytes > 0
+                                ? `<div class="video-container" id="${videoPlayerId}">
+                                     <video controls preload="none">
+                                       <source src="${videoUrl}" type="video/webm">
+                                       Your browser does not support video playback.
+                                     </video>
+                                   </div>`
+                                : ''}
                         </div>`;
                 });
 
@@ -727,6 +823,22 @@
             loadMagicKeys();
             if (currentMagicKey) {
                 loadSessions(currentMagicKey);
+            }
+        }
+
+        // Toggle video player visibility
+        function toggleVideo(containerId, videoUrl) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (container.style.display === 'block') {
+                // Hide and pause video
+                container.style.display = 'none';
+                const video = container.querySelector('video');
+                if (video) video.pause();
+            } else {
+                // Show video player
+                container.style.display = 'block';
             }
         }
 
