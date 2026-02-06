@@ -155,14 +155,11 @@ fn extract_magic_key_from_session(session_id: &str) -> Option<String> {
     if parts.len() < 4 {
         return None;
     }
-    let magic_key_parts: Vec<String> = parts[1..parts.len() - 2]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    if magic_key_parts.is_empty() {
+    let key_parts = &parts[1..parts.len() - 2];
+    if key_parts.is_empty() {
         return None;
     }
-    Some(magic_key_parts.join("-"))
+    Some(key_parts.join("-"))
 }
 
 /// Check authentication status
