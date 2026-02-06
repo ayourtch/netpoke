@@ -74,6 +74,7 @@ fn get_make_service(
     keylog_service: Arc<DtlsKeylogService>,
     db: Option<DbConnection>,
     storage_base_path: String,
+    analyst_access: std::collections::HashMap<String, Vec<String>>,
 ) -> IntoMakeServiceWithConnectInfo<axum::Router, SocketAddr> {
     // Signaling API routes - these need to be accessible by survey users (Magic Key)
     let signaling_routes = Router::new()
@@ -160,11 +161,13 @@ fn get_make_service(
     let analyst_routes: Option<Router> = db.as_ref().map(|db_conn| {
         let analyst_state = Arc::new(analyst_api::AnalystState {
             db: db_conn.clone(),
+            analyst_access: analyst_access.clone(),
         });
         Router::new()
             .route("/admin/api/sessions", get(analyst_api::list_sessions))
             .route("/admin/api/sessions/{session_id}", get(analyst_api::get_session))
             .route("/admin/api/magic-keys", get(analyst_api::list_magic_keys))
+            .route("/admin/api/allowed-keys", get(analyst_api::get_allowed_keys))
             .with_state(analyst_state)
     });
 
@@ -263,6 +266,14 @@ fn get_make_service(
                 ))
             });
 
+            // Admin surveys page - require full authentication
+            let admin_surveys_route = Router::new()
+                .route("/admin/surveys", get(serve_admin_surveys))
+                .route_layer(middleware::from_fn_with_state(
+                    auth_state.clone(),
+                    require_auth,
+                ));
+
             // Protected static files - require authentication
             let protected_static = Router::new()
                 .route("/static/{*path}", get(embedded::serve_static))
@@ -297,7 +308,8 @@ fn get_make_service(
                 .merge(hybrid_keylog)
                 .merge(protected_dashboard)
                 .merge(protected_static)
-                .merge(hybrid_upload); // Upload routes always registered
+                .merge(hybrid_upload) // Upload routes always registered
+                .merge(admin_surveys_route);
 
             // Add analyst routes if database is available
             if let Some(analyst) = protected_analyst {
@@ -320,7 +332,8 @@ fn get_make_service(
                 .route("/", get(embedded::serve_index))
                 .route("/public/{*path}", get(embedded::serve_public))
                 .route("/static/{*path}", get(embedded::serve_static))
-                .merge(upload_routes); // Upload routes always registered
+                .merge(upload_routes) // Upload routes always registered
+                .route("/admin/surveys", get(serve_admin_surveys));
 
             // Add analyst routes if database is available
             if let Some(analyst) = analyst_routes {
@@ -344,7 +357,8 @@ fn get_make_service(
             .route("/", get(embedded::serve_index))
             .route("/public/{*path}", get(embedded::serve_public))
             .route("/static/{*path}", get(embedded::serve_static))
-            .merge(upload_routes); // Upload routes always registered
+            .merge(upload_routes) // Upload routes always registered
+            .route("/admin/surveys", get(serve_admin_surveys));
 
         // Add analyst routes if database is available
         if let Some(analyst) = analyst_routes {
@@ -368,6 +382,7 @@ async fn http_server(
     keylog_service: Arc<DtlsKeylogService>,
     db: Option<DbConnection>,
     storage_base_path: String,
+    analyst_access: std::collections::HashMap<String, Vec<String>>,
 ) {
     let srv = get_make_service(
         app_state,
@@ -379,6 +394,7 @@ async fn http_server(
         keylog_service,
         db,
         storage_base_path,
+        analyst_access,
     );
 
     let ip_addr = config.host.parse::<std::net::IpAddr>().unwrap_or_else(|e| {
@@ -412,6 +428,7 @@ async fn https_server(
     keylog_service: Arc<DtlsKeylogService>,
     db: Option<DbConnection>,
     storage_base_path: String,
+    analyst_access: std::collections::HashMap<String, Vec<String>>,
 ) {
     let srv = get_make_service(
         app_state,
@@ -423,6 +440,7 @@ async fn https_server(
         keylog_service,
         db,
         storage_base_path,
+        analyst_access,
     );
 
     let cert_path = config.ssl_cert_path.as_deref().unwrap_or("server.crt");
@@ -994,6 +1012,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let keylog_svc = keylog_service.clone();
         let db_clone = db.clone();
         let storage_path = storage_base_path.clone();
+        let analyst_access_clone = config.analyst_access.clone();
         tasks.push(tokio::spawn(async move {
             http_server(
                 http_config,
@@ -1006,6 +1025,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keylog_svc,
                 db_clone,
                 storage_path,
+                analyst_access_clone,
             )
             .await
         }));
@@ -1024,6 +1044,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let keylog_svc = keylog_service.clone();
         let db_clone = db.clone();
         let storage_path = storage_base_path.clone();
+        let analyst_access_clone = config.analyst_access.clone();
         tasks.push(tokio::spawn(async move {
             https_server(
                 https_config,
@@ -1036,6 +1057,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keylog_svc,
                 db_clone,
                 storage_path,
+                analyst_access_clone,
             )
             .await
         }));
@@ -1068,6 +1090,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Serve the nettest.html file from embedded assets
 async fn serve_nettest_html() -> impl axum::response::IntoResponse {
     embedded::embedded_file_response("nettest.html")
+}
+
+/// Serve the admin surveys page from embedded assets
+async fn serve_admin_surveys() -> impl axum::response::IntoResponse {
+    embedded::embedded_file_response("admin/surveys.html")
 }
 
 /// Serve files from the static/lib directory

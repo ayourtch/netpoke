@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NetPoke - Survey Data Browser</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header with logo */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            padding: 16px 24px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #2196F3 0%, #FF9800 100%);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+
+        .logo h1 {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .header-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .user-badge {
+            background-color: rgba(33, 150, 243, 0.1);
+            color: #2196F3;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 13px;
+        }
+
+        /* Controls bar */
+        .controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+            padding: 16px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .controls label {
+            font-weight: 600;
+            font-size: 14px;
+            color: #555;
+        }
+
+        .controls select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 200px;
+            background: white;
+        }
+
+        .controls button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+
+        .btn-primary {
+            background-color: #2196F3;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background-color: #1976D2;
+        }
+
+        /* Status/info messages */
+        .status-bar {
+            padding: 12px 16px;
+            background: white;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: 500;
+            color: #666;
+            border-left: 4px solid #2196F3;
+        }
+
+        .status-bar.success {
+            border-left-color: #4CAF50;
+            color: #2e7d32;
+        }
+
+        .status-bar.warning {
+            border-left-color: #FF9800;
+            color: #e65100;
+        }
+
+        .status-bar.error {
+            border-left-color: #f44336;
+            color: #c62828;
+        }
+
+        /* Session cards */
+        .session-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+
+        .session-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: #fafafa;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .session-header:hover {
+            background: #f0f7ff;
+        }
+
+        .session-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .session-title h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            font-family: monospace;
+        }
+
+        .session-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .session-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .session-body {
+            padding: 20px;
+            display: none;
+        }
+
+        .session-body.expanded {
+            display: block;
+        }
+
+        .session-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .detail-item {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .detail-item label {
+            display: block;
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #999;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .detail-item .value {
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge-green {
+            background-color: rgba(76, 175, 80, 0.1);
+            color: #4CAF50;
+        }
+
+        .badge-gray {
+            background-color: rgba(158, 158, 158, 0.1);
+            color: #9E9E9E;
+        }
+
+        .badge-blue {
+            background-color: rgba(33, 150, 243, 0.1);
+            color: #2196F3;
+        }
+
+        .badge-orange {
+            background-color: rgba(255, 152, 0, 0.1);
+            color: #FF9800;
+        }
+
+        /* Recordings section */
+        .recordings-section {
+            margin-top: 16px;
+        }
+
+        .recordings-section h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .recording-item {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .recording-info {
+            flex: 1;
+        }
+
+        .recording-info .name {
+            font-weight: 600;
+            font-size: 13px;
+            font-family: monospace;
+        }
+
+        .recording-info .meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .recording-info .notes {
+            font-size: 12px;
+            color: #888;
+            font-style: italic;
+            margin-top: 2px;
+        }
+
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+
+        .empty-state h3 {
+            font-size: 18px;
+            margin-bottom: 8px;
+            color: #666;
+        }
+
+        .empty-state p {
+            font-size: 14px;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 12px;
+            margin-top: 24px;
+        }
+
+        .footer a {
+            color: #2196F3;
+            text-decoration: none;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Loading spinner */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #ddd;
+            border-top-color: #2196F3;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .session-header {
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .session-meta {
+                flex-wrap: wrap;
+            }
+
+            .session-details {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16c-3.86 0-7-3.14-7-7s3.14-7 7-7 7 3.14 7 7-3.14 7-7 7z"/>
+                        <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zm0 8c-1.65 0-3-1.35-3-3s1.35-3 3-3 3 1.35 3 3-1.35 3-3 3z"/>
+                        <circle cx="12" cy="12" r="1.5"/>
+                    </svg>
+                </div>
+                <h1>Survey Data Browser</h1>
+            </div>
+            <div class="header-info">
+                <span id="user-info"></span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <label for="magic-key-select">Magic Key:</label>
+            <select id="magic-key-select">
+                <option value="">-- Select a Magic Key --</option>
+            </select>
+            <button class="btn-primary" onclick="refreshData()">🔄 Refresh</button>
+        </div>
+
+        <div id="status-bar" class="status-bar" style="display: none;"></div>
+
+        <div id="sessions-container">
+            <div class="empty-state">
+                <h3>Select a Magic Key</h3>
+                <p>Choose a magic key from the dropdown above to view survey sessions.</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            <a href="/static/dashboard.html">Live Dashboard</a> |
+            <a href="/static/nettest.html">Run Network Test</a> |
+            <a href="/">Home</a>
+        </div>
+    </div>
+
+    <script>
+        let currentMagicKey = '';
+        let userInfo = null;
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadUserInfo();
+            await loadMagicKeys();
+        });
+
+        // Load current user info and access rights
+        async function loadUserInfo() {
+            try {
+                const [authResp, accessResp] = await Promise.all([
+                    fetch('/api/auth/status'),
+                    fetch('/admin/api/allowed-keys')
+                ]);
+
+                if (authResp.ok) {
+                    const authData = await authResp.json();
+                    if (authData.authenticated && authData.user) {
+                        document.getElementById('user-info').innerHTML =
+                            `<span class="user-badge">👤 ${escapeHtml(authData.user.name)}</span>`;
+                    }
+                }
+
+                if (accessResp.ok) {
+                    userInfo = await accessResp.json();
+                }
+            } catch (e) {
+                console.warn('Could not load user info:', e);
+            }
+        }
+
+        // Load available magic keys
+        async function loadMagicKeys() {
+            const select = document.getElementById('magic-key-select');
+
+            try {
+                const resp = await fetch('/admin/api/magic-keys');
+                if (!resp.ok) {
+                    showStatus('Failed to load magic keys: ' + resp.statusText, 'error');
+                    return;
+                }
+
+                const keys = await resp.json();
+
+                // Clear and repopulate
+                select.innerHTML = '<option value="">-- Select a Magic Key --</option>';
+
+                if (keys.length === 0) {
+                    select.innerHTML += '<option value="" disabled>No survey data available</option>';
+                    showStatus('No survey sessions found in the database.', 'warning');
+                    return;
+                }
+
+                keys.forEach(k => {
+                    const opt = document.createElement('option');
+                    opt.value = k.magic_key;
+                    opt.textContent = `${k.magic_key} (${k.session_count} sessions, ${k.total_recordings} recordings)`;
+                    select.appendChild(opt);
+                });
+
+                // Auto-select if there's only one key
+                if (keys.length === 1) {
+                    select.value = keys[0].magic_key;
+                    loadSessions(keys[0].magic_key);
+                }
+            } catch (e) {
+                showStatus('Error loading magic keys: ' + e.message, 'error');
+            }
+        }
+
+        // Handle magic key selection change
+        document.getElementById('magic-key-select').addEventListener('change', (e) => {
+            const key = e.target.value;
+            if (key) {
+                loadSessions(key);
+            } else {
+                document.getElementById('sessions-container').innerHTML = `
+                    <div class="empty-state">
+                        <h3>Select a Magic Key</h3>
+                        <p>Choose a magic key from the dropdown above to view survey sessions.</p>
+                    </div>`;
+            }
+        });
+
+        // Load sessions for a magic key
+        async function loadSessions(magicKey) {
+            currentMagicKey = magicKey;
+            const container = document.getElementById('sessions-container');
+            container.innerHTML = '<div class="loading">Loading sessions</div>';
+            hideStatus();
+
+            try {
+                const resp = await fetch(`/admin/api/sessions?magic_key=${encodeURIComponent(magicKey)}`);
+                if (resp.status === 403) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <h3>Access Denied</h3>
+                            <p>You do not have permission to view sessions for this magic key.</p>
+                        </div>`;
+                    return;
+                }
+                if (!resp.ok) {
+                    showStatus('Failed to load sessions: ' + resp.statusText, 'error');
+                    container.innerHTML = '';
+                    return;
+                }
+
+                const sessions = await resp.json();
+
+                if (sessions.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <h3>No Sessions Found</h3>
+                            <p>No survey sessions found for magic key "${escapeHtml(magicKey)}".</p>
+                        </div>`;
+                    return;
+                }
+
+                showStatus(`Found ${sessions.length} session(s) for ${escapeHtml(magicKey)}`, 'success');
+                container.innerHTML = sessions.map(s => renderSessionCard(s)).join('');
+            } catch (e) {
+                showStatus('Error loading sessions: ' + e.message, 'error');
+                container.innerHTML = '';
+            }
+        }
+
+        // Render a session card
+        function renderSessionCard(session) {
+            const startDate = new Date(session.start_time).toLocaleString();
+            const lastUpdate = new Date(session.last_update_time).toLocaleString();
+            const duration = formatDuration(session.last_update_time - session.start_time);
+            const pcapBadge = session.has_pcap
+                ? '<span class="badge badge-green">✓ PCAP</span>'
+                : '<span class="badge badge-gray">No PCAP</span>';
+            const keylogBadge = session.has_keylog
+                ? '<span class="badge badge-green">✓ Keylog</span>'
+                : '<span class="badge badge-gray">No Keylog</span>';
+
+            return `
+                <div class="session-card" id="card-${session.session_id}">
+                    <div class="session-header" onclick="toggleSession('${session.session_id}')">
+                        <div class="session-title">
+                            <h3>${escapeHtml(session.session_id.substring(0, 8))}…</h3>
+                            ${pcapBadge}
+                            ${keylogBadge}
+                            ${session.recording_count > 0
+                                ? `<span class="badge badge-blue">📹 ${session.recording_count} recording(s)</span>`
+                                : ''}
+                        </div>
+                        <div class="session-meta">
+                            <span>📅 ${startDate}</span>
+                            <span>⏱ ${duration}</span>
+                        </div>
+                    </div>
+                    <div class="session-body" id="body-${session.session_id}">
+                        <div class="loading">Loading details</div>
+                    </div>
+                </div>`;
+        }
+
+        // Toggle session details
+        async function toggleSession(sessionId) {
+            const body = document.getElementById('body-' + sessionId);
+            if (body.classList.contains('expanded')) {
+                body.classList.remove('expanded');
+                return;
+            }
+
+            body.classList.add('expanded');
+
+            // Load details if not already loaded
+            if (body.querySelector('.loading')) {
+                try {
+                    const resp = await fetch(`/admin/api/sessions/${encodeURIComponent(sessionId)}`);
+                    if (!resp.ok) {
+                        body.innerHTML = '<div class="status-bar error">Failed to load session details.</div>';
+                        return;
+                    }
+
+                    const details = await resp.json();
+                    body.innerHTML = renderSessionDetails(details);
+                } catch (e) {
+                    body.innerHTML = `<div class="status-bar error">Error: ${escapeHtml(e.message)}</div>`;
+                }
+            }
+        }
+
+        // Render session details
+        function renderSessionDetails(details) {
+            const startDate = new Date(details.start_time).toLocaleString();
+            const lastUpdate = new Date(details.last_update_time).toLocaleString();
+            const duration = formatDuration(details.last_update_time - details.start_time);
+
+            let html = `
+                <div class="session-details">
+                    <div class="detail-item">
+                        <label>Session ID</label>
+                        <div class="value" style="font-family: monospace; font-size: 12px; word-break: break-all;">
+                            ${escapeHtml(details.session_id)}
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <label>Magic Key</label>
+                        <div class="value">${escapeHtml(details.magic_key)}</div>
+                    </div>
+                    <div class="detail-item">
+                        <label>Start Time</label>
+                        <div class="value">${startDate}</div>
+                    </div>
+                    <div class="detail-item">
+                        <label>Last Update</label>
+                        <div class="value">${lastUpdate}</div>
+                    </div>
+                    <div class="detail-item">
+                        <label>Duration</label>
+                        <div class="value">${duration}</div>
+                    </div>
+                    <div class="detail-item">
+                        <label>Metrics</label>
+                        <div class="value">${details.metric_count} data points</div>
+                    </div>
+                    <div class="detail-item">
+                        <label>PCAP</label>
+                        <div class="value">${details.pcap_path
+                            ? '<span class="badge badge-green">✓ Available</span>'
+                            : '<span class="badge badge-gray">Not captured</span>'}</div>
+                    </div>
+                    <div class="detail-item">
+                        <label>Keylog</label>
+                        <div class="value">${details.keylog_path
+                            ? '<span class="badge badge-green">✓ Available</span>'
+                            : '<span class="badge badge-gray">Not captured</span>'}</div>
+                    </div>
+                </div>`;
+
+            if (details.user_login) {
+                html += `<p style="font-size: 13px; color: #666; margin-bottom: 12px;">
+                    User: <strong>${escapeHtml(details.user_login)}</strong></p>`;
+            }
+
+            // Recordings section
+            if (details.recordings && details.recordings.length > 0) {
+                html += `<div class="recordings-section">
+                    <h4>📹 Recordings (${details.recordings.length})</h4>`;
+
+                details.recordings.forEach((rec, i) => {
+                    const statusBadge = rec.upload_status === 'complete'
+                        ? '<span class="badge badge-green">✓ Complete</span>'
+                        : rec.upload_status === 'uploading'
+                            ? '<span class="badge badge-orange">⏳ Uploading</span>'
+                            : `<span class="badge badge-gray">${escapeHtml(rec.upload_status)}</span>`;
+
+                    const videoSize = formatBytes(rec.video_size_bytes);
+                    const sensorSize = formatBytes(rec.sensor_size_bytes);
+
+                    html += `
+                        <div class="recording-item">
+                            <div class="recording-info">
+                                <div class="name">Recording ${i + 1} ${statusBadge}</div>
+                                <div class="meta">
+                                    Video: ${videoSize} | Sensors: ${sensorSize}
+                                    ${rec.completed_at ? ' | Completed: ' + new Date(rec.completed_at).toLocaleString() : ''}
+                                </div>
+                                ${rec.user_notes ? `<div class="notes">Notes: ${escapeHtml(rec.user_notes)}</div>` : ''}
+                                ${rec.device_info_json ? `<div class="meta">Device: ${formatDeviceInfo(rec.device_info_json)}</div>` : ''}
+                            </div>
+                        </div>`;
+                });
+
+                html += '</div>';
+            } else {
+                html += '<p style="font-size: 13px; color: #999; margin-top: 12px;">No recordings uploaded for this session.</p>';
+            }
+
+            return html;
+        }
+
+        // Refresh data
+        function refreshData() {
+            loadMagicKeys();
+            if (currentMagicKey) {
+                loadSessions(currentMagicKey);
+            }
+        }
+
+        // Utility functions
+        function showStatus(message, type) {
+            const bar = document.getElementById('status-bar');
+            bar.textContent = message;
+            bar.className = 'status-bar ' + (type || '');
+            bar.style.display = 'block';
+        }
+
+        function hideStatus() {
+            document.getElementById('status-bar').style.display = 'none';
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatDuration(ms) {
+            if (!ms || ms < 0) return '0s';
+            const totalSeconds = Math.floor(ms / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+
+            if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+            if (minutes > 0) return `${minutes}m ${seconds}s`;
+            return `${seconds}s`;
+        }
+
+        function formatBytes(bytes) {
+            if (!bytes || bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            let size = bytes;
+            while (size >= 1024 && i < units.length - 1) {
+                size /= 1024;
+                i++;
+            }
+            return `${size.toFixed(1)} ${units[i]}`;
+        }
+
+        function formatDeviceInfo(json) {
+            try {
+                const info = JSON.parse(json);
+                const parts = [];
+                if (info.browser) parts.push(info.browser);
+                if (info.os) parts.push(info.os);
+                return escapeHtml(parts.join(' on ') || json);
+            } catch {
+                return escapeHtml(json);
+            }
+        }
+    </script>
+</body>
+</html>
