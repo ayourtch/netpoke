@@ -139,7 +139,7 @@ fn get_make_service(
         )
         .route("/api/keylog/stats", get(dtls_keylog_api::keylog_stats))
         .route("/api/keylog/clear", post(dtls_keylog_api::clear_keylog))
-        .with_state(keylog_service);
+        .with_state(keylog_service.clone());
 
     // Upload API routes for survey recordings - always registered
     // (endpoints check for database availability and return helpful errors)
@@ -162,12 +162,16 @@ fn get_make_service(
         let analyst_state = Arc::new(analyst_api::AnalystState {
             db: db_conn.clone(),
             analyst_access: analyst_access.clone(),
+            capture_service: Some(capture_service.clone()),
+            keylog_service: Some(keylog_service.clone()),
         });
         Router::new()
             .route("/admin/api/sessions", get(analyst_api::list_sessions))
             .route("/admin/api/sessions/{session_id}", get(analyst_api::get_session))
             .route("/admin/api/magic-keys", get(analyst_api::list_magic_keys))
             .route("/admin/api/allowed-keys", get(analyst_api::get_allowed_keys))
+            .route("/admin/api/recordings/{recording_id}/video", get(analyst_api::download_recording_video))
+            .route("/admin/api/recordings/{recording_id}/sensor", get(analyst_api::download_recording_sensor))
             .with_state(analyst_state)
     });
 

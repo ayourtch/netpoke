@@ -121,6 +121,11 @@ impl KeylogStorage {
         self.sessions.get(survey_session_id)
     }
 
+    /// Check if a session exists in the storage
+    fn has_session(&self, survey_session_id: &str) -> bool {
+        self.sessions.contains_key(survey_session_id)
+    }
+
     /// Clear all stored keylogs
     fn clear(&mut self) {
         self.sessions.clear();
@@ -193,6 +198,11 @@ impl DtlsKeylogService {
             .get_entries(survey_session_id)
             .cloned()
             .unwrap_or_default()
+    }
+
+    /// Check if keylog entries exist for a survey session
+    pub fn has_keylogs_for_session(&self, survey_session_id: &str) -> bool {
+        self.storage.read().has_session(survey_session_id)
     }
 
     /// Generate SSLKEYLOGFILE content for a survey session
