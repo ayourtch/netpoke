@@ -30,7 +30,10 @@ pub fn init_database(db_path: &Path) -> Result<DbConnection, Box<dyn std::error:
     conn.execute("PRAGMA foreign_keys = ON", [])?;
 
     // Set WAL mode for better concurrency
-    conn.execute("PRAGMA journal_mode = WAL", [])?;
+    // Note: pragma_update must be used instead of execute because
+    // PRAGMA journal_mode returns a result row, and rusqlite's execute()
+    // returns an error for statements that return rows.
+    conn.pragma_update(None, "journal_mode", "WAL")?;
 
     // Run migrations
     let schema_sql = include_str!("../migrations/001_survey_upload_schema.sql");
