@@ -1,5 +1,5 @@
 use parking_lot::RwLock;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 /// Packet capture module using libpcap for tcpdump-like traffic capture
 ///
@@ -185,6 +185,8 @@ pub struct SessionRegistry {
     address_to_session: HashMap<SocketAddr, String>,
     /// Map of server port to survey_session_id for cases where we only know the server port
     server_port_to_session: HashMap<u16, Vec<String>>,
+    /// Set of all registered survey session IDs for quick lookup
+    registered_session_ids: HashSet<String>,
 }
 
 impl SessionRegistry {
@@ -211,6 +213,10 @@ impl SessionRegistry {
         );
         self.address_to_session
             .insert(client_addr, survey_session_id.clone());
+
+        // Track session ID for quick existence check
+        self.registered_session_ids
+            .insert(survey_session_id.clone());
 
         // Also register by server port for ICMP matching (skip if port is 0)
         if server_port > 0 {
@@ -248,6 +254,11 @@ impl SessionRegistry {
         self.server_port_to_session
             .get(&port)
             .and_then(|v| v.first())
+    }
+
+    /// Check if a survey session ID has been registered
+    pub fn has_session(&self, survey_session_id: &str) -> bool {
+        self.registered_session_ids.contains(survey_session_id)
     }
 }
 
@@ -312,6 +323,11 @@ impl PacketCaptureService {
     /// Unregister a session from the capture service
     pub fn unregister_session(&self, client_addr: &SocketAddr) {
         self.session_registry.write().unregister(client_addr);
+    }
+
+    /// Check if a survey session has been registered with the capture service
+    pub fn has_session_registered(&self, survey_session_id: &str) -> bool {
+        self.session_registry.read().has_session(survey_session_id)
     }
 
     /// Add a captured packet (called from capture thread)
