@@ -24,3 +24,16 @@ Add a helper function `extract_magic_key_from_session_id()` that parses the surv
 
 ## Created
 2026-02-06
+
+## Resolution
+Added `extract_magic_key_from_session_id()` function to `server/src/data_channels.rs` that parses the survey session ID format (`survey_{magic_key}_{timestamp}_{uuid}`) to extract the magic key. When the client doesn't provide a magic key in the `StartSurveySession` message, the server now extracts it from the session ID. The session's `magic_key` field is also set when extracted.
+
+### Files Modified
+- `server/src/data_channels.rs` - Added extraction function and updated StartSurveySession handler
+
+### Verified
+- Code compiles successfully
+- Unit tests pass for magic key extraction
+
+## Resolved
+2026-02-06
