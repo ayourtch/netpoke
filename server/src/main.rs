@@ -168,6 +168,7 @@ fn get_make_service(
         Router::new()
             .route("/admin/api/sessions", get(analyst_api::list_sessions))
             .route("/admin/api/sessions/{session_id}", get(analyst_api::get_session))
+            .route("/admin/api/sessions/{session_id}/metrics", get(analyst_api::get_session_metrics))
             .route("/admin/api/magic-keys", get(analyst_api::list_magic_keys))
             .route("/admin/api/allowed-keys", get(analyst_api::get_allowed_keys))
             .route("/admin/api/recordings/{recording_id}/video", get(analyst_api::download_recording_video))
