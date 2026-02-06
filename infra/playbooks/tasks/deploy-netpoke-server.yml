@@ -4,6 +4,14 @@
   debug:
     msg: "This is a debug message {{ server_name }}"
 
+- name: Ensure config directory exists
+  file:
+    path: /etc/netpoke
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
 - name: Ensure data directory exists for database and uploads
   file:
     path: "{{ item }}"
@@ -14,6 +22,14 @@
   loop:
       - /var/lib/netpoke
       - /var/lib/netpoke/uploads
+
+- name: Copy server config file
+  copy:
+    src: files/server_config.toml.src
+    dest: /etc/netpoke/server_config.toml
+    owner: root
+    group: root
+    mode: '0644'
 
 - name: Copy netpoke with owner and permissions
   ansible.builtin.copy:
