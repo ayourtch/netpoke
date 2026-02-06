@@ -163,7 +163,7 @@ fn get_make_service(
         });
         Router::new()
             .route("/admin/api/sessions", get(analyst_api::list_sessions))
-            .route("/admin/api/sessions/:session_id", get(analyst_api::get_session))
+            .route("/admin/api/sessions/{session_id}", get(analyst_api::get_session))
             .route("/admin/api/magic-keys", get(analyst_api::list_magic_keys))
             .with_state(analyst_state)
     });
