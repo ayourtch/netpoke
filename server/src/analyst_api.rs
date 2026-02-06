@@ -548,7 +548,7 @@ async fn serve_recording_file(
 }
 
 /// Parse an HTTP Range header value like "bytes=0-1023" or "bytes=1024-" or "bytes=-500"
-/// Returns Some((start, end)) inclusive byte range, or None if unparseable.
+/// Returns Some((start, end)) inclusive byte range, or None if unparsable.
 fn parse_byte_range(range_str: &str, total_size: usize) -> Option<(usize, usize)> {
     let range_str = range_str.trim();
     if !range_str.starts_with("bytes=") {
