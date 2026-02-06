@@ -6,6 +6,8 @@
 //! usernames to lists of magic keys they can view. Use `["*"]` for wildcard access.
 
 use crate::database::DbConnection;
+use crate::dtls_keylog::DtlsKeylogService;
+use crate::packet_capture::PacketCaptureService;
 use axum::{
     extract::{Extension, Path, Query, State},
     http::StatusCode,
@@ -22,6 +24,8 @@ use std::sync::Arc;
 pub struct AnalystState {
     pub db: DbConnection,
     pub analyst_access: HashMap<String, Vec<String>>,
+    pub capture_service: Option<Arc<PacketCaptureService>>,
+    pub keylog_service: Option<Arc<DtlsKeylogService>>,
 }
 
 /// Check if a user has access to a specific magic key
@@ -87,46 +91,64 @@ pub async fn list_sessions(
         }
     }
 
-    let db = state.db.lock().await;
+    let mut result: Vec<SessionSummary> = {
+        let db = state.db.lock().await;
 
-    let mut stmt = db
-        .prepare(
-            "SELECT s.session_id, s.magic_key, s.start_time, s.last_update_time,
-                    s.pcap_path, s.keylog_path,
-                    COUNT(r.recording_id) as recording_count
-             FROM survey_sessions s
-             LEFT JOIN recordings r ON s.session_id = r.session_id AND r.deleted = 0
-             WHERE s.magic_key = ? AND s.deleted = 0
-             GROUP BY s.session_id
-             ORDER BY s.start_time DESC",
-        )
-        .map_err(|e| {
-            tracing::error!("Failed to prepare sessions query: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        let mut stmt = db
+            .prepare(
+                "SELECT s.session_id, s.magic_key, s.start_time, s.last_update_time,
+                        s.pcap_path, s.keylog_path,
+                        COUNT(r.recording_id) as recording_count
+                 FROM survey_sessions s
+                 LEFT JOIN recordings r ON s.session_id = r.session_id AND r.deleted = 0
+                 WHERE s.magic_key = ? AND s.deleted = 0
+                 GROUP BY s.session_id
+                 ORDER BY s.start_time DESC",
+            )
+            .map_err(|e| {
+                tracing::error!("Failed to prepare sessions query: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-    let sessions = stmt
-        .query_map(params![&query.magic_key], |row| {
-            Ok(SessionSummary {
-                session_id: row.get(0)?,
-                magic_key: row.get(1)?,
-                start_time: row.get(2)?,
-                last_update_time: row.get(3)?,
-                has_pcap: row.get::<_, Option<String>>(4)?.is_some(),
-                has_keylog: row.get::<_, Option<String>>(5)?.is_some(),
-                recording_count: row.get(6)?,
+        let sessions = stmt
+            .query_map(params![&query.magic_key], |row| {
+                Ok(SessionSummary {
+                    session_id: row.get(0)?,
+                    magic_key: row.get(1)?,
+                    start_time: row.get(2)?,
+                    last_update_time: row.get(3)?,
+                    has_pcap: row.get::<_, Option<String>>(4)?.is_some(),
+                    has_keylog: row.get::<_, Option<String>>(5)?.is_some(),
+                    recording_count: row.get(6)?,
+                })
             })
-        })
-        .map_err(|e| {
-            tracing::error!("Failed to query sessions: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+            .map_err(|e| {
+                tracing::error!("Failed to query sessions: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
-    let result: Result<Vec<_>, _> = sessions.collect();
-    Ok(Json(result.map_err(|e| {
-        tracing::error!("Failed to collect sessions: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?))
+        sessions.collect::<Result<Vec<_>, _>>().map_err(|e| {
+            tracing::error!("Failed to collect sessions: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+    };
+
+    // Check in-memory services for PCAP/keylog availability
+    for session in &mut result {
+        if !session.has_pcap {
+            if let Some(ref capture_service) = state.capture_service {
+                session.has_pcap = capture_service.has_session_registered(&session.session_id);
+            }
+        }
+        if !session.has_keylog {
+            if let Some(ref keylog_service) = state.keylog_service {
+                session.has_keylog =
+                    keylog_service.has_keylogs_for_session(&session.session_id);
+            }
+        }
+    }
+
+    Ok(Json(result))
 }
 
 // ============================================================================
@@ -143,6 +165,8 @@ pub struct SessionDetails {
     pub last_update_time: i64,
     pub pcap_path: Option<String>,
     pub keylog_path: Option<String>,
+    pub has_pcap: bool,
+    pub has_keylog: bool,
     pub recordings: Vec<RecordingSummary>,
     pub metric_count: i32,
 }
@@ -165,85 +189,104 @@ pub async fn get_session(
     session_data: Option<Extension<SessionData>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionDetails>, StatusCode> {
-    let db = state.db.lock().await;
+    let (session, recordings, metric_count) = {
+        let db = state.db.lock().await;
 
-    // Get session info
-    let session: (String, Option<String>, i64, i64, Option<String>, Option<String>) = db
-        .query_row(
-            "SELECT magic_key, user_login, start_time, last_update_time, pcap_path, keylog_path
-             FROM survey_sessions WHERE session_id = ? AND deleted = 0",
-            params![&session_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
-            },
-        )
-        .map_err(|e| {
-            tracing::warn!("Session not found: {} - {}", session_id, e);
-            StatusCode::NOT_FOUND
-        })?;
+        // Get session info
+        let session: (String, Option<String>, i64, i64, Option<String>, Option<String>) = db
+            .query_row(
+                "SELECT magic_key, user_login, start_time, last_update_time, pcap_path, keylog_path
+                 FROM survey_sessions WHERE session_id = ? AND deleted = 0",
+                params![&session_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .map_err(|e| {
+                tracing::warn!("Session not found: {} - {}", session_id, e);
+                StatusCode::NOT_FOUND
+            })?;
 
-    // Check access control for the session's magic key
-    if let Some(Extension(session_info)) = &session_data {
-        if !user_has_access(&state.analyst_access, &session_info.handle, &session.0) {
-            tracing::warn!(
-                "User {} denied access to session {} (magic key {})",
-                session_info.handle,
-                session_id,
-                session.0
-            );
-            return Err(StatusCode::FORBIDDEN);
+        // Check access control for the session's magic key
+        if let Some(Extension(session_info)) = &session_data {
+            if !user_has_access(&state.analyst_access, &session_info.handle, &session.0) {
+                tracing::warn!(
+                    "User {} denied access to session {} (magic key {})",
+                    session_info.handle,
+                    session_id,
+                    session.0
+                );
+                return Err(StatusCode::FORBIDDEN);
+            }
+        }
+
+        // Get recordings
+        let mut recordings_stmt = db
+            .prepare(
+                "SELECT recording_id, video_size_bytes, sensor_size_bytes, upload_status,
+                        user_notes, device_info_json, completed_at
+                 FROM recordings WHERE session_id = ? AND deleted = 0",
+            )
+            .map_err(|e| {
+                tracing::error!("Failed to prepare recordings query: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        let recordings: Vec<RecordingSummary> = recordings_stmt
+            .query_map(params![&session_id], |row| {
+                Ok(RecordingSummary {
+                    recording_id: row.get(0)?,
+                    video_size_bytes: row.get(1)?,
+                    sensor_size_bytes: row.get(2)?,
+                    upload_status: row.get(3)?,
+                    user_notes: row.get(4)?,
+                    device_info_json: row.get(5)?,
+                    completed_at: row.get(6)?,
+                })
+            })
+            .map_err(|e| {
+                tracing::error!("Failed to query recordings: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                tracing::error!("Failed to collect recordings: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+        // Get metric count
+        let metric_count: i32 = db
+            .query_row(
+                "SELECT COUNT(*) FROM survey_metrics WHERE session_id = ? AND deleted = 0",
+                params![&session_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        (session, recordings, metric_count)
+    };
+
+    // Check data availability from DB paths and in-memory services
+    let mut has_pcap = session.4.is_some();
+    let mut has_keylog = session.5.is_some();
+
+    if !has_pcap {
+        if let Some(ref capture_service) = state.capture_service {
+            has_pcap = capture_service.has_session_registered(&session_id);
         }
     }
-
-    // Get recordings
-    let mut recordings_stmt = db
-        .prepare(
-            "SELECT recording_id, video_size_bytes, sensor_size_bytes, upload_status,
-                    user_notes, device_info_json, completed_at
-             FROM recordings WHERE session_id = ? AND deleted = 0",
-        )
-        .map_err(|e| {
-            tracing::error!("Failed to prepare recordings query: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let recordings: Vec<RecordingSummary> = recordings_stmt
-        .query_map(params![&session_id], |row| {
-            Ok(RecordingSummary {
-                recording_id: row.get(0)?,
-                video_size_bytes: row.get(1)?,
-                sensor_size_bytes: row.get(2)?,
-                upload_status: row.get(3)?,
-                user_notes: row.get(4)?,
-                device_info_json: row.get(5)?,
-                completed_at: row.get(6)?,
-            })
-        })
-        .map_err(|e| {
-            tracing::error!("Failed to query recordings: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| {
-            tracing::error!("Failed to collect recordings: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    // Get metric count
-    let metric_count: i32 = db
-        .query_row(
-            "SELECT COUNT(*) FROM survey_metrics WHERE session_id = ? AND deleted = 0",
-            params![&session_id],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
+    if !has_keylog {
+        if let Some(ref keylog_service) = state.keylog_service {
+            has_keylog = keylog_service.has_keylogs_for_session(&session_id);
+        }
+    }
 
     Ok(Json(SessionDetails {
         session_id: session_id.clone(),
@@ -253,6 +296,8 @@ pub async fn get_session(
         last_update_time: session.3,
         pcap_path: session.4,
         keylog_path: session.5,
+        has_pcap,
+        has_keylog,
         recordings,
         metric_count,
     }))
@@ -364,4 +409,109 @@ pub async fn get_allowed_keys(
         has_wildcard,
         allowed_keys,
     }))
+}
+
+// ============================================================================
+// Recording File Download Endpoints
+// ============================================================================
+
+use axum::{
+    http::header,
+    response::{IntoResponse, Response},
+};
+
+/// Serve a recording's video file for inline playback
+pub async fn download_recording_video(
+    State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
+    Path(recording_id): Path<String>,
+) -> Result<Response, StatusCode> {
+    serve_recording_file(&state, &session_data, &recording_id, "video").await
+}
+
+/// Serve a recording's sensor data file for download
+pub async fn download_recording_sensor(
+    State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
+    Path(recording_id): Path<String>,
+) -> Result<Response, StatusCode> {
+    serve_recording_file(&state, &session_data, &recording_id, "sensor").await
+}
+
+/// Internal helper to serve a recording file (video or sensor) with access control
+async fn serve_recording_file(
+    state: &AnalystState,
+    session_data: &Option<Extension<SessionData>>,
+    recording_id: &str,
+    file_type: &str,
+) -> Result<Response, StatusCode> {
+    let db = state.db.lock().await;
+
+    // Get recording details and the associated session's magic key
+    let query = match file_type {
+        "video" => "SELECT r.video_path, s.magic_key FROM recordings r
+                    JOIN survey_sessions s ON r.session_id = s.session_id
+                    WHERE r.recording_id = ? AND r.deleted = 0 AND s.deleted = 0",
+        "sensor" => "SELECT r.sensor_path, s.magic_key FROM recordings r
+                     JOIN survey_sessions s ON r.session_id = s.session_id
+                     WHERE r.recording_id = ? AND r.deleted = 0 AND s.deleted = 0",
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    let (file_path, magic_key): (String, String) = db
+        .query_row(query, params![recording_id], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .map_err(|_| {
+            tracing::warn!("Recording not found: {}", recording_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check access control
+    if let Some(Extension(session_info)) = session_data {
+        if !user_has_access(&state.analyst_access, &session_info.handle, &magic_key) {
+            tracing::warn!(
+                "User {} denied access to recording {} (magic key {})",
+                session_info.handle,
+                recording_id,
+                magic_key
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    // Drop DB lock before file I/O
+    drop(db);
+
+    // Read the file
+    let data = tokio::fs::read(&file_path).await.map_err(|e| {
+        tracing::error!("Failed to read file {}: {}", file_path, e);
+        StatusCode::NOT_FOUND
+    })?;
+
+    let (content_type, filename) = match file_type {
+        "video" => ("video/webm", format!("{}.webm", recording_id)),
+        "sensor" => (
+            "application/json",
+            format!("{}_sensors.json", recording_id),
+        ),
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                if file_type == "video" {
+                    format!("inline; filename=\"{}\"", filename)
+                } else {
+                    format!("attachment; filename=\"{}\"", filename)
+                },
+            ),
+        ],
+        data,
+    )
+        .into_response())
 }

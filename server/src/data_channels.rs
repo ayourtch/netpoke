@@ -202,26 +202,38 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                 *survey_id = start_survey_msg.survey_session_id.clone();
             }
 
-            // Store the magic key if provided
+            // Store the magic key if provided, or extract from session ID
             if let Some(ref magic_key) = start_survey_msg.magic_key {
                 let mut mk = session.magic_key.write().await;
                 *mk = Some(magic_key.clone());
+            } else if let Some(extracted) = extract_magic_key_from_session_id(
+                &start_survey_msg.survey_session_id,
+            ) {
+                let mut mk = session.magic_key.write().await;
+                *mk = Some(extracted);
             }
 
             // Create database session record if session manager is available
             if let Some(session_manager) = &session.session_manager {
                 // Magic key is required for proper database tracking
-                // If not provided, log a warning but still create the session with a placeholder
-                let magic_key = match start_survey_msg.magic_key.as_deref() {
-                    Some(key) => key,
+                // If not provided by client, extract from the survey session ID format:
+                // "survey_{magic_key}_{timestamp}_{uuid}" (hyphens encoded as underscores)
+                let magic_key_owned = match start_survey_msg.magic_key.as_deref() {
+                    Some(key) => key.to_string(),
                     None => {
-                        tracing::warn!(
-                            "StartSurveySession message missing magic_key for session {}, using 'unknown'",
-                            start_survey_msg.survey_session_id
-                        );
-                        "unknown"
+                        extract_magic_key_from_session_id(
+                            &start_survey_msg.survey_session_id,
+                        )
+                        .unwrap_or_else(|| {
+                            tracing::warn!(
+                                "Could not extract magic_key from session ID {}, using 'unknown'",
+                                start_survey_msg.survey_session_id
+                            );
+                            "unknown".to_string()
+                        })
                     }
                 };
+                let magic_key = &magic_key_owned;
                 // TODO: Extract user_login from authentication context when available
                 // This is deferred to a future issue as it requires passing auth state through the data channel flow
                 if let Err(e) = session_manager
@@ -684,4 +696,79 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
 
 async fn handle_testprobe_message(session: Arc<ClientSession>, msg: DataChannelMessage) {
     measurements::handle_testprobe_packet(session, msg).await;
+}
+
+/// Extract magic key from survey session ID format: "survey_{magic_key}_{timestamp}_{uuid}"
+///
+/// Magic key hyphens are encoded as underscores in the session ID, so we reconstruct
+/// them by joining the middle parts with hyphens.
+fn extract_magic_key_from_session_id(session_id: &str) -> Option<String> {
+    if !session_id.starts_with("survey_") {
+        return None;
+    }
+    let parts: Vec<&str> = session_id.split('_').collect();
+    if parts.len() < 4 {
+        return None;
+    }
+    // Parts: ["survey", key_part1, ..., key_partN, timestamp, uuid]
+    // Verify the second-to-last part is a valid timestamp (numeric)
+    let timestamp_idx = parts.len() - 2;
+    if parts[timestamp_idx].parse::<u64>().is_err() {
+        return None;
+    }
+    let magic_key_parts = &parts[1..timestamp_idx];
+    if magic_key_parts.is_empty() {
+        return None;
+    }
+    Some(magic_key_parts.join("-"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_magic_key_simple() {
+        let session_id = "survey_MYKEY_1234567890_a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        assert_eq!(
+            extract_magic_key_from_session_id(session_id),
+            Some("MYKEY".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_magic_key_with_hyphens() {
+        // Magic key "SURVEY-001" is encoded as "SURVEY_001" in the session ID
+        let session_id = "survey_SURVEY_001_1234567890_a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        assert_eq!(
+            extract_magic_key_from_session_id(session_id),
+            Some("SURVEY-001".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_magic_key_multi_part() {
+        let session_id =
+            "survey_MY_LONG_KEY_1234567890_a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        assert_eq!(
+            extract_magic_key_from_session_id(session_id),
+            Some("MY-LONG-KEY".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_magic_key_invalid_format() {
+        assert_eq!(extract_magic_key_from_session_id("not_a_survey_id"), None);
+        assert_eq!(extract_magic_key_from_session_id("survey_"), None);
+        assert_eq!(extract_magic_key_from_session_id(""), None);
+    }
+
+    #[test]
+    fn test_extract_magic_key_no_timestamp() {
+        // If the second-to-last part is not numeric, it should fail
+        assert_eq!(
+            extract_magic_key_from_session_id("survey_KEY_notanumber_uuid"),
+            None
+        );
+    }
 }
