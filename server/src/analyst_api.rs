@@ -416,17 +416,18 @@ pub async fn get_allowed_keys(
 // ============================================================================
 
 use axum::{
-    http::header,
+    http::{header, HeaderMap},
     response::{IntoResponse, Response},
 };
 
-/// Serve a recording's video file for inline playback
+/// Serve a recording's video file for inline playback (supports HTTP Range requests)
 pub async fn download_recording_video(
     State(state): State<Arc<AnalystState>>,
     session_data: Option<Extension<SessionData>>,
+    headers: HeaderMap,
     Path(recording_id): Path<String>,
 ) -> Result<Response, StatusCode> {
-    serve_recording_file(&state, &session_data, &recording_id, "video").await
+    serve_recording_file(&state, &session_data, &recording_id, "video", Some(&headers)).await
 }
 
 /// Serve a recording's sensor data file for download
@@ -435,15 +436,17 @@ pub async fn download_recording_sensor(
     session_data: Option<Extension<SessionData>>,
     Path(recording_id): Path<String>,
 ) -> Result<Response, StatusCode> {
-    serve_recording_file(&state, &session_data, &recording_id, "sensor").await
+    serve_recording_file(&state, &session_data, &recording_id, "sensor", None).await
 }
 
 /// Internal helper to serve a recording file (video or sensor) with access control
+/// Supports HTTP Range requests for video files to enable proper browser playback.
 async fn serve_recording_file(
     state: &AnalystState,
     session_data: &Option<Extension<SessionData>>,
     recording_id: &str,
     file_type: &str,
+    headers: Option<&HeaderMap>,
 ) -> Result<Response, StatusCode> {
     let db = state.db.lock().await;
 
@@ -489,6 +492,8 @@ async fn serve_recording_file(
         StatusCode::NOT_FOUND
     })?;
 
+    let total_size = data.len();
+
     let (content_type, filename) = match file_type {
         "video" => ("video/webm", format!("{}.webm", recording_id)),
         "sensor" => (
@@ -498,20 +503,194 @@ async fn serve_recording_file(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
 
-    Ok((
-        StatusCode::OK,
-        [
-            (header::CONTENT_TYPE, content_type.to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                if file_type == "video" {
-                    format!("inline; filename=\"{}\"", filename)
-                } else {
-                    format!("attachment; filename=\"{}\"", filename)
-                },
-            ),
-        ],
-        data,
-    )
+    let disposition = if file_type == "video" {
+        format!("inline; filename=\"{}\"", filename)
+    } else {
+        format!("attachment; filename=\"{}\"", filename)
+    };
+
+    // Handle HTTP Range requests for video files
+    if let Some(hdrs) = headers {
+        if let Some(range_header) = hdrs.get(header::RANGE) {
+            if let Ok(range_str) = range_header.to_str() {
+                if let Some((start, end)) = parse_byte_range(range_str, total_size) {
+                    let content_length = end - start + 1;
+                    let body_data = data[start..=end].to_vec();
+
+                    return Ok(Response::builder()
+                        .status(StatusCode::PARTIAL_CONTENT)
+                        .header(header::CONTENT_TYPE, content_type)
+                        .header(header::CONTENT_LENGTH, content_length.to_string())
+                        .header(header::CONTENT_DISPOSITION, &disposition)
+                        .header(header::ACCEPT_RANGES, "bytes")
+                        .header(
+                            header::CONTENT_RANGE,
+                            format!("bytes {}-{}/{}", start, end, total_size),
+                        )
+                        .body(axum::body::Body::from(body_data))
+                        .unwrap()
+                        .into_response());
+                }
+            }
+        }
+    }
+
+    // Full file response (no Range header or non-video)
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::CONTENT_LENGTH, total_size.to_string())
+        .header(header::CONTENT_DISPOSITION, &disposition)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(axum::body::Body::from(data))
+        .unwrap()
         .into_response())
+}
+
+/// Parse an HTTP Range header value like "bytes=0-1023" or "bytes=1024-" or "bytes=-500"
+/// Returns Some((start, end)) inclusive byte range, or None if unparseable.
+fn parse_byte_range(range_str: &str, total_size: usize) -> Option<(usize, usize)> {
+    let range_str = range_str.trim();
+    if !range_str.starts_with("bytes=") {
+        return None;
+    }
+    let range_spec = &range_str["bytes=".len()..];
+    // Only handle the first range in a multi-range request
+    let range_spec = range_spec.split(',').next()?.trim();
+
+    if let Some(suffix) = range_spec.strip_prefix('-') {
+        // Suffix range: last N bytes
+        let suffix_len: usize = suffix.parse().ok()?;
+        if suffix_len == 0 || suffix_len > total_size {
+            return None;
+        }
+        Some((total_size - suffix_len, total_size - 1))
+    } else if let Some((start_str, end_str)) = range_spec.split_once('-') {
+        let start: usize = start_str.parse().ok()?;
+        if start >= total_size {
+            return None;
+        }
+        let end = if end_str.is_empty() {
+            total_size - 1
+        } else {
+            let end: usize = end_str.parse().ok()?;
+            end.min(total_size - 1)
+        };
+        if start > end {
+            return None;
+        }
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
+// ============================================================================
+// Session Metrics Endpoint
+// ============================================================================
+
+/// A single metric data point for charting
+#[derive(Debug, Serialize)]
+pub struct MetricEntry {
+    pub timestamp_ms: i64,
+    pub source: String,
+    pub conn_id: Option<String>,
+    pub direction: Option<String>,
+    pub delay_p50_ms: Option<f64>,
+    pub delay_p99_ms: Option<f64>,
+    pub delay_min_ms: Option<f64>,
+    pub delay_max_ms: Option<f64>,
+    pub jitter_p50_ms: Option<f64>,
+    pub jitter_p99_ms: Option<f64>,
+    pub rtt_p50_ms: Option<f64>,
+    pub rtt_p99_ms: Option<f64>,
+    pub loss_rate: Option<f64>,
+    pub reorder_rate: Option<f64>,
+    pub probe_count: Option<i32>,
+    pub baseline_delay_ms: Option<f64>,
+}
+
+/// Get metrics for a session (for charting latency, jitter, loss over time)
+pub async fn get_session_metrics(
+    State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Vec<MetricEntry>>, StatusCode> {
+    let db = state.db.lock().await;
+
+    // First check the session exists and get the magic key for access control
+    let magic_key: String = db
+        .query_row(
+            "SELECT magic_key FROM survey_sessions WHERE session_id = ? AND deleted = 0",
+            params![&session_id],
+            |row| row.get(0),
+        )
+        .map_err(|_| {
+            tracing::warn!("Session not found for metrics: {}", session_id);
+            StatusCode::NOT_FOUND
+        })?;
+
+    // Check access control
+    if let Some(Extension(session_info)) = &session_data {
+        if !user_has_access(&state.analyst_access, &session_info.handle, &magic_key) {
+            tracing::warn!(
+                "User {} denied access to metrics for session {} (magic key {})",
+                session_info.handle,
+                session_id,
+                magic_key
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    let mut stmt = db
+        .prepare(
+            "SELECT timestamp_ms, source, conn_id, direction,
+                    delay_p50_ms, delay_p99_ms, delay_min_ms, delay_max_ms,
+                    jitter_p50_ms, jitter_p99_ms,
+                    rtt_p50_ms, rtt_p99_ms,
+                    loss_rate, reorder_rate, probe_count, baseline_delay_ms
+             FROM survey_metrics
+             WHERE session_id = ? AND deleted = 0
+             ORDER BY timestamp_ms ASC",
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to prepare metrics query: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let metrics = stmt
+        .query_map(params![&session_id], |row| {
+            Ok(MetricEntry {
+                timestamp_ms: row.get(0)?,
+                source: row.get(1)?,
+                conn_id: row.get(2)?,
+                direction: row.get(3)?,
+                delay_p50_ms: row.get(4)?,
+                delay_p99_ms: row.get(5)?,
+                delay_min_ms: row.get(6)?,
+                delay_max_ms: row.get(7)?,
+                jitter_p50_ms: row.get(8)?,
+                jitter_p99_ms: row.get(9)?,
+                rtt_p50_ms: row.get(10)?,
+                rtt_p99_ms: row.get(11)?,
+                loss_rate: row.get(12)?,
+                reorder_rate: row.get(13)?,
+                probe_count: row.get(14)?,
+                baseline_delay_ms: row.get(15)?,
+            })
+        })
+        .map_err(|e| {
+            tracing::error!("Failed to query metrics: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let result: Vec<MetricEntry> = metrics
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| {
+            tracing::error!("Failed to collect metrics: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(Json(result))
 }

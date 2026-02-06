@@ -376,6 +376,36 @@
             max-height: 400px;
         }
 
+        /* Metrics chart section */
+        .metrics-section {
+            margin-top: 16px;
+        }
+
+        .metrics-section h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+        }
+
+        .chart-container {
+            background: white;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 16px;
+            margin-top: 8px;
+            display: none;
+        }
+
+        .chart-container canvas {
+            width: 100% !important;
+            max-height: 350px;
+        }
+
+        .btn-chart {
+            background-color: #673AB7;
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
@@ -462,6 +492,9 @@
             }
         }
     </style>
+    <script src="/static/lib/chart.umd.js"></script>
+    <script src="/static/lib/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="/static/lib/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -752,7 +785,14 @@
                 if (details.has_keylog) {
                     html += `<a class="btn-small btn-keylog" href="/api/keylog/download/session?survey_session_id=${encodeURIComponent(details.session_id)}" target="_blank">🔑 Download Keylog</a>`;
                 }
+                if (details.metric_count > 0) {
+                    html += `<button class="btn-small btn-chart" onclick="toggleMetricsChart('${details.session_id}')">📈 Latency Chart</button>`;
+                }
                 html += '</div>';
+            } else if (details.metric_count > 0) {
+                html += `<div class="download-links">
+                    <button class="btn-small btn-chart" onclick="toggleMetricsChart('${details.session_id}')">📈 Latency Chart</button>
+                </div>`;
             }
 
             if (details.user_login) {
@@ -815,6 +855,16 @@
                 html += '<p style="font-size: 13px; color: #999; margin-top: 12px;">No recordings uploaded for this session.</p>';
             }
 
+            // Metrics chart container (hidden by default, loaded on demand)
+            if (details.metric_count > 0) {
+                const chartId = `chart-${details.session_id}`;
+                html += `<div class="metrics-section">
+                    <div class="chart-container" id="${chartId}">
+                        <canvas id="canvas-${details.session_id}"></canvas>
+                    </div>
+                </div>`;
+            }
+
             return html;
         }
 
@@ -840,6 +890,199 @@
                 // Show video player
                 container.style.display = 'block';
             }
+        }
+
+        // Track active chart instances for cleanup
+        const activeCharts = {};
+
+        // Toggle metrics chart for a session
+        async function toggleMetricsChart(sessionId) {
+            const containerId = `chart-${sessionId}`;
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (container.style.display === 'block') {
+                container.style.display = 'none';
+                return;
+            }
+
+            container.style.display = 'block';
+
+            // If chart already loaded, just show it
+            if (activeCharts[sessionId]) return;
+
+            container.innerHTML = '<div class="loading" style="padding: 20px;">Loading metrics</div>';
+
+            try {
+                const resp = await fetch(`/admin/api/sessions/${encodeURIComponent(sessionId)}/metrics`);
+                if (!resp.ok) {
+                    container.innerHTML = '<p style="color: #c62828; padding: 12px;">Failed to load metrics.</p>';
+                    return;
+                }
+
+                const metrics = await resp.json();
+                if (metrics.length === 0) {
+                    container.innerHTML = '<p style="color: #999; padding: 12px;">No metric data available.</p>';
+                    return;
+                }
+
+                container.innerHTML = `<canvas id="canvas-${sessionId}"></canvas>`;
+                renderMetricsChart(sessionId, metrics);
+            } catch (e) {
+                container.innerHTML = `<p style="color: #c62828; padding: 12px;">Error: ${escapeHtml(e.message)}</p>`;
+            }
+        }
+
+        // Render Chart.js latency chart for a session's metrics
+        function renderMetricsChart(sessionId, metrics) {
+            const canvas = document.getElementById(`canvas-${sessionId}`);
+            if (!canvas) return;
+
+            // Group metrics by source+direction
+            const groups = {};
+            metrics.forEach(m => {
+                const key = `${m.source || 'unknown'}${m.direction ? ' ' + m.direction : ''}`;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(m);
+            });
+
+            const colors = {
+                'server c2s': { delay: '#2196F3', jitter: '#90CAF9', loss: '#1565C0' },
+                'server s2c': { delay: '#FF9800', jitter: '#FFCC80', loss: '#E65100' },
+                'client c2s': { delay: '#4CAF50', jitter: '#A5D6A7', loss: '#2E7D32' },
+                'client s2c': { delay: '#9C27B0', jitter: '#CE93D8', loss: '#6A1B9A' },
+            };
+            const defaultColors = { delay: '#607D8B', jitter: '#B0BEC5', loss: '#37474F' };
+
+            const datasets = [];
+            Object.keys(groups).sort().forEach(key => {
+                const data = groups[key];
+                const c = colors[key] || defaultColors;
+
+                // Delay P50
+                if (data.some(d => d.delay_p50_ms != null)) {
+                    datasets.push({
+                        label: `${key} delay p50 (ms)`,
+                        data: data.map(d => ({ x: d.timestamp_ms, y: d.delay_p50_ms })),
+                        borderColor: c.delay,
+                        backgroundColor: c.delay + '20',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.2,
+                        yAxisID: 'y',
+                    });
+                }
+
+                // Delay P99
+                if (data.some(d => d.delay_p99_ms != null)) {
+                    datasets.push({
+                        label: `${key} delay p99 (ms)`,
+                        data: data.map(d => ({ x: d.timestamp_ms, y: d.delay_p99_ms })),
+                        borderColor: c.delay,
+                        backgroundColor: c.delay + '10',
+                        borderWidth: 1,
+                        borderDash: [4, 2],
+                        pointRadius: 0,
+                        tension: 0.2,
+                        yAxisID: 'y',
+                    });
+                }
+
+                // Jitter P50
+                if (data.some(d => d.jitter_p50_ms != null)) {
+                    datasets.push({
+                        label: `${key} jitter p50 (ms)`,
+                        data: data.map(d => ({ x: d.timestamp_ms, y: d.jitter_p50_ms })),
+                        borderColor: c.jitter,
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        tension: 0.2,
+                        yAxisID: 'y',
+                        hidden: true,
+                    });
+                }
+
+                // Loss rate
+                if (data.some(d => d.loss_rate != null)) {
+                    datasets.push({
+                        label: `${key} loss (%)`,
+                        data: data.map(d => ({ x: d.timestamp_ms, y: d.loss_rate != null ? d.loss_rate * 100 : null })),
+                        borderColor: c.loss,
+                        backgroundColor: c.loss + '30',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        tension: 0.2,
+                        yAxisID: 'y2',
+                        hidden: true,
+                    });
+                }
+            });
+
+            const ctx = canvas.getContext('2d');
+            activeCharts[sessionId] = new Chart(ctx, {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false,
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                tooltipFormat: 'HH:mm:ss',
+                                displayFormats: { second: 'HH:mm:ss', minute: 'HH:mm' },
+                            },
+                            title: { display: true, text: 'Time' },
+                        },
+                        y: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { display: true, text: 'Delay / Jitter (ms)' },
+                            beginAtZero: true,
+                        },
+                        y2: {
+                            type: 'linear',
+                            position: 'right',
+                            title: { display: true, text: 'Loss (%)' },
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { drawOnChartArea: false },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { usePointStyle: true, boxWidth: 8, font: { size: 11 } },
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) {
+                                    if (items.length > 0) {
+                                        return new Date(items[0].parsed.x).toLocaleTimeString();
+                                    }
+                                    return '';
+                                },
+                            },
+                        },
+                        zoom: {
+                            pan: { enabled: true, mode: 'x' },
+                            zoom: {
+                                wheel: { enabled: true },
+                                pinch: { enabled: true },
+                                mode: 'x',
+                            },
+                        },
+                    },
+                },
+            });
+
+            // Set canvas height
+            canvas.parentElement.style.height = '380px';
         }
 
         // Utility functions
