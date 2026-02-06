@@ -870,6 +870,13 @@
             background: #AF52DE;
         }
 
+        .session-id-label {
+            font-family: monospace;
+            font-size: 11px;
+            color: #aaa;
+            word-break: break-all;
+        }
+
         /* Upload progress styles */
         .upload-progress {
             margin-top: 8px;
@@ -3070,6 +3077,7 @@
                                                 <div class="data"><strong>Duration:</strong> ${rec.metadata.duration.toFixed(1)}s</div>
                                                 <div class="data"><strong>Frames:</strong> ${rec.metadata.frameCount}</div>
                                                 <div class="data"><strong>Size:</strong> ${sizeInMB} MB (video) + ${sensorSizeKB} KB (sensors)</div>
+                                                ${rec.metadata.survey_session_id ? `<div class="data"><strong>Session:</strong> <span class="session-id-label">${rec.metadata.survey_session_id}</span></div>` : ''}
                                                 ${notes ? `<div class="recording-notes">"${notes}"</div>` : ''}
                                             </div>
                                             <div class="recording-actions">
@@ -3294,10 +3302,10 @@
                         return;
                     }
 
-                    // Check if we have a survey session ID
-                    const surveySessionId = window.currentSurveySessionId;
+                    // Use session ID stored in recording metadata (preferred), fall back to current active session
+                    const surveySessionId = (recording.metadata && recording.metadata.survey_session_id) || window.currentSurveySessionId;
                     if (!surveySessionId) {
-                        alert('No active survey session. Please start a survey before uploading.');
+                        alert('No survey session ID associated with this recording and no active survey session. Please start a survey before uploading.');
                         return;
                     }
 

@@ -419,6 +419,12 @@ impl RecorderState {
             None
         };
         
+        // Get the current survey session ID so it's saved with the recording
+        let survey_session_id = {
+            let id = crate::get_survey_session_id();
+            if id.is_empty() { None } else { Some(id) }
+        };
+
         let metadata = RecordingMetadata {
             frame_count: self.frame_count,
             duration,
@@ -434,6 +440,7 @@ impl RecorderState {
                 None
             },
             test_metadata,
+            survey_session_id,
         };
 
         // Generate unique ID
