@@ -59,6 +59,8 @@ pub struct RecordingMetadata {
     pub chart_type: Option<String>,
     #[serde(default)]
     pub test_metadata: Option<serde_json::Value>,
+    #[serde(default)]
+    pub survey_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
