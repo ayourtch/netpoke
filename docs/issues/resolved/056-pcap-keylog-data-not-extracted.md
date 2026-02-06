@@ -30,3 +30,20 @@ The analyst API should check the in-memory capture and keylog services for data 
 
 ## Created
 2026-02-06
+
+## Resolution
+1. Added `has_keylogs_for_session()` to `DtlsKeylogService` and `has_session_registered()` to `PacketCaptureService` for efficient availability checks
+2. Added `capture_service` and `keylog_service` to `AnalystState`
+3. Updated `list_sessions` and `get_session` API handlers to check in-memory services for PCAP/keylog availability
+4. Added `has_pcap` and `has_keylog` fields to `SessionDetails` response
+5. Added download links for PCAP and keylog data in the admin panel
+
+### Files Modified
+- `server/src/dtls_keylog.rs` - Added `has_keylogs_for_session()` and `has_session()` methods
+- `server/src/packet_capture.rs` - Added `registered_session_ids` HashSet and `has_session_registered()` method
+- `server/src/analyst_api.rs` - Updated `AnalystState`, `list_sessions`, `get_session`
+- `server/src/main.rs` - Pass services to AnalystState, clone keylog_service before move
+- `server/static/admin/surveys.html` - Added PCAP/keylog download links
+
+## Resolved
+2026-02-06
