@@ -46,3 +46,22 @@ Phase 3 of the implementation plan (Analyst UI) was not completed. The backend A
 6. Create `server/static/admin/surveys.html` with survey browsing UI
 7. Add route for the surveys page in `main.rs`
 8. Add navigation link from dashboard to surveys page
+
+## Resolution
+
+All suggested changes were implemented:
+
+### Files Modified
+- **`server/src/config.rs`** - Added `analyst_access: HashMap<String, Vec<String>>` field to `Config` with default `{"admin": ["*"]}` for wildcard admin access
+- **`server/src/analyst_api.rs`** - Added `analyst_access` to `AnalystState`, added access control checks to `list_sessions`, `get_session`, and `list_magic_keys` endpoints, added new `get_allowed_keys` endpoint
+- **`server/src/main.rs`** - Passed `analyst_access` config to `AnalystState`, added `/admin/surveys` route with `require_auth` protection, added `serve_admin_surveys` handler
+- **`server/static/dashboard.html`** - Added "Survey Data Browser" navigation link
+- **`server_config.toml.example`** - Added `[analyst_access]` section with documentation
+- **`infra/playbooks/files/server_config.toml.src`** - Added `[analyst_access]` with admin wildcard access
+
+### Files Created
+- **`server/static/admin/surveys.html`** - Full survey data browser page with magic key dropdown, session listing, expandable session details, recording display
+
+### Verification
+- `cargo check --package netpoke-server` passes with no new errors
+- All 27 pre-existing warnings are unchanged
