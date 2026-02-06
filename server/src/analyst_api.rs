@@ -2,21 +2,49 @@
 //!
 //! Provides endpoints for analysts to list and view survey sessions, recordings,
 //! and metrics for analysis and export.
+//! Access is controlled via the `[analyst_access]` configuration which maps
+//! usernames to lists of magic keys they can view. Use `["*"]` for wildcard access.
 
 use crate::database::DbConnection;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     Json,
 };
+use netpoke_auth::SessionData;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// State shared by analyst API handlers
 #[derive(Clone)]
 pub struct AnalystState {
     pub db: DbConnection,
+    pub analyst_access: HashMap<String, Vec<String>>,
+}
+
+/// Check if a user has access to a specific magic key
+fn user_has_access(analyst_access: &HashMap<String, Vec<String>>, username: &str, magic_key: &str) -> bool {
+    if let Some(allowed_keys) = analyst_access.get(username) {
+        allowed_keys.contains(&"*".to_string()) || allowed_keys.contains(&magic_key.to_string())
+    } else {
+        false
+    }
+}
+
+/// Check if a user has wildcard access to all magic keys
+fn user_has_wildcard_access(analyst_access: &HashMap<String, Vec<String>>, username: &str) -> bool {
+    if let Some(allowed_keys) = analyst_access.get(username) {
+        allowed_keys.contains(&"*".to_string())
+    } else {
+        false
+    }
+}
+
+/// Get the list of specific magic keys a user can access (empty if wildcard)
+fn user_allowed_keys(analyst_access: &HashMap<String, Vec<String>>, username: &str) -> Vec<String> {
+    analyst_access.get(username).cloned().unwrap_or_default()
 }
 
 // ============================================================================
@@ -44,8 +72,21 @@ pub struct SessionSummary {
 /// List sessions by magic key
 pub async fn list_sessions(
     State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
     Query(query): Query<ListSessionsQuery>,
 ) -> Result<Json<Vec<SessionSummary>>, StatusCode> {
+    // Check access control
+    if let Some(Extension(session)) = &session_data {
+        if !user_has_access(&state.analyst_access, &session.handle, &query.magic_key) {
+            tracing::warn!(
+                "User {} denied access to magic key {}",
+                session.handle,
+                query.magic_key
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
     let db = state.db.lock().await;
 
     let mut stmt = db
@@ -121,6 +162,7 @@ pub struct RecordingSummary {
 /// Get session details including recordings
 pub async fn get_session(
     State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionDetails>, StatusCode> {
     let db = state.db.lock().await;
@@ -146,6 +188,19 @@ pub async fn get_session(
             tracing::warn!("Session not found: {} - {}", session_id, e);
             StatusCode::NOT_FOUND
         })?;
+
+    // Check access control for the session's magic key
+    if let Some(Extension(session_info)) = &session_data {
+        if !user_has_access(&state.analyst_access, &session_info.handle, &session.0) {
+            tracing::warn!(
+                "User {} denied access to session {} (magic key {})",
+                session_info.handle,
+                session_id,
+                session.0
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
 
     // Get recordings
     let mut recordings_stmt = db
@@ -216,9 +271,10 @@ pub struct MagicKeySummary {
     pub latest_session_time: Option<i64>,
 }
 
-/// List all magic keys with session counts
+/// List all magic keys with session counts (filtered by user access)
 pub async fn list_magic_keys(
     State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
 ) -> Result<Json<Vec<MagicKeySummary>>, StatusCode> {
     let db = state.db.lock().await;
 
@@ -253,9 +309,59 @@ pub async fn list_magic_keys(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let result: Result<Vec<_>, _> = keys.collect();
-    Ok(Json(result.map_err(|e| {
-        tracing::error!("Failed to collect magic keys: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?))
+    let all_keys: Vec<MagicKeySummary> = keys
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| {
+            tracing::error!("Failed to collect magic keys: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    // Filter by user access if session data is available
+    let filtered = if let Some(Extension(session)) = &session_data {
+        if user_has_wildcard_access(&state.analyst_access, &session.handle) {
+            all_keys
+        } else {
+            let allowed = user_allowed_keys(&state.analyst_access, &session.handle);
+            all_keys
+                .into_iter()
+                .filter(|k| allowed.contains(&k.magic_key))
+                .collect()
+        }
+    } else {
+        all_keys
+    };
+
+    Ok(Json(filtered))
+}
+
+// ============================================================================
+// Get User's Allowed Magic Keys Endpoint
+// ============================================================================
+
+/// Response for the allowed keys endpoint
+#[derive(Debug, Serialize)]
+pub struct AllowedKeysResponse {
+    pub username: String,
+    pub has_wildcard: bool,
+    pub allowed_keys: Vec<String>,
+}
+
+/// Get the current user's allowed magic keys from configuration
+pub async fn get_allowed_keys(
+    State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
+) -> Result<Json<AllowedKeysResponse>, StatusCode> {
+    let username = session_data
+        .as_ref()
+        .map(|Extension(s)| s.handle.clone())
+        .unwrap_or_default();
+
+    let has_wildcard = user_has_wildcard_access(&state.analyst_access, &username);
+    let allowed_keys = user_allowed_keys(&state.analyst_access, &username);
+
+    Ok(Json(AllowedKeysResponse {
+        username,
+        has_wildcard,
+        allowed_keys,
+    }))
 }

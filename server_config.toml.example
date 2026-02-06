@@ -230,3 +230,13 @@ max_video_size_bytes = 1073741824
 # Upload chunk size in bytes (default: 1 MB)
 # Smaller chunks use more requests but allow finer-grained resume
 chunk_size_bytes = 1048576
+
+# Analyst Access Control
+# Maps usernames to lists of magic keys they can view in the survey browser.
+# Use ["*"] to grant access to all magic keys.
+# By default, the "admin" user has access to all magic keys.
+[analyst_access]
+admin = ["*"]
+# Example: grant specific users access to specific magic keys
+# "analyst@example.com" = ["SURVEY-001", "SURVEY-002"]
+# "viewer@example.com" = ["SURVEY-001"]

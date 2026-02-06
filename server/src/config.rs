@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use netpoke_auth::AuthConfig;
 
 // Re-export iperf3 config for convenience
@@ -25,6 +26,8 @@ pub struct Config {
     pub database: DatabaseConfig,
     #[serde(default)]
     pub storage: StorageConfig,
+    #[serde(default = "default_analyst_access")]
+    pub analyst_access: HashMap<String, Vec<String>>,
 }
 
 /// Tracing buffer configuration
@@ -248,6 +251,12 @@ impl Default for ServerConfig {
     }
 }
 
+fn default_analyst_access() -> HashMap<String, Vec<String>> {
+    let mut map = HashMap::new();
+    map.insert("admin".to_string(), vec!["*".to_string()]);
+    map
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -261,6 +270,7 @@ impl Default for Config {
             iperf3: Iperf3Config::default(),
             database: DatabaseConfig::default(),
             storage: StorageConfig::default(),
+            analyst_access: default_analyst_access(),
         }
     }
 }
