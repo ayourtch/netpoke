@@ -40,6 +40,9 @@ pub struct AuthStatusResponse {
     user: Option<UserInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stats: Option<StatsInfo>,
+    /// The magic key used for authentication (only present when auth_type is "magic_key")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    magic_key: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -141,6 +144,27 @@ fn validate_survey_session(
     true
 }
 
+/// Extract the magic key from a survey session ID.
+/// Session format: "survey_{magic_key}_{timestamp}_{uuid}"
+/// Magic key hyphens are encoded as underscores in the session ID.
+fn extract_magic_key_from_session(session_id: &str) -> Option<String> {
+    if !session_id.starts_with("survey_") {
+        return None;
+    }
+    let parts: Vec<&str> = session_id.split('_').collect();
+    if parts.len() < 4 {
+        return None;
+    }
+    let magic_key_parts: Vec<String> = parts[1..parts.len() - 2]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    if magic_key_parts.is_empty() {
+        return None;
+    }
+    Some(magic_key_parts.join("-"))
+}
+
 /// Check authentication status
 pub async fn auth_status(
     State(auth_state): State<AuthState>,
@@ -154,6 +178,7 @@ pub async fn auth_status(
             auth_type: None,
             user: None,
             stats: None,
+            magic_key: None,
         });
     }
 
@@ -176,6 +201,7 @@ pub async fn auth_status(
                         total_measurements: 0,
                         active_surveyors: 0,
                     }),
+                    magic_key: None,
                 });
             }
         }
@@ -193,6 +219,7 @@ pub async fn auth_status(
                     auth_type: Some("magic_key".to_string()),
                     user: None,
                     stats: None,
+                    magic_key: extract_magic_key_from_session(&survey_session_id),
                 });
             }
         }
@@ -203,10 +230,9 @@ pub async fn auth_status(
         auth_type: None,
         user: None,
         stats: None,
+        magic_key: None,
     })
 }
-
-/// Check authentication status and record IP to auth cache
 pub async fn auth_status_with_cache(
     State(handler_state): State<AuthHandlerState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -222,6 +248,7 @@ pub async fn auth_status_with_cache(
             auth_type: None,
             user: None,
             stats: None,
+            magic_key: None,
         });
     }
 
@@ -254,6 +281,7 @@ pub async fn auth_status_with_cache(
                         total_measurements: 0,
                         active_surveyors: 0,
                     }),
+                    magic_key: None,
                 });
             }
         }
@@ -281,6 +309,7 @@ pub async fn auth_status_with_cache(
                     auth_type: Some("magic_key".to_string()),
                     user: None,
                     stats: None,
+                    magic_key: extract_magic_key_from_session(&survey_session_id),
                 });
             }
         }
@@ -291,6 +320,7 @@ pub async fn auth_status_with_cache(
         auth_type: None,
         user: None,
         stats: None,
+        magic_key: None,
     })
 }
 

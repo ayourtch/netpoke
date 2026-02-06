@@ -2675,6 +2675,10 @@
                 const response = await fetch('/api/auth/status');
                 if (response.ok) {
                     const data = await response.json();
+                    // Store the magic key if present (for magic key authenticated users)
+                    if (data.magic_key) {
+                        window.currentMagicKey = data.magic_key;
+                    }
                     // Only show Download PCAP and Download Tracing Log buttons for full auth users
                     if (data.auth_type === 'full') {
                         document.getElementById('download-pcap-container').style.display = 'flex';
