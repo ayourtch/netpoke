@@ -711,11 +711,11 @@ impl WebRtcConnection {
     }
 
     /// Send a start survey session message to the server
-    pub async fn send_start_survey_session(&self, survey_session_id: &str) -> Result<(), JsValue> {
+    pub async fn send_start_survey_session(&self, survey_session_id: &str, magic_key: Option<String>) -> Result<(), JsValue> {
         let msg = common::ControlMessage::StartSurveySession(common::StartSurveySessionMessage {
             survey_session_id: survey_session_id.to_string(),
             conn_id: self.conn_id.clone(),
-            magic_key: None,
+            magic_key,
         });
         self.send_control_message(&msg, "start survey session")
     }

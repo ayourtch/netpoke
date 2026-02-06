@@ -453,6 +453,15 @@ fn set_survey_session_id(id: String) {
     });
 }
 
+/// Read the current magic key from the JavaScript window.currentMagicKey global.
+/// Returns None if not set (e.g., for non-magic-key authenticated users).
+fn get_magic_key_from_js() -> Option<String> {
+    use wasm_bindgen::JsCast;
+    let window = window()?;
+    let val = js_sys::Reflect::get(&window, &JsValue::from_str("currentMagicKey")).ok()?;
+    val.as_string()
+}
+
 #[wasm_bindgen]
 pub async fn start_measurement() -> Result<(), JsValue> {
     // Default to 1 connection per address family
@@ -685,6 +694,12 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
     set_survey_session_id(survey_session_id.clone());
     log::info!("Generated survey session ID: {}", survey_session_id);
 
+    // Read the magic key from JS (set by auth status check on page load)
+    let magic_key = get_magic_key_from_js();
+    if let Some(ref key) = magic_key {
+        log::info!("Using magic key from session: {}", key);
+    }
+
     // Notify JavaScript of the survey session ID for PCAP downloads
     notify_survey_session_id_js(&survey_session_id);
 
@@ -809,7 +824,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             .wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS)
             .await
         {
-            if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
+            if let Err(e) = conn.send_start_survey_session(&survey_session_id, magic_key.clone()).await {
                 log::warn!(
                     "Failed to send StartSurveySession for IPv4 connection {}: {:?}",
                     i,
@@ -836,7 +851,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
             .wait_for_control_channel_ready(CONTROL_CHANNEL_READY_TIMEOUT_MS)
             .await
         {
-            if let Err(e) = conn.send_start_survey_session(&survey_session_id).await {
+            if let Err(e) = conn.send_start_survey_session(&survey_session_id, magic_key.clone()).await {
                 log::warn!(
                     "Failed to send StartSurveySession for IPv6 connection {}: {:?}",
                     i,

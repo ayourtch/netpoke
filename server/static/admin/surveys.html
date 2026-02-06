@@ -832,7 +832,8 @@
                                 </div>
                                 <div class="recording-actions">
                                     ${rec.upload_status === 'complete' && rec.video_size_bytes > 0
-                                        ? `<button class="btn-small btn-video" onclick="toggleVideo('${videoPlayerId}', '${videoUrl}')">▶ Play Video</button>`
+                                        ? `<button class="btn-small btn-video" onclick="toggleVideo('${videoPlayerId}', '${videoUrl}')">▶ Play Video</button>
+                                           <a class="btn-small btn-video" href="${videoUrl}" download="${escapeHtml(rec.recording_id)}.webm">⬇ Download Video</a>`
                                         : ''}
                                     ${rec.upload_status === 'complete' && rec.sensor_size_bytes > 0
                                         ? `<a class="btn-small btn-sensor" href="${sensorUrl}">📊 Download Sensors</a>`
