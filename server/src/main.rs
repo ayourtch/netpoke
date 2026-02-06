@@ -966,6 +966,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage_base_path = config.storage.base_path.clone();
     if db.is_some() {
         tracing::info!("Survey upload storage path: {}", storage_base_path);
+        // Create uploads base directory if it doesn't exist
+        let storage_path = std::path::Path::new(&storage_base_path);
+        if !storage_path.exists() {
+            match std::fs::create_dir_all(storage_path) {
+                Ok(_) => tracing::info!("Created uploads directory: {:?}", storage_path),
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to create uploads directory: {}. Uploads may fail.",
+                        e
+                    );
+                }
+            }
+        }
     }
 
     let mut tasks = Vec::new();
