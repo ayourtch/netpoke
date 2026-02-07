@@ -255,12 +255,12 @@ impl PacketTracker {
         embedded_udp_info: EmbeddedUdpInfo,
         router_ip: Option<String>,
     ) {
-        tracing::debug!("match_icmp_error called: src_port={}, dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}", 
+        tracing::trace!("match_icmp_error called: src_port={}, dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}", 
             embedded_udp_info.src_port, embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
             embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len());
 
         let mut checksum_idx = self.checksum_index.write().await;
-        tracing::debug!("Current tracked packets count: {}", checksum_idx.len());
+        tracing::trace!("Current tracked packets count: {}", checksum_idx.len());
 
         let mut matched: Option<TrackedPacket> = None;
         let mut match_type = "none";
@@ -274,7 +274,7 @@ impl PacketTracker {
             };
 
             if let Some(tracked) = checksum_idx.remove(&checksum_key) {
-                tracing::debug!(
+                tracing::trace!(
                     "CHECKSUM MATCH FOUND! checksum={:#06x}, dest={}, udp_length={}, tracked: {:?}",
                     embedded_udp_info.udp_checksum,
                     tracked.dest_addr,
@@ -285,7 +285,7 @@ impl PacketTracker {
                 matched = Some(tracked);
                 match_type = "checksum";
             } else {
-                tracing::debug!("No checksum match found");
+                tracing::trace!("No checksum match found");
             }
         }
 
@@ -293,7 +293,7 @@ impl PacketTracker {
         drop(checksum_idx);
 
         if let Some(tracked) = matched {
-            tracing::debug!(
+            tracing::trace!(
                 "MATCH FOUND via {}: dest={}, udp_length={}, conn_id={}",
                 match_type,
                 embedded_udp_info.dest_addr,
@@ -321,7 +321,7 @@ impl PacketTracker {
                 original_dest_addr: embedded_udp_info.dest_addr.to_string(),
             };
 
-            tracing::debug!(
+            tracing::trace!(
                 "Event added to queue for conn_id={}, event: {:?}",
                 event.conn_id,
                 event
@@ -330,15 +330,15 @@ impl PacketTracker {
             let mut queue = self.event_queue.write().await;
             queue.push(event);
 
-            tracing::debug!("Queue size after push: {}", queue.len());
+            tracing::trace!("Queue size after push: {}", queue.len());
 
-            tracing::debug!(
+            tracing::trace!(
                 "ICMP error matched to tracked packet: dest={}, udp_length={}",
                 embedded_udp_info.dest_addr,
                 embedded_udp_info.udp_length
             );
         } else {
-            tracing::debug!("NO MATCH FOUND for dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}, icmp_class: {:?}", 
+            tracing::trace!("NO MATCH FOUND for dest={}, udp_length={}, udp_checksum={:#06x}, payload_prefix_len={}, icmp_class: {:?}", 
                 embedded_udp_info.dest_addr, embedded_udp_info.udp_length,
                 embedded_udp_info.udp_checksum, embedded_udp_info.payload_prefix.len(), icmp_class);
 
@@ -365,9 +365,9 @@ impl PacketTracker {
     /// Get and remove queued events for a specific connection ID
     /// Only returns events matching the given conn_id, leaving other events in the queue
     pub async fn drain_events_for_conn_id(&self, conn_id: &str) -> Vec<TrackedPacketEvent> {
-        tracing::debug!("Acquire queue to grab messages for {}", conn_id);
+        tracing::trace!("Acquire queue to grab messages for {}", conn_id);
         let mut queue = self.event_queue.write().await;
-        tracing::debug!(
+        tracing::trace!(
             "queue acquired to drain for {}, length: {}",
             conn_id,
             queue.len()
@@ -379,10 +379,10 @@ impl PacketTracker {
 
         for event in queue.drain(..) {
             if event.conn_id == conn_id {
-                tracing::debug!("Found a matching event: {:?}", &event);
+                tracing::trace!("Found a matching event: {:?}", &event);
                 matching.push(event);
             } else {
-                tracing::debug!("push bach a non-match event: {:?}", &event);
+                tracing::trace!("push back a non-match event: {:?}", &event);
                 remaining.push(event);
             }
         }
@@ -413,7 +413,7 @@ impl PacketTracker {
             // Use conn_id directly from UdpPacketInfo (passed through from UdpSendOptions)
             let conn_id = info.conn_id.clone();
 
-            tracing::debug!("Received tracking data from UDP layer: dest={}, src={:?}, udp_length={}, udp_checksum={:#06x}, ttl={:?}, conn_id={}", 
+            tracing::trace!("Received tracking data from UDP layer: dest={}, src={:?}, udp_length={}, udp_checksum={:#06x}, ttl={:?}, conn_id={}", 
                 info.dest_addr, info.src_addr, info.udp_length, info.udp_checksum, info.send_options.ttl, conn_id);
 
             let expires_at = info.sent_at
@@ -427,7 +427,7 @@ impl PacketTracker {
                 .cloned()
                 .collect();
 
-            tracing::debug!(
+            tracing::trace!(
                 "Storing payload_prefix of {} bytes (from UDP layer)",
                 payload_prefix.len()
             );
@@ -453,22 +453,22 @@ impl PacketTracker {
                     udp_checksum: info.udp_checksum,
                 };
                 let mut checksum_idx = checksum_index.write().await;
-                tracing::debug!(
+                tracing::trace!(
                     "Inserting CHECKSUM value: key {:?} = val {:?}",
                     &checksum_key,
                     &tracked
                 );
                 checksum_idx.insert(checksum_key, tracked);
                 let count = checksum_idx.len();
-                tracing::debug!(
+                tracing::trace!(
                     "Packet tracked successfully (from UDP layer), total tracked packets: {}",
                     count
                 );
             } else {
-                tracing::debug!("Packet not tracked because UDP checksum is zero");
+                tracing::trace!("Packet not tracked because UDP checksum is zero");
             }
 
-            tracing::debug!(
+            tracing::trace!(
                 "Tracked packet from UDP layer: dest={}, udp_length={}, udp_checksum={:#06x}, ttl={:?}",
                 info.dest_addr,
                 info.udp_length,
