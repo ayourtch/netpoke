@@ -586,6 +586,167 @@ fn parse_byte_range(range_str: &str, total_size: usize) -> Option<(usize, usize)
 }
 
 // ============================================================================
+// Wipe (Permanently Delete) Session Endpoint
+// ============================================================================
+
+/// Summary of what was deleted when wiping a session
+#[derive(Debug, Serialize)]
+pub struct WipeSessionResult {
+    pub session_id: String,
+    pub metrics_deleted: usize,
+    pub recordings_deleted: usize,
+    pub files_deleted: Vec<String>,
+    pub files_failed: Vec<String>,
+}
+
+/// Permanently delete a survey session and all associated data
+///
+/// This hard-deletes (not soft-delete) the session, its metrics, its recordings,
+/// and any associated files (video, sensor, pcap, keylog) from disk.
+pub async fn wipe_session(
+    State(state): State<Arc<AnalystState>>,
+    session_data: Option<Extension<SessionData>>,
+    Path(session_id): Path<String>,
+) -> Result<Json<WipeSessionResult>, StatusCode> {
+    // Look up session and check access control
+    let (magic_key, pcap_path, keylog_path) = {
+        let db = state.db.lock().await;
+        db.query_row(
+            "SELECT magic_key, pcap_path, keylog_path FROM survey_sessions WHERE session_id = ? AND deleted = 0",
+            params![&session_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?)),
+        )
+        .map_err(|e| {
+            tracing::warn!("Session not found for wipe: {} - {}", session_id, e);
+            StatusCode::NOT_FOUND
+        })?
+    };
+
+    if let Some(Extension(session_info)) = &session_data {
+        if !user_has_access(&state.analyst_access, &session_info.handle, &magic_key) {
+            tracing::warn!(
+                "User {} denied access to wipe session {} (magic key {})",
+                session_info.handle,
+                session_id,
+                magic_key
+            );
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    // Collect file paths from recordings before deleting DB rows
+    let recording_files: Vec<(String, String)> = {
+        let db = state.db.lock().await;
+        let mut stmt = db
+            .prepare("SELECT video_path, sensor_path FROM recordings WHERE session_id = ?")
+            .map_err(|e| {
+                tracing::error!("Failed to prepare recordings query for wipe: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        let rows = stmt.query_map(params![&session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| {
+            tracing::error!("Failed to query recordings for wipe: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let result: Vec<(String, String)> = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| {
+                tracing::error!("Failed to collect recording paths for wipe: {}", e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        result
+    };
+
+    // Delete from database tables (metrics, recordings, then session)
+    let (metrics_deleted, recordings_deleted) = {
+        let db = state.db.lock().await;
+        let metrics_deleted = db
+            .execute(
+                "DELETE FROM survey_metrics WHERE session_id = ?",
+                params![&session_id],
+            )
+            .map_err(|e| {
+                tracing::error!("Failed to delete metrics for session {}: {}", session_id, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        let recordings_deleted = db
+            .execute(
+                "DELETE FROM recordings WHERE session_id = ?",
+                params![&session_id],
+            )
+            .map_err(|e| {
+                tracing::error!("Failed to delete recordings for session {}: {}", session_id, e);
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        db.execute(
+            "DELETE FROM survey_sessions WHERE session_id = ?",
+            params![&session_id],
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to delete session {}: {}", session_id, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        (metrics_deleted, recordings_deleted)
+    };
+
+    // Delete files from disk
+    let mut files_deleted = Vec::new();
+    let mut files_failed = Vec::new();
+
+    // Collect all file paths to delete
+    let mut all_paths: Vec<String> = Vec::new();
+    if let Some(ref p) = pcap_path {
+        all_paths.push(p.clone());
+    }
+    if let Some(ref p) = keylog_path {
+        all_paths.push(p.clone());
+    }
+    for (video_path, sensor_path) in &recording_files {
+        all_paths.push(video_path.clone());
+        all_paths.push(sensor_path.clone());
+    }
+
+    for path in &all_paths {
+        match tokio::fs::remove_file(path).await {
+            Ok(_) => {
+                tracing::info!("Deleted file: {}", path);
+                files_deleted.push(path.clone());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!("File already gone: {}", path);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to delete file {}: {}", path, e);
+                files_failed.push(path.clone());
+            }
+        }
+    }
+
+    let username = session_data
+        .as_ref()
+        .map(|Extension(s)| s.handle.as_str())
+        .unwrap_or("anonymous");
+    tracing::info!(
+        "Session {} wiped by {}: {} metrics, {} recordings, {} files deleted",
+        session_id,
+        username,
+        metrics_deleted,
+        recordings_deleted,
+        files_deleted.len()
+    );
+
+    Ok(Json(WipeSessionResult {
+        session_id,
+        metrics_deleted,
+        recordings_deleted,
+        files_deleted,
+        files_failed,
+    }))
+}
+
+// ============================================================================
 // Session Metrics Endpoint
 // ============================================================================
 
