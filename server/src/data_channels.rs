@@ -424,6 +424,24 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                 session.id
             );
 
+            // Determine the max measuring time based on magic key configuration
+            let max_duration_ms = {
+                let magic_key = session.magic_key.read().await;
+                if let (Some(ref config), Some(ref key)) =
+                    (&session.magic_key_config, magic_key.as_ref())
+                {
+                    let seconds = config.get_max_measuring_time_seconds(key);
+                    tracing::info!(
+                        "Max measuring time for magic key '{}': {}s",
+                        key,
+                        seconds
+                    );
+                    seconds * 1000
+                } else {
+                    DEFAULT_MEASURING_TIME_MS
+                }
+            };
+
             // Send back the measuring time response
             let channels = session.data_channels.read().await;
             if let Some(control) = &channels.control {
@@ -433,7 +451,7 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                         common::MeasuringTimeResponseMessage {
                             conn_id: session.conn_id.clone(),
                             survey_session_id,
-                            max_duration_ms: DEFAULT_MEASURING_TIME_MS,
+                            max_duration_ms,
                         },
                     );
 
@@ -443,7 +461,7 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
                         } else {
                             tracing::info!(
                                 "Sent MeasuringTimeResponse: {}ms for session {}",
-                                DEFAULT_MEASURING_TIME_MS,
+                                max_duration_ms,
                                 session.id
                             );
                         }
@@ -563,6 +581,23 @@ async fn handle_control_message(session: Arc<ClientSession>, msg: DataChannelMes
             {
                 let mut state = session.measurement_state.write().await;
                 state.probe_streams_active = true;
+                state.probe_streams_started_at = Some(std::time::Instant::now());
+                // Determine max measuring duration from magic key config
+                let magic_key = session.magic_key.read().await;
+                state.max_measuring_duration = if let (Some(ref config), Some(ref key)) =
+                    (&session.magic_key_config, magic_key.as_ref())
+                {
+                    let seconds = config.get_max_measuring_time_seconds(key);
+                    tracing::info!(
+                        "Setting max measuring duration for session {} (magic key '{}'): {}s",
+                        session.id,
+                        key,
+                        seconds
+                    );
+                    Some(std::time::Duration::from_secs(seconds))
+                } else {
+                    None
+                };
                 // Clear previous probe data for fresh measurement
                 state.measurement_probe_seq = 0;
                 state.received_measurement_probes.clear();

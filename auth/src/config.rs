@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Authentication configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +135,16 @@ pub struct MagicKeyConfig {
     /// Survey session timeout in seconds (default: 8 hours)
     #[serde(default = "default_survey_timeout")]
     pub survey_timeout_seconds: u64,
+
+    /// Default maximum measuring time in seconds for all magic keys (default: 3600 = 1 hour)
+    #[serde(default = "default_max_measuring_time")]
+    pub max_measuring_time_seconds: u64,
+
+    /// Per-magic-key maximum measuring time overrides in seconds.
+    /// Keys not in this map use max_measuring_time_seconds as the default.
+    /// Example: { "DEMO" = 120 } limits DEMO key to 120 seconds.
+    #[serde(default)]
+    pub magic_key_max_measuring_time: HashMap<String, u64>,
 }
 
 fn default_survey_cookie_name() -> String {
@@ -142,6 +153,10 @@ fn default_survey_cookie_name() -> String {
 
 fn default_survey_timeout() -> u64 {
     28800 // 8 hours
+}
+
+fn default_max_measuring_time() -> u64 {
+    3600 // 1 hour
 }
 
 fn default_session_cookie_name() -> String {
@@ -214,6 +229,24 @@ impl Default for MagicKeyConfig {
             magic_keys: vec![],
             survey_cookie_name: default_survey_cookie_name(),
             survey_timeout_seconds: default_survey_timeout(),
+            max_measuring_time_seconds: default_max_measuring_time(),
+            magic_key_max_measuring_time: HashMap::new(),
         }
+    }
+}
+
+impl MagicKeyConfig {
+    /// Get the maximum measuring time in seconds for a specific magic key.
+    /// Returns the per-key override if configured, otherwise the global default.
+    /// For the "DEMO" key, defaults to 120 seconds if no override is configured.
+    pub fn get_max_measuring_time_seconds(&self, magic_key: &str) -> u64 {
+        if let Some(&override_seconds) = self.magic_key_max_measuring_time.get(magic_key) {
+            return override_seconds;
+        }
+        // Built-in default for DEMO key: 120 seconds
+        if magic_key == "DEMO" {
+            return 120;
+        }
+        self.max_measuring_time_seconds
     }
 }
