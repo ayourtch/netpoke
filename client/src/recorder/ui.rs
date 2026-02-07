@@ -445,6 +445,10 @@ fn setup_recording_buttons(document: &web_sys::Document) {
                         crate::recorder::utils::log(&format!("[Recorder] Start failed: {:?}", e));
                         // Stop sensor tracking if recording failed to start
                         stop_sensor_tracking();
+                        // Clear sensor manager since recording didn't start (Issue 067)
+                        if let Ok(mut manager_guard) = crate::SENSOR_MANAGER.lock() {
+                            *manager_guard = None;
+                        }
                     }
                 }
             });
