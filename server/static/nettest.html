@@ -3061,7 +3061,7 @@
                             .map(rec => {
                                 const date = new Date(rec.timestamp);
                                 const sizeInMB = (rec.videoBlob.size / (1024 * 1024)).toFixed(2);
-                                const sensorSizeKB = rec.sensorData ? (JSON.stringify(rec.sensorData).length / 1024).toFixed(1) : '0';
+                                const sensorSizeKB = rec.motionData ? (JSON.stringify(rec.motionData).length / 1024).toFixed(1) : '0';
                                 const sourceType = rec.metadata.source_type || 'camera';
                                 const sourceClass = `source-${sourceType}`;
                                 const sourceLabel = sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
@@ -3323,7 +3323,7 @@
                     try {
                         // Create sensor data blob
                         const sensorBlob = new Blob(
-                            [JSON.stringify(recording.sensorData || [])], 
+                            [JSON.stringify(recording.motionData || [])], 
                             { type: 'application/json' }
                         );
                         
