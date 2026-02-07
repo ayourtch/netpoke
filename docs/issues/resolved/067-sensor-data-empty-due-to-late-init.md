@@ -7,8 +7,8 @@ Sensor data uploaded to the server contains only `[]` (empty JSON array, 2 bytes
 ## Location
 
 - **File**: `client/src/recorder/state.rs`
-- **Function**: `start_recording()`, lines 154-172 (SensorManager init)
-- **Function**: `stop_recording()`, lines 397-406 (motion data retrieval)
+- **Function**: `start_recording()` — SensorManager initialization
+- **Function**: `stop_recording()` — motion data retrieval
 
 ## Current Behavior
 
@@ -41,16 +41,16 @@ All sensor data uploads result in empty files on the server. Users collecting se
 
 ## Root Cause Analysis
 
-Initialization order in `start_recording()`:
-1. Set `start_time` (line 70-71) ← synchronous
-2. Get media streams (lines 73-152) ← **async, sensor events dropped here**
-3. Create SensorManager (lines 154-172) ← too late!
+Initialization order in `start_recording()` (before fix):
+1. Set `start_time` ← synchronous
+2. Get media streams ← **async, sensor events dropped here**
+3. Create SensorManager ← too late!
 
 The SensorManager creation depends only on `start_time` and `source_type`, both available before step 2.
 
 ## Suggested Implementation
 
-1. Move SensorManager initialization (lines 154-172) to before the media stream acquisition (line 73)
+1. Move SensorManager initialization to before the media stream acquisition
 2. Add diagnostic logging in `stop_recording()` to report the number of sensor data points collected
 
 ## Resolution
