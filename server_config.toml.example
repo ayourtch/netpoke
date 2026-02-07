@@ -135,6 +135,17 @@ magic_keys = []
 survey_cookie_name = "survey_session_id"
 survey_timeout_seconds = 28800  # 8 hours
 
+# Default maximum measuring time in seconds for all magic keys (default: 3600 = 1 hour)
+# This limits how long a single performance measurement session can run
+max_measuring_time_seconds = 3600
+
+# Per-magic-key maximum measuring time overrides (in seconds)
+# Keys not listed here use max_measuring_time_seconds as the default.
+# The "DEMO" key has a built-in default of 120 seconds if not overridden here.
+# [auth.magic_keys.magic_key_max_measuring_time]
+# DEMO = 120
+# "SURVEY-2024-001" = 7200
+
 # Packet Capture Configuration (uses libpcap - same as tcpdump)
 [capture]
 # Enable packet capture for traffic analysis

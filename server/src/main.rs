@@ -985,6 +985,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Session manager and metrics recorder initialized");
     }
 
+    // Set magic key configuration for measuring time limits
+    app_state.set_magic_key_config(config.auth.magic_keys.clone());
+    tracing::info!(
+        "Magic key config: max_measuring_time={}s, per-key overrides: {:?}",
+        config.auth.magic_keys.max_measuring_time_seconds,
+        config.auth.magic_keys.magic_key_max_measuring_time
+    );
+
     // Storage path for uploads
     let storage_base_path = config.storage.base_path.clone();
     if db.is_some() {
