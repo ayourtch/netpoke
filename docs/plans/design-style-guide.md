@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the visual design language for NetPoke and its authentication system (Project Raindrops), ensuring consistency across all user interfaces. The design prioritizes clarity, professionalism, and ease of use while reflecting the dual-stack (IPv4/IPv6) nature of the product.
+This document defines the visual design language for NetPoke, ensuring consistency across all user interfaces. The design prioritizes clarity, professionalism, and ease of use while reflecting the dual-stack (IPv4/IPv6) nature of the product.
 
 ---
 
@@ -22,10 +22,9 @@ This document defines the visual design language for NetPoke and its authenticat
 
 ### Product Names
 
-- **NetPoke**: The network measurement platform (nettest.html, dashboard, surveys)
-- **Project Raindrops**: The authentication system (login page, access denied page)
+- **NetPoke**: The network measurement platform and its authentication system
 
-Both share the same visual design language but use their respective branding in titles and footers.
+The same visual design language is used across all pages including login, test, and dashboard.
 
 ---
 
@@ -549,14 +548,14 @@ auth/src/
 
 ## Examples
 
-### Login Page (Project Raindrops)
+### Login Page (NetPoke)
 
 - Light gray background (`#f5f5f5`)
 - White card with blue top border
 - Logo with gradient icon
 - IPv4/IPv6 badges in header
 - Blue primary buttons
-- "Powered by Project Raindrops Authentication" in footer
+- "Powered by NetPoke Authentication" in footer
 
 ### Network Test Page (NetPoke)
 
@@ -566,13 +565,13 @@ auth/src/
 - Chart.js graphs with matching colors
 - Functional, data-dense layout
 
-### Access Denied Page (Project Raindrops)
+### Access Denied Page (NetPoke)
 
 - Light gray background
 - White card with orange top border (warning)
 - Clear error messaging
 - Blue action button (logout)
-- "Project Raindrops" in footer
+- "NetPoke" in footer
 
 ---
 

@@ -326,7 +326,7 @@ secure = false
 
 When authentication is enabled, the following routes are available:
 
-- `GET /auth/login` - Login page (Project Raindrops)
+- `GET /auth/login` - Login page (NetPoke)
 - `POST /auth/bluesky/login` - Start Bluesky auth
 - `GET /auth/bluesky/callback` - Bluesky callback
 - `GET /auth/github/login` - Start GitHub auth
@@ -382,7 +382,7 @@ The authentication system is built as a separate reusable crate (`netpoke-auth`)
 - **Providers**: Individual OAuth provider implementations
 - **Service**: Central authentication service managing sessions
 - **Middleware**: Route protection middleware
-- **Views**: Professional login page UI (Project Raindrops)
+- **Views**: Professional login page UI (NetPoke)
 - **Routes**: HTTP handlers for auth flows
 
 For more details, see `auth/README.md`.

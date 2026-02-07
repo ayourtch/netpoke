@@ -8,7 +8,7 @@ This implementation adds a complete, reusable OAuth2 authentication system to th
 2. ✅ Support OAuth2 with multiple providers (Bluesky, GitHub, Google, LinkedIn)
 3. ✅ Design for future extensibility (plain login authentication)
 4. ✅ Make it configurable via server_config.toml
-5. ✅ Provide a professional login page with "Project Raindrops" branding
+5. ✅ Provide a professional login page with "NetPoke" branding
 6. ✅ Make it easily portable to other projects
 
 ## Architecture
@@ -53,7 +53,7 @@ auth/
    - HttpOnly cookies
 
 3. **Professional UI**:
-   - "Project Raindrops" themed login page (🌧️)
+   - "NetPoke" themed login page
    - Responsive design
    - Clean, modern interface
    - Supports multiple providers simultaneously

@@ -1,6 +1,6 @@
-//! Project Raindrops Authentication Library
+//! NetPoke Authentication Library
 //!
-//! A reusable authentication crate for Project Raindrops that supports multiple OAuth2 providers
+//! A reusable authentication crate for NetPoke that supports multiple OAuth2 providers
 //! (Bluesky, GitHub, Google, LinkedIn) and is designed to be extensible for future
 //! authentication methods like plain login.
 //!
@@ -8,7 +8,7 @@
 //!
 //! - OAuth2 authentication with multiple providers
 //! - Session management with configurable timeouts
-//! - Professional login page with "Project Raindrops" branding
+//! - Professional login page with "NetPoke" branding
 //! - Middleware for protecting routes
 //! - Configurable via TOML configuration files
 //! - Designed for easy portability to other projects
