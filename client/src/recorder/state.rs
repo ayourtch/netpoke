@@ -70,6 +70,29 @@ impl RecorderState {
         let start_time = js_sys::Date::now();
         self.start_time = start_time;
 
+        // Initialize sensor manager EARLY, before any async operations (Issue 067)
+        // This ensures sensor events are captured from the moment event listeners
+        // are registered (in requestSensorPermissions), rather than being silently
+        // dropped during the async media stream acquisition below.
+        let camera_facing = match self.source_type {
+            SourceType::Camera | SourceType::Combined => CameraFacing::User,
+            SourceType::Screen => CameraFacing::Unknown,
+        };
+
+        let mut sensor_manager = SensorManager::new(start_time, camera_facing);
+
+        // Check if sensor overlay checkbox is checked
+        if let Some(checkbox) = document.get_element_by_id("show-sensors-overlay") {
+            if let Ok(input) = checkbox.dyn_into::<web_sys::HtmlInputElement>() {
+                sensor_manager.set_overlay_enabled(input.checked());
+            }
+        }
+
+        // Update global sensor manager
+        if let Ok(mut global_mgr) = crate::SENSOR_MANAGER.lock() {
+            *global_mgr = Some(sensor_manager);
+        }
+
         // Get media streams and create video elements based on source type
         match self.source_type {
             SourceType::Camera => {
@@ -149,26 +172,6 @@ impl RecorderState {
                     }
                 }))?;
             }
-        }
-
-        // Initialize sensor manager (Issue 007, 010)
-        let camera_facing = match self.source_type {
-            SourceType::Camera | SourceType::Combined => CameraFacing::User,
-            SourceType::Screen => CameraFacing::Unknown,
-        };
-
-        let mut sensor_manager = SensorManager::new(start_time, camera_facing);
-
-        // Check if sensor overlay checkbox is checked
-        if let Some(checkbox) = document.get_element_by_id("show-sensors-overlay") {
-            if let Ok(input) = checkbox.dyn_into::<web_sys::HtmlInputElement>() {
-                sensor_manager.set_overlay_enabled(input.checked());
-            }
-        }
-
-        // Update global sensor manager
-        if let Ok(mut global_mgr) = crate::SENSOR_MANAGER.lock() {
-            *global_mgr = Some(sensor_manager);
         }
 
         // Initialize canvas renderer
@@ -399,11 +402,15 @@ impl RecorderState {
             if let Some(ref mgr) = *manager_guard {
                 (mgr.get_motion_data().clone(), mgr.get_camera_facing())
             } else {
+                log("[Recorder] Warning: SENSOR_MANAGER was None, no sensor data collected");
                 (Vec::new(), CameraFacing::Unknown)
             }
         } else {
+            log("[Recorder] Warning: Failed to lock SENSOR_MANAGER");
             (Vec::new(), CameraFacing::Unknown)
         };
+
+        log(&format!("[Recorder] Collected {} sensor data points", motion_data.len()));
 
         // Calculate duration
         let duration = (js_sys::Date::now() - self.start_time) / 1000.0;
