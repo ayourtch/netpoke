@@ -1012,6 +1012,19 @@ pub async fn start_measurement_probe_sender(session: Arc<ClientSession>) {
                 );
                 return;
             }
+            // Check if max measuring time has been exceeded
+            if let (Some(started_at), Some(max_duration)) =
+                (state.probe_streams_started_at, state.max_measuring_duration)
+            {
+                if started_at.elapsed() >= max_duration {
+                    tracing::info!(
+                        "Stopping measurement probe sender for session {} (max measuring time exceeded)",
+                        session.id
+                    );
+                    state.probe_streams_active = false;
+                    return;
+                }
+            }
             let seq = state.measurement_probe_seq;
             state.measurement_probe_seq += 1;
             let feedback = state.last_feedback.clone();
@@ -1177,21 +1190,29 @@ pub async fn start_probe_stats_reporter(session: Arc<ClientSession>) {
 
         // Check if max measuring time has been exceeded
         {
-            let state = session.measurement_state.read().await;
-            if let Some(started_at) = state.probe_streams_started_at {
-                if let Some(max_duration) = state.max_measuring_duration {
+            let should_stop = {
+                let state = session.measurement_state.read().await;
+                if let (Some(started_at), Some(max_duration)) =
+                    (state.probe_streams_started_at, state.max_measuring_duration)
+                {
                     if started_at.elapsed() >= max_duration {
                         tracing::info!(
                             "Stopping probe stats reporter for session {} (max measuring time {:?} exceeded)",
                             session.id,
                             max_duration
                         );
-                        drop(state);
-                        let mut state = session.measurement_state.write().await;
-                        state.probe_streams_active = false;
-                        return;
+                        true
+                    } else {
+                        false
                     }
+                } else {
+                    false
                 }
+            }; // read lock released here
+            if should_stop {
+                let mut state = session.measurement_state.write().await;
+                state.probe_streams_active = false;
+                return;
             }
         }
 

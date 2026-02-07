@@ -250,3 +250,59 @@ impl MagicKeyConfig {
         self.max_measuring_time_seconds
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_magic_key_config() {
+        let config = MagicKeyConfig::default();
+        assert_eq!(config.max_measuring_time_seconds, 3600);
+        assert!(config.magic_key_max_measuring_time.is_empty());
+    }
+
+    #[test]
+    fn test_demo_key_default_120_seconds() {
+        let config = MagicKeyConfig::default();
+        assert_eq!(config.get_max_measuring_time_seconds("DEMO"), 120);
+    }
+
+    #[test]
+    fn test_regular_key_uses_global_default() {
+        let config = MagicKeyConfig::default();
+        // Regular keys should use the global default (3600)
+        assert_eq!(config.get_max_measuring_time_seconds("SURVEY-001"), 3600);
+        assert_eq!(config.get_max_measuring_time_seconds("MY-KEY"), 3600);
+    }
+
+    #[test]
+    fn test_per_key_override() {
+        let mut config = MagicKeyConfig::default();
+        config
+            .magic_key_max_measuring_time
+            .insert("SURVEY-001".to_string(), 7200);
+        assert_eq!(config.get_max_measuring_time_seconds("SURVEY-001"), 7200);
+        // Other keys still use global default
+        assert_eq!(config.get_max_measuring_time_seconds("SURVEY-002"), 3600);
+    }
+
+    #[test]
+    fn test_demo_key_override() {
+        let mut config = MagicKeyConfig::default();
+        // Override the DEMO key's built-in default
+        config
+            .magic_key_max_measuring_time
+            .insert("DEMO".to_string(), 60);
+        assert_eq!(config.get_max_measuring_time_seconds("DEMO"), 60);
+    }
+
+    #[test]
+    fn test_custom_global_default() {
+        let mut config = MagicKeyConfig::default();
+        config.max_measuring_time_seconds = 1800;
+        assert_eq!(config.get_max_measuring_time_seconds("ANY-KEY"), 1800);
+        // DEMO still has its built-in default
+        assert_eq!(config.get_max_measuring_time_seconds("DEMO"), 120);
+    }
+}
