@@ -56,7 +56,6 @@ pub async fn setup_data_channel_handlers(
             dc.on_message(Box::new(move |msg: DataChannelMessage| {
                 let session = session_clone.clone();
                 let label = label_clone.clone();
-                tracing::info!("XXXXX {}", &label);
                 Box::pin(async move {
                     handle_message(session, &label, msg).await;
                 })
@@ -95,7 +94,7 @@ pub async fn setup_data_channel_handlers(
 }
 
 async fn handle_message(session: Arc<ClientSession>, channel: &str, msg: DataChannelMessage) {
-    tracing::info!(
+    tracing::debug!(
         "Client {} received message on {}: {} bytes",
         session.id,
         channel,

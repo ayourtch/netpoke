@@ -47,7 +47,6 @@ async fn icmp_listener_task_v4(packet_tracker: Arc<PacketTracker>) -> std::io::R
     use socket2::{Domain, Protocol, Socket, Type};
 
     tracing::info!("Starting IPv4 ICMP listener...");
-    tracing::debug!("IPv4 ICMP listener starting");
 
     // Create raw ICMPv4 socket
     let socket = match Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4)) {
@@ -60,7 +59,6 @@ async fn icmp_listener_task_v4(packet_tracker: Arc<PacketTracker>) -> std::io::R
                 "Failed to create IPv4 ICMP socket (requires CAP_NET_RAW or root): {}",
                 e
             );
-            tracing::debug!("Failed to create IPv4 ICMP socket: {}", e);
             return Err(e);
         }
     };
@@ -71,32 +69,30 @@ async fn icmp_listener_task_v4(packet_tracker: Arc<PacketTracker>) -> std::io::R
     let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
 
     tracing::info!("IPv4 ICMP listener started successfully");
-    tracing::debug!("IPv4 ICMP listener ready to receive packets");
 
     let mut buf = vec![0u8; 65536];
 
     loop {
         match tokio_socket.recv_from(&mut buf).await {
             Ok((size, addr)) => {
-                tracing::debug!("Received IPv4 ICMP packet: size={}, from={}", size, addr);
+                tracing::trace!("Received IPv4 ICMP packet: size={}, from={}", size, addr);
                 let icmp_packet = buf[..size].to_vec();
                 let router_ip = Some(addr.ip().to_string());
 
                 // Parse ICMP packet
                 if let Some((embedded_info, msg_class)) = parse_icmp_error(&icmp_packet) {
-                    tracing::debug!(
+                    tracing::trace!(
                         "Parsed IPv4 ICMP error successfully, matching against tracked packets"
                     );
                     packet_tracker
                         .match_icmp_error(icmp_packet, msg_class, false, embedded_info, router_ip)
                         .await;
                 } else {
-                    tracing::debug!("IPv4 ICMP packet is not an error or failed to parse");
+                    tracing::trace!("IPv4 ICMP packet is not an error or failed to parse");
                 }
             }
             Err(e) => {
                 tracing::error!("IPv4 ICMP recv error: {}", e);
-                tracing::debug!("IPv4 ICMP recv error: {}", e);
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         }
@@ -108,7 +104,6 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
     use socket2::{Domain, Protocol, Socket, Type};
 
     tracing::info!("Starting IPv6 ICMPv6 listener...");
-    tracing::debug!("IPv6 ICMPv6 listener starting");
 
     // Create raw ICMPv6 socket
     let socket = match Socket::new(Domain::IPV6, Type::RAW, Some(Protocol::ICMPV6)) {
@@ -121,7 +116,6 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
                 "Failed to create IPv6 ICMPv6 socket (requires CAP_NET_RAW or root): {}",
                 e
             );
-            tracing::debug!("Failed to create IPv6 ICMPv6 socket: {}", e);
             return Err(e);
         }
     };
@@ -132,32 +126,30 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
     let tokio_socket = tokio::net::UdpSocket::from_std(std_socket)?;
 
     tracing::info!("IPv6 ICMPv6 listener started successfully");
-    tracing::debug!("IPv6 ICMPv6 listener ready to receive packets");
 
     let mut buf = vec![0u8; 65536];
 
     loop {
         match tokio_socket.recv_from(&mut buf).await {
             Ok((size, addr)) => {
-                tracing::debug!("Received IPv6 ICMPv6 packet: size={}, from={}", size, addr);
+                tracing::trace!("Received IPv6 ICMPv6 packet: size={}, from={}", size, addr);
                 let icmp_packet = buf[..size].to_vec();
                 let router_ip = Some(addr.ip().to_string());
 
                 // Parse ICMPv6 packet
                 if let Some((embedded_info, msg_class)) = parse_icmpv6_error(&icmp_packet) {
-                    tracing::debug!(
+                    tracing::trace!(
                         "Parsed IPv6 ICMPv6 error successfully, matching against tracked packets"
                     );
                     packet_tracker
                         .match_icmp_error(icmp_packet, msg_class, true, embedded_info, router_ip)
                         .await;
                 } else {
-                    tracing::debug!("IPv6 ICMPv6 packet is not an error or failed to parse");
+                    tracing::trace!("IPv6 ICMPv6 packet is not an error or failed to parse");
                 }
             }
             Err(e) => {
                 tracing::error!("IPv6 ICMPv6 recv error: {}", e);
-                tracing::debug!("IPv6 ICMPv6 recv error: {}", e);
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         }
@@ -167,7 +159,7 @@ async fn icmp_listener_task_v6(packet_tracker: Arc<PacketTracker>) -> std::io::R
 /// Parse an ICMP error packet and extract information about the embedded UDP packet
 #[cfg(target_os = "linux")]
 fn parse_icmp_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)> {
-    tracing::debug!(
+    tracing::trace!(
         "parse_icmp_error called with packet length={}",
         packet.len()
     );
@@ -182,17 +174,17 @@ fn parse_icmp_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)
 
     if packet.len() < 56 {
         // Need at least: IP(20) + ICMP(8) + embedded IP(20) + embedded UDP(8)
-        tracing::debug!("Packet too small: {} < 56", packet.len());
+        tracing::trace!("Packet too small: {} < 56", packet.len());
         return None;
     }
 
     // Check if this is an ICMP error (type 3, 11, or 12)
     let icmp_type = packet[20];
     let icmp_code = packet[21];
-    tracing::debug!("ICMP type={}, code={}", icmp_type, icmp_code);
+    tracing::trace!("ICMP type={}, code={}", icmp_type, icmp_code);
 
     if ![3, 11, 12].contains(&icmp_type) {
-        tracing::debug!("Not an ICMP error type (expected 3, 11, or 12)");
+        tracing::trace!("Not an ICMP error type (expected 3, 11, or 12)");
         return None;
     }
     let icmp_class = match icmp_type {
@@ -206,26 +198,19 @@ fn parse_icmp_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)
 
     // Parse embedded IP header
     let embedded_ip_version = (packet[embedded_ip_start] >> 4) & 0x0F;
-    tracing::debug!("Embedded IP version={}", embedded_ip_version);
 
     if embedded_ip_version != 4 {
         // Only handle IPv4 for now
-        tracing::debug!("Not IPv4 embedded packet");
+        tracing::trace!("Not IPv4 embedded packet (version={})", embedded_ip_version);
         return None;
     }
 
     let embedded_ip_header_len = ((packet[embedded_ip_start] & 0x0F) * 4) as usize;
     let embedded_protocol = packet[embedded_ip_start + 9];
 
-    tracing::debug!(
-        "Embedded IP header_len={}, protocol={}",
-        embedded_ip_header_len,
-        embedded_protocol
-    );
-
     // Check if embedded packet is UDP (protocol 17)
     if embedded_protocol != 17 {
-        tracing::debug!("Embedded packet is not UDP (protocol 17)");
+        tracing::trace!("Embedded packet is not UDP (protocol {})", embedded_protocol);
         return None;
     }
 
@@ -270,17 +255,7 @@ fn parse_icmp_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)
     let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, packet.len());
     let payload_prefix = packet[payload_start..payload_end].to_vec();
 
-    tracing::debug!("Parsed ICMP error successfully:");
-    tracing::debug!("  ICMP type={}, code={}", icmp_type, icmp_code);
-    tracing::debug!("  src_port={}, dest={}:{}", src_port, dest_ip, dest_port);
-    tracing::debug!(
-        "  udp_length={}, udp_checksum={:#06x}",
-        udp_length,
-        udp_checksum
-    );
-    tracing::debug!("  payload_prefix len={}", payload_prefix.len());
-
-    tracing::debug!(
+    tracing::trace!(
         "Parsed ICMP error: type={}, src_port={}, dest={}:{}, udp_length={}, udp_checksum={:#06x}, payload_bytes={}",
         icmp_type,
         src_port,
@@ -313,7 +288,7 @@ fn parse_icmp_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)
 /// 8+: Original IPv6 packet that caused the error
 #[cfg(target_os = "linux")]
 fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClass)> {
-    tracing::debug!(
+    tracing::trace!(
         "parse_icmpv6_error called with packet length={}",
         packet.len()
     );
@@ -326,7 +301,7 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClas
     // 8+: Original IPv6 packet that caused the error
 
     if packet.len() < MIN_ICMPV6_PACKET_SIZE {
-        tracing::debug!(
+        tracing::trace!(
             "ICMPv6 packet too small: {} < {}",
             packet.len(),
             MIN_ICMPV6_PACKET_SIZE
@@ -337,13 +312,13 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClas
     // Check if this is an ICMPv6 error (type 1=Destination Unreachable, 3=Time Exceeded)
     let icmpv6_type = packet[0];
     let icmpv6_code = packet[1];
-    tracing::debug!("ICMPv6 type={}, code={}", icmpv6_type, icmpv6_code);
+    tracing::trace!("ICMPv6 type={}, code={}", icmpv6_type, icmpv6_code);
 
     // ICMPv6 Time Exceeded = type 3
     // ICMPv6 Destination Unreachable = type 1
     // ICMPv6 Packet Too Big = type 2
     if ![1, 2, 3].contains(&icmpv6_type) {
-        tracing::debug!("Not an ICMPv6 error type (expected 1, 2, or 3)");
+        tracing::trace!("Not an ICMPv6 error type (expected 1, 2, or 3)");
         return None;
     }
     let icmp_class = match icmpv6_type {
@@ -356,27 +331,25 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClas
     let embedded_ip_start = ICMPV6_HEADER_SIZE;
 
     if packet.len() < embedded_ip_start + IPV6_HEADER_SIZE {
-        tracing::debug!("Not enough data for embedded IPv6 header");
+        tracing::trace!("Not enough data for embedded IPv6 header");
         return None;
     }
 
     // Parse embedded IPv6 header
     let embedded_ip_version = (packet[embedded_ip_start] >> 4) & 0x0F;
-    tracing::debug!("Embedded IP version={}", embedded_ip_version);
 
     if embedded_ip_version != 6 {
-        tracing::debug!("Not IPv6 embedded packet");
+        tracing::trace!("Not IPv6 embedded packet (version={})", embedded_ip_version);
         return None;
     }
 
     // IPv6 header is fixed 40 bytes
     // Next header field is at offset 6
     let next_header = packet[embedded_ip_start + 6];
-    tracing::debug!("Embedded IPv6 next_header={}", next_header);
 
     // Check if embedded packet is UDP (next header 17)
     if next_header != 17 {
-        tracing::debug!("Embedded packet is not UDP (next header 17)");
+        tracing::trace!("Embedded packet is not UDP (next header {})", next_header);
         return None;
     }
 
@@ -390,7 +363,7 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClas
     let embedded_udp_start = embedded_ip_start + IPV6_HEADER_SIZE;
 
     if packet.len() < embedded_udp_start + UDP_HEADER_SIZE {
-        tracing::debug!("Not enough data for embedded UDP header");
+        tracing::trace!("Not enough data for embedded UDP header");
         return None;
     }
 
@@ -420,17 +393,7 @@ fn parse_icmpv6_error(packet: &[u8]) -> Option<(EmbeddedUdpInfo, IcmpMessageClas
     let payload_end = std::cmp::min(payload_start + MAX_PAYLOAD_PREFIX_SIZE, packet.len());
     let payload_prefix = packet[payload_start..payload_end].to_vec();
 
-    tracing::debug!("Parsed ICMPv6 error successfully:");
-    tracing::debug!("  ICMPv6 type={}, code={}", icmpv6_type, icmpv6_code);
-    tracing::debug!("  src_port={}, dest=[{}]:{}", src_port, dest_ip, dest_port);
-    tracing::debug!(
-        "  udp_length={}, udp_checksum={:#06x}",
-        udp_length,
-        udp_checksum
-    );
-    tracing::debug!("  payload_prefix len={}", payload_prefix.len());
-
-    tracing::debug!(
+    tracing::trace!(
         "Parsed ICMPv6 error: type={}, src_port={}, dest=[{}]:{}, udp_length={}, udp_checksum={:#06x}, payload_bytes={}",
         icmpv6_type,
         src_port,

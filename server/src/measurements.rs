@@ -16,7 +16,7 @@ pub async fn start_probe_sender(session: Arc<ClientSession>) {
         {
             let state = session.measurement_state.read().await;
             if !state.traffic_active {
-                tracing::info!(
+                tracing::debug!(
                     "Stopping probe sender for session {} (traffic_active=false)",
                     session.id
                 );
@@ -86,7 +86,7 @@ pub async fn start_bulk_sender(session: Arc<ClientSession>) {
         {
             let state = session.measurement_state.read().await;
             if !state.traffic_active {
-                tracing::info!(
+                tracing::debug!(
                     "Stopping bulk sender for session {} (traffic_active=false)",
                     session.id
                 );
@@ -157,7 +157,7 @@ pub async fn handle_probe_packet(session: Arc<ClientSession>, msg: DataChannelMe
             // This is an echoed probe - client received our probe and echoed it back
             // probe.timestamp_ms is when client received it (client's echo timestamp)
             // We need to find the original sent probe to get the original sent time
-            tracing::debug!(
+            tracing::trace!(
                 "Received echoed S2C probe seq {} from client {}",
                 probe.seq,
                 session.id
@@ -171,7 +171,7 @@ pub async fn handle_probe_packet(session: Arc<ClientSession>, msg: DataChannelMe
                     sent_at_ms,
                     echoed_at_ms: probe.timestamp_ms,
                 });
-                tracing::debug!(
+                tracing::trace!(
                     "Matched echoed probe seq {}, delay: {}ms",
                     probe.seq,
                     probe.timestamp_ms as i64 - sent_at_ms as i64
@@ -570,7 +570,7 @@ pub async fn run_single_traceroute_round(session: Arc<ClientSession>) {
             state.path_ttl
         };
         if path_ttl.is_some() {
-            tracing::debug!("traceroute - path TTL is set, stop the wait");
+            tracing::trace!("traceroute - path TTL is set, stop the wait");
             break;
         }
         if trace_drain_count == 0 || n_probes_out == 0 || path_ttl.is_some() {
@@ -608,7 +608,7 @@ pub async fn drain_mtu_events(
     survey_session_id: &str,
 ) {
     // Check for ICMP events (including "Fragmentation Needed" messages)
-    tracing::debug!(
+    tracing::trace!(
         "Draining MTU ICMP event queue for conn id: {}",
         &session.conn_id
     );
@@ -616,14 +616,14 @@ pub async fn drain_mtu_events(
         .packet_tracker
         .drain_events_for_conn_id(&session.conn_id)
         .await;
-    tracing::debug!(
+    tracing::trace!(
         "Draining MTU ICMP event queue for conn id: {}, got {} events",
         &session.conn_id,
         &events.len()
     );
 
     for event in events {
-        tracing::debug!("Got an event from queue: {:?}", &event);
+        tracing::trace!("Got an event from queue: {:?}", &event);
         let hop = event.send_options.ttl.expect("TTL should be set");
         let rtt = event.icmp_received_at.duration_since(event.sent_at);
         let rtt_ms = rtt.as_secs_f64() * 1000.0;
@@ -805,7 +805,7 @@ pub async fn run_mtu_traceroute_round(
     }
     let mut drain_count = collect_timeout_ms as u64 / TTL_DRAIN_INTERVAL_MS;
     loop {
-        tracing::debug!(
+        tracing::trace!(
             "Draining ICMP event queue for packet size {} conn id: {}",
             packet_size,
             &session.conn_id
@@ -914,7 +914,6 @@ pub async fn handle_testprobe_echo_packet(
     testprobe: common::TestProbePacket,
 ) {
     {
-        tracing::info!("XXXXX handle_testprobe_echo_packet: {:?}", &testprobe);
         // Validate conn_id - ensure test probe belongs to this session
         if testprobe.conn_id != session.conn_id {
             tracing::warn!(
@@ -933,7 +932,7 @@ pub async fn handle_testprobe_echo_packet(
         // Check if this is an echoed S2C test probe
         if testprobe.direction == Direction::ServerToClient {
             // This is an echoed test probe - client received our test probe and echoed it back
-            tracing::debug!(
+            tracing::trace!(
                 "Received echoed S2C test probe test_seq {} from client {}",
                 testprobe.test_seq,
                 session.id
@@ -942,7 +941,7 @@ pub async fn handle_testprobe_echo_packet(
             if let Some(opts) = testprobe.send_options {
                 if let Some(ttl) = opts.ttl {
                     if state.path_ttl.is_none() {
-                        tracing::debug!("Got an echoed TTL: {}, setting state TTL", &ttl);
+                        tracing::trace!("Got an echoed TTL: {}, setting state TTL", &ttl);
                         state.path_ttl = Some(ttl);
                     }
                     return;
@@ -959,7 +958,7 @@ pub async fn handle_testprobe_echo_packet(
                         sent_at_ms,
                         echoed_at_ms: testprobe.timestamp_ms,
                     });
-                tracing::debug!(
+                tracing::trace!(
                     "Matched echoed test probe test_seq {}, delay: {}ms",
                     testprobe.test_seq,
                     testprobe.timestamp_ms as i64 - sent_at_ms as i64
@@ -1007,7 +1006,7 @@ pub async fn start_measurement_probe_sender(session: Arc<ClientSession>) {
         let (active, seq, feedback) = {
             let mut state = session.measurement_state.write().await;
             if !state.probe_streams_active {
-                tracing::info!(
+                tracing::debug!(
                     "Stopping measurement probe sender for session {} (probe_streams_active=false)",
                     session.id
                 );
@@ -1150,7 +1149,7 @@ pub async fn start_probe_stats_reporter(session: Arc<ClientSession>) {
         {
             let state = session.measurement_state.read().await;
             if !state.probe_streams_active {
-                tracing::info!(
+                tracing::debug!(
                     "Stopping probe stats reporter for session {} (probe_streams_active=false)",
                     session.id
                 );
