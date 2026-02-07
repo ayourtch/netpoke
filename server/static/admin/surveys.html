@@ -410,6 +410,15 @@
             background-color: #673AB7;
         }
 
+        .btn-danger {
+            background-color: #f44336;
+        }
+
+        .btn-danger:hover {
+            background-color: #d32f2f !important;
+            opacity: 1 !important;
+        }
+
         /* Empty state */
         .empty-state {
             text-align: center;
@@ -792,10 +801,16 @@
                 if (details.metric_count > 0) {
                     html += `<button class="btn-small btn-chart" onclick="toggleMetricsChart('${details.session_id}')">📈 Latency Chart</button>`;
                 }
+                html += `<button class="btn-small btn-danger" onclick="wipeSession('${details.session_id}')">🗑 Wipe Session</button>`;
                 html += '</div>';
             } else if (details.metric_count > 0) {
                 html += `<div class="download-links">
                     <button class="btn-small btn-chart" onclick="toggleMetricsChart('${details.session_id}')">📈 Latency Chart</button>
+                    <button class="btn-small btn-danger" onclick="wipeSession('${details.session_id}')">🗑 Wipe Session</button>
+                </div>`;
+            } else {
+                html += `<div class="download-links">
+                    <button class="btn-small btn-danger" onclick="wipeSession('${details.session_id}')">🗑 Wipe Session</button>
                 </div>`;
             }
 
@@ -898,6 +913,56 @@
         }
 
         // Track active chart instances for cleanup
+        const activeCharts = {};
+
+        // Wipe (permanently delete) a session and all its data
+        async function wipeSession(sessionId) {
+            const shortId = sessionId.substring(0, 8);
+            if (!confirm(`⚠️ Permanently delete session ${shortId}…?\n\nThis will delete ALL associated data:\n• Survey metrics\n• Recordings (video + sensor files)\n• PCAP and keylog files\n\nThis action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                showStatus(`Wiping session ${shortId}…`, '');
+                const resp = await fetch(`/admin/api/sessions/${encodeURIComponent(sessionId)}`, {
+                    method: 'DELETE',
+                });
+
+                if (resp.status === 403) {
+                    showStatus('Access denied: you do not have permission to wipe this session.', 'error');
+                    return;
+                }
+                if (resp.status === 404) {
+                    showStatus('Session not found (may have been already deleted).', 'error');
+                    return;
+                }
+                if (!resp.ok) {
+                    showStatus('Failed to wipe session: ' + resp.statusText, 'error');
+                    return;
+                }
+
+                const result = await resp.json();
+
+                // Clean up any active chart for this session
+                if (activeCharts[sessionId]) {
+                    activeCharts[sessionId].destroy();
+                    delete activeCharts[sessionId];
+                }
+
+                // Remove the session card from the DOM
+                const card = document.getElementById('card-' + sessionId);
+                if (card) card.remove();
+
+                const parts = [];
+                if (result.metrics_deleted > 0) parts.push(`${result.metrics_deleted} metrics`);
+                if (result.recordings_deleted > 0) parts.push(`${result.recordings_deleted} recording(s)`);
+                if (result.files_deleted.length > 0) parts.push(`${result.files_deleted.length} file(s)`);
+                const summary = parts.length > 0 ? parts.join(', ') + ' removed' : 'session removed';
+                showStatus(`✓ Session ${shortId}… wiped: ${summary}.`, 'success');
+            } catch (e) {
+                showStatus('Error wiping session: ' + e.message, 'error');
+            }
+        }
         const activeCharts = {};
 
         // Toggle metrics chart for a session
