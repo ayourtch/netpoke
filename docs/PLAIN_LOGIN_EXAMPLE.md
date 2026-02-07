@@ -62,7 +62,7 @@ When plain login is enabled, users will see a username/password form on the logi
 The login form includes:
 - Username field
 - Password field (masked)
-- Login button styled to match the Project Raindrops theme
+- Login button styled to match the NetPoke theme
 
 ## Combining with OAuth
 

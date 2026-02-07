@@ -123,7 +123,7 @@ impl GitHubProvider {
         let user_info = client
             .get("https://api.github.com/user")
             .header("Authorization", format!("Bearer {}", access_token))
-            .header("User-Agent", "Project-Raindrops-Auth")
+            .header("User-Agent", "NetPoke-Auth")
             .send()
             .await?
             .json::<GitHubUser>()

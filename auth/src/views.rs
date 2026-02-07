@@ -1,4 +1,4 @@
-/// Project Raindrops login page HTML - light theme with blue/orange accents
+/// NetPoke login page HTML - light theme with blue/orange accents
 pub fn login_page_html(
     enable_plain: bool,
     enable_bluesky: bool,
@@ -105,7 +105,7 @@ pub fn login_page_html(
         r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>Login - Project Raindrops</title>
+    <title>Login - NetPoke</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -361,9 +361,9 @@ pub fn login_page_html(
                         <circle cx="12" cy="12" r="1.5"/>
                     </svg>
                 </div>
-                <h1>Project Raindrops</h1>
+                <h1>NetPoke</h1>
             </div>
-            <p class="subtitle">Secure Authentication</p>
+            <p class="subtitle">Clientless Network Tester</p>
             <div class="stack-indicator">
                 <span class="ipv4-badge">IPv4</span>
                 <span class="ipv6-badge">IPv6</span>
@@ -373,7 +373,7 @@ pub fn login_page_html(
         {}
         
         <div class="footer">
-            <p>Powered by Project Raindrops Authentication</p>
+            <p>Powered by NetPoke Authentication</p>
         </div>
     </div>
     
@@ -423,7 +423,7 @@ pub fn access_denied_page_html(user_handle: &str) -> String {
         r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>Access Denied - Project Raindrops</title>
+    <title>Access Denied - NetPoke</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -565,7 +565,7 @@ pub fn access_denied_page_html(user_handle: &str) -> String {
         </form>
         
         <div class="footer">
-            <p>Project Raindrops</p>
+            <p>NetPoke</p>
         </div>
     </div>
 </body>

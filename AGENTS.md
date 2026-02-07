@@ -72,7 +72,7 @@ git mv docs/issues/open/NNN-description.md docs/issues/resolved/
 ### Technical Architecture
 - **Server**: Rust with WebRTC, handles signaling and packet tracking
 - **Client**: Rust compiled to WASM, runs in browser
-- **Auth**: `netpoke-auth` crate with "Project Raindrops" branding
+- **Auth**: `netpoke-auth` crate
 - **Vendored WebRTC**: 6 crates (webrtc, webrtc-util, webrtc-data, webrtc-sctp, dtls, webrtc-ice) modified for UDP socket options
 
 ## Session History
@@ -112,7 +112,6 @@ git mv docs/issues/open/NNN-description.md docs/issues/resolved/
 4. **`e8b4d6c`** - refactor: rename wifi-verify to netpoke
    - Package names: `netpoke-auth`, `netpoke-client`, `netpoke-server`
    - Product name: NetPoke (netpoke.com)
-   - Preserved "Project Raindrops" branding on auth/login pages
    - Updated all documentation and code references
 
 ## Important Files and Their Functions
@@ -164,7 +163,7 @@ git mv docs/issues/open/NNN-description.md docs/issues/resolved/
 
 **`auth/src/views.rs`**
 - Login and access denied pages
-- **IMPORTANT**: Must preserve "Project Raindrops" branding (do NOT change to NetPoke)
+- Uses "NetPoke" branding throughout
 
 ### Vendored Crates (Linux-Only Modifications)
 
@@ -220,7 +219,7 @@ Access control:
 ## Important Branding Decisions
 
 - **Product Name**: NetPoke (netpoke.com)
-- **Auth/Login**: "Project Raindrops" - KEEP THIS, do not change to NetPoke
+- **Auth/Login**: NetPoke branding
 - **Repository**: netpoke (GitHub: git@github.com:ayourtch/netpoke.git)
 - **Domain**: netpoke.com
 - **Environment Variables**: `NETPOKE_*` prefix (e.g., `NETPOKE_SERVER_ENABLE_HTTPS`)
@@ -283,7 +282,7 @@ cargo fmt               # Format code
 1. **Cargo fmt removing code**: Always verify critical functions/fields after running cargo fmt
 2. **macOS build failures**: Check for missing `#[cfg(target_os = "linux")]` guards in vendored crates
 3. **Per-session filtering**: Use `SessionRegistry` pattern, don't bypass session tracking
-4. **"Project Raindrops" branding**: Never change to NetPoke - it's the auth system name
+4. **Branding**: Use "NetPoke" consistently throughout all pages and auth
 
 ## Future Agents - Quick Start
 
@@ -293,7 +292,7 @@ When working on NetPoke:
 2. **Key files to check**: `server/src/state.rs`, `server/src/packet_capture.rs`, `server/src/dtls_keylog.rs`
 3. **Critical features**: Per-session packet capture, DTLS keylog, per-packet UDP options (Linux-only)
 4. **Platform consideration**: Linux has per-packet socket options, macOS does not
-5. **Branding**: NetPoke for product, Project Raindrops for auth/login
+5. **Branding**: NetPoke for all pages including auth/login
 
 ## Session Summary
 
