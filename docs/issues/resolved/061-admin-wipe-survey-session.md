@@ -44,3 +44,19 @@ Feature not yet implemented - the admin UI was built with read-only browsing cap
 2. Register route in `main.rs`
 3. Add wipe button + confirmation dialog in `surveys.html`
 4. Add CSS styling for the delete button
+
+## Resolution
+
+Implemented as described in the suggested implementation:
+
+### Changes Made
+
+- **`server/src/analyst_api.rs`**: Added `wipe_session` handler with `WipeSessionResult` response struct. The handler queries file paths before deletion, hard-deletes from all three tables (metrics → recordings → sessions), deletes files from disk with proper error handling, and returns a summary.
+- **`server/src/main.rs`**: Registered DELETE method on existing `/admin/api/sessions/{session_id}` route.
+- **`server/static/admin/surveys.html`**: Added "🗑 Wipe Session" button (`.btn-danger` styled), `wipeSession()` JavaScript function with confirmation dialog, DOM card removal on success, and status messages showing deletion results.
+
+### Verification
+
+- `cargo check` passes (no new compilation errors)
+- Button appears in all session detail views (with or without PCAP/keylog/metrics)
+- Confirmation dialog prevents accidental deletion
