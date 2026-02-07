@@ -1,4 +1,4 @@
-# Project Raindrops Authentication
+# NetPoke Authentication
 
 A reusable Rust authentication library that provides multiple authentication methods including plain login and OAuth2 providers with session management. Built to be easily portable to other projects.
 
@@ -21,7 +21,7 @@ A reusable Rust authentication library that provides multiple authentication met
   - Automatic session cleanup
 
 - **Professional UI**
-  - Beautiful "Project Raindrops" branded login page
+  - Beautiful "NetPoke" branded login page
   - Responsive design
   - Modern, professional appearance
 
