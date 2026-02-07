@@ -30,6 +30,8 @@ pub struct AppState {
     pub session_manager: Option<Arc<SessionManager>>,
     /// Metrics recorder for persisting probe statistics to database
     pub metrics_recorder: Option<Arc<MetricsRecorder>>,
+    /// Magic key configuration for measuring time limits
+    pub magic_key_config: Option<Arc<netpoke_auth::config::MagicKeyConfig>>,
 }
 
 #[derive(Debug)]
@@ -107,6 +109,8 @@ pub struct ClientSession {
     pub metrics_recorder: Option<Arc<MetricsRecorder>>,
     /// Magic key for the current survey session (for database recording)
     pub magic_key: Arc<RwLock<Option<String>>>,
+    /// Magic key configuration for measuring time limits
+    pub magic_key_config: Option<Arc<netpoke_auth::config::MagicKeyConfig>>,
 }
 
 pub struct DataChannels {
@@ -137,6 +141,8 @@ pub struct MeasurementState {
     pub last_received_seq: Option<u64>,
     // Probe stream measurement fields
     pub probe_streams_active: bool, // Flag to indicate probe streams are active
+    pub probe_streams_started_at: Option<Instant>, // When probe streams started (for duration enforcement)
+    pub max_measuring_duration: Option<std::time::Duration>, // Maximum measuring duration (from magic key config)
     pub measurement_probe_seq: u64, // Sequence for measurement probes
     pub received_measurement_probes: VecDeque<ReceivedMeasurementProbe>, // Received measurement probes
     pub probe_stats: VecDeque<common::DirectionStats>, // Per-second calculated stats
@@ -199,10 +205,11 @@ impl AppState {
             tracking_sender: tx,
             server_start_time: Instant::now(),
             peer_cleanup_sender: cleanup_tx,
-            capture_service: None,   // Will be set after initialization
-            keylog_service: None,    // Will be set after initialization
-            session_manager: None,   // Will be set after initialization
-            metrics_recorder: None,  // Will be set after initialization
+            capture_service: None,      // Will be set after initialization
+            keylog_service: None,       // Will be set after initialization
+            session_manager: None,      // Will be set after initialization
+            metrics_recorder: None,     // Will be set after initialization
+            magic_key_config: None,     // Will be set after initialization
         };
         (state, cleanup_rx)
     }
@@ -225,6 +232,11 @@ impl AppState {
     /// Set the metrics recorder for probe statistics persistence
     pub fn set_metrics_recorder(&mut self, metrics_recorder: Arc<MetricsRecorder>) {
         self.metrics_recorder = Some(metrics_recorder);
+    }
+
+    /// Set the magic key configuration for measuring time limits
+    pub fn set_magic_key_config(&mut self, config: netpoke_auth::config::MagicKeyConfig) {
+        self.magic_key_config = Some(Arc::new(config));
     }
 }
 
@@ -269,6 +281,8 @@ impl MeasurementState {
             last_received_seq: None,
             // Probe stream fields
             probe_streams_active: false,
+            probe_streams_started_at: None,
+            max_measuring_duration: None,
             measurement_probe_seq: 0,
             received_measurement_probes: VecDeque::new(),
             probe_stats: VecDeque::new(),

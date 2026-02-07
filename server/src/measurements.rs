@@ -1157,6 +1157,44 @@ pub async fn start_probe_stats_reporter(session: Arc<ClientSession>) {
             }
         }
 
+        // Check if control channel is still open
+        {
+            let channels = session.data_channels.read().await;
+            match &channels.control {
+                Some(ch) if ch.ready_state() == RTCDataChannelState::Open => {}
+                _ => {
+                    tracing::info!(
+                        "Stopping probe stats reporter for session {} (control channel closed)",
+                        session.id
+                    );
+                    // Also deactivate probe streams since channel is gone
+                    let mut state = session.measurement_state.write().await;
+                    state.probe_streams_active = false;
+                    return;
+                }
+            }
+        }
+
+        // Check if max measuring time has been exceeded
+        {
+            let state = session.measurement_state.read().await;
+            if let Some(started_at) = state.probe_streams_started_at {
+                if let Some(max_duration) = state.max_measuring_duration {
+                    if started_at.elapsed() >= max_duration {
+                        tracing::info!(
+                            "Stopping probe stats reporter for session {} (max measuring time {:?} exceeded)",
+                            session.id,
+                            max_duration
+                        );
+                        drop(state);
+                        let mut state = session.measurement_state.write().await;
+                        state.probe_streams_active = false;
+                        return;
+                    }
+                }
+            }
+        }
+
         // Calculate stats from received probes
         let c2s_stats = calculate_probe_stream_stats(&session).await;
 

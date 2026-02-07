@@ -158,6 +158,7 @@ pub async fn signaling_start(
         session_manager: state.session_manager.clone(),   // For survey session lifecycle
         metrics_recorder: state.metrics_recorder.clone(), // For metrics persistence
         magic_key: Arc::new(tokio::sync::RwLock::new(None)), // Set when survey starts
+        magic_key_config: state.magic_key_config.clone(), // For measuring time limits
     });
 
     // Set up data channel handlers
@@ -245,6 +246,22 @@ pub async fn signaling_start(
                 state,
                 session.id
             );
+
+            // When connection is disconnected or failed, stop measurement activities
+            if state == RTCPeerConnectionState::Disconnected
+                || state == RTCPeerConnectionState::Failed
+                || state == RTCPeerConnectionState::Closed
+            {
+                tracing::info!(
+                    "Connection {:?} for session {}, stopping measurement activities",
+                    state,
+                    session.id
+                );
+                let mut measurement_state = session.measurement_state.write().await;
+                measurement_state.traffic_active = false;
+                measurement_state.probe_streams_active = false;
+                return;
+            }
 
             // When connection becomes Connected, fetch stats to get peer address
             if state == RTCPeerConnectionState::Connected {
