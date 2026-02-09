@@ -680,10 +680,23 @@ pub async fn analyze_network() -> Result<(), JsValue> {
 /// Phase 3: Get measuring time, start measurements
 #[wasm_bindgen]
 pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
+    analyze_network_with_options(conn_count, false).await
+}
+
+/// Analyze the network with options to skip path tests (traceroute/MTU)
+/// When skip_path_tests is true, Phase 1 (traceroute) and Phase 2 (MTU traceroute)
+/// are skipped and the client goes directly to Phase 3 (latency measurements).
+/// This is useful for repeated survey sessions where path analysis is not needed.
+#[wasm_bindgen]
+pub async fn analyze_network_with_options(
+    conn_count: u8,
+    skip_path_tests: bool,
+) -> Result<(), JsValue> {
     let count = conn_count.clamp(1, 16) as usize;
     log::info!(
-        "Starting network analysis with {} connections per address family...",
-        count
+        "Starting network analysis with {} connections per address family (skip_path_tests={})...",
+        count,
+        skip_path_tests
     );
 
     // Reset abort flag at start
@@ -916,7 +929,11 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
         sleep_ms(100).await;
     }
 
-    // PHASE 1: Traceroute (5 rounds)
+    // PHASE 1: Traceroute (5 rounds) - skip if skip_path_tests is set
+    if skip_path_tests {
+        log::info!("PHASE 1: Skipping traceroute (skip_path_tests=true)");
+        set_doc_status("PHASE 1: Skipping traceroute (skip to latency mode)...");
+    } else {
     log::info!(
         "PHASE 1: Starting traceroute ({} rounds)...",
         TRACEROUTE_ROUNDS
@@ -1080,6 +1097,7 @@ pub async fn analyze_network_with_count(conn_count: u8) -> Result<(), JsValue> {
 
     // Add a brief pause between phases to allow server processing to complete
     // sleep_ms(1000).await;
+    } // end of else !skip_path_tests (Phase 1 traceroute + Phase 2 MTU)
 
     // PHASE 3: Get measuring time and start probe streams for baseline measurement
     log::info!("PHASE 3: Starting probe streams for baseline measurement...");
