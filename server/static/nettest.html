@@ -1023,6 +1023,9 @@
                     </select>
                 </div>
                 <div class="control-group">
+                    <label><input type="checkbox" id="skip-path-tests"> Skip traceroute/MTU (go directly to latency tests)</label>
+                </div>
+                <div class="control-group">
                     <button id="analyze-network-btn" class="btn btn-primary" onclick="analyzeNetwork()">Analyze Network</button>
                     <button id="stop-testing-btn" class="btn btn-danger" onclick="stopTesting()" disabled>Stop Testing</button>
                 </div>
@@ -2717,7 +2720,7 @@
 
                     // Import the JS wrapper (without cache-busting query param for Safari compatibility)
                     const module = await import('/public/pkg/netpoke_client.js');
-                    const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, stop_testing, is_testing_active, init_recorder, recorder_render_frame, on_gps_update, on_orientation, on_motion, on_magnetometer, download_video, download_motion_data, delete_recording_by_id } = module;
+                    const { default: init, start_measurement, start_measurement_with_count, analyze_path, analyze_path_with_count, analyze_network, analyze_network_with_count, analyze_network_with_options, stop_testing, is_testing_active, init_recorder, recorder_render_frame, on_gps_update, on_orientation, on_motion, on_magnetometer, download_video, download_motion_data, delete_recording_by_id } = module;
 
                     // Initialize WASM with explicit path and cache-busting
                     // Pass the .wasm file path to init() for Safari compatibility
@@ -3501,7 +3504,8 @@
                     }
                     
                     const connCount = getConnCount();
-                    console.log(`Starting network analysis with ${connCount} connections per address family`);
+                    const skipPathTests = document.getElementById('skip-path-tests').checked;
+                    console.log(`Starting network analysis with ${connCount} connections per address family (skip_path_tests=${skipPathTests})`);
                     
                     // Generate dynamic tables for multi-connection display
                     if (window.generateMultiConnectionTables) {
@@ -3509,8 +3513,12 @@
                     }
 
                     try {
-                        // Update status to show phase 1 (traceroute)
-                        statusEl.textContent = `Phase 1: Analyzing network paths (traceroute) with ${connCount} connection(s)...`;
+                        // Update status to show phase 1 (traceroute) or skip message
+                        if (skipPathTests) {
+                            statusEl.textContent = `Skipping traceroute/MTU, going directly to latency tests with ${connCount} connection(s)...`;
+                        } else {
+                            statusEl.textContent = `Phase 1: Analyzing network paths (traceroute) with ${connCount} connection(s)...`;
+                        }
                         statusEl.className = 'running';
                         
                         // Update wake lock status
@@ -3519,8 +3527,8 @@
                             wakeLockStatusEl.className = 'active';
                         }
                         
-                        // Start the combined analysis
-                        await analyze_network_with_count(connCount);
+                        // Start the combined analysis (with optional path test skip)
+                        await analyze_network_with_options(connCount, skipPathTests);
                         
                         // Update UI to show measurements are now running
                         statusEl.textContent = `Running ongoing network measurements with ${connCount} concurrent WebRTC connection(s)...`;
